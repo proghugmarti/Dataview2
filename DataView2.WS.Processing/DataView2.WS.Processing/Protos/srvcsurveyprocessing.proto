@@ -1,0 +1,38 @@
+﻿syntax = "proto3";
+
+option csharp_namespace = "DataView2.WS.Processing.Protos";
+
+package ProcessingWorkerService;
+
+service GeneralWorkerService {
+    rpc ProcessSurvey(SurveyWSProcessingRequest) returns (stream SurveyWSProcessingResponse);
+    rpc TestConnection (EmptyWS) returns (TestResponse);
+    rpc ProcessingLCMSVariables (EmptyWS) returns (ProcessingFisResponse);
+}
+
+message EmptyWS {}
+
+message TestResponse {
+    bool isConnected = 1;
+}
+
+message SurveyWSProcessingRequest{
+    string folderPath = 1;
+    repeated string selectedFiles = 2;
+    string cfgFolder = 3;
+    string cfgFileName = 4;
+    repeated string processingObjects = 5;
+    string LicensePath = 6;
+    int32 BatchSize = 7;
+}
+
+message SurveyWSProcessingResponse{
+    string message = 1;
+    string error = 2;
+}
+
+message ProcessingFisResponse{
+    repeated string detailLogViewHelpers = 1;
+    bool foundInvalidLicense = 2;
+    bool foundInvalidConfig = 3;
+}

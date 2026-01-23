@@ -1,0 +1,136 @@
+﻿## =======================
+## pipeline.yml (main)
+## =======================
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: 'Romdas.Pool'  
+  
+  demands:
+    - Agent.Name -equals DataView_Agent
+
+
+variables:
+  - group: DataView_Library
+  
+  - name: buildConfiguration
+    value: Release  
+
+  - name: packageName
+    value: '' 
+
+  - name: DOTNET_SDK
+    value: ''
+
+  - name: NUGET_PACKAGES
+    value: '$(Pipeline.Workspace)\.nuget\packages' 
+
+  - name: zipPathDeliverable
+    value: '' 
+
+  - name: repositoryPath
+    value: ''
+
+  - name: releaseOutputFolderName
+    value: ''
+
+  - name: infoFeatures
+    value: '' 
+  
+  - name: newFeatures
+    value: '' 
+
+  - name: settingsPath
+    value: ''
+
+  - name: fixedBuildVersion
+    value: ''  
+  
+  - name: TeamsNotificationFailed
+    value: 'false'
+  
+  - name: msixPath
+    value: '' 
+
+stages:
+  - stage: BuildAndGenerate
+    jobs:
+      - job: CheckTagVersion
+        displayName: '🔍 Verify Tag "Version"'
+       
+        steps:
+         
+          - checkout: self
+            persistCredentials: true
+            clean: true
+            fetchDepth: 0
+
+          - task: PowerShell@2
+            name: CheckTagStep
+            displayName: '✔️ Run tag check'
+            inputs:
+              targetType: 'inline'
+              script: |
+    
+                git fetch --tags
+                # $tags = git tag --list
+                # Write-Host "📌 Found Tags:"
+                # $tags | ForEach-Object { Write-Host "🔖 $_" }
+                # Get last tag by date
+                $lastTag = git tag --sort=-creatordate | Select-Object -First 1
+
+                if (-not $lastTag) {
+                  Write-Host "ℹ️ There is not tags in this repository."
+                  exit 0 
+                }
+
+                Write-Host "📌 Last tag: $lastTag"
+               
+                if ($lastTag.ToLower() -notlike 'set_version*') {
+                    #Write-Host "##vso[task.setvariable variable=VALID_TAG;isOutput=true]false"
+                    Write-Host "##vso[task.setvariable variable=VALID_TAG;isOutput=true]false"
+                    Write-Host "🚫 Invalid Tag: $lastTag"
+                    exit 0
+                } else {
+                    # Write-Host "##vso[task.setvariable variable=VALID_TAG]true"
+                    Write-Host "##vso[task.setvariable variable=VALID_TAG;isOutput=true]true"
+                    Write-Host "✅ Valid Tag: $lastTag"
+
+                    if ($lastTag -match 'set_version.*?(\d+(\.\d+)+)') {
+                        $version = $matches[1]
+                        Write-Host "Version extracted: $version"
+                        # Write-Host "##vso[task.setvariable variable=fixedBuildVersion]$version"
+                        Write-Host "##vso[task.setvariable variable=fixedBuildVersion;isOutput=true]$version"
+                    } else {
+                        Write-Host "Failed to extract the version from the tag"
+                    }
+                    exit 0
+                }   
+
+      - job: GenerateJob
+        timeoutInMinutes: 240 
+        dependsOn: CheckTagVersion
+        condition: and(  succeeded(),eq(dependencies.CheckTagVersion.outputs['CheckTagStep.VALID_TAG'],'true'))       
+
+        variables:
+          fixedBuildVersion: $[ dependencies.CheckTagVersion.outputs['CheckTagStep.fixedBuildVersion'] ]
+          
+        steps: 
+          - template: modules\set-values.yml   
+          - template: modules\restore.yml
+          - template: modules\build.yml
+          - template: modules\versioning.yml
+          - template: modules\detect-framework-folder.yml
+          - template: modules\generate-artifact.yml
+          - template: modules\test-checkapp.yml
+          - template: modules\publish-artifact.yml
+          - template: modules\releasing-features-icons.yml
+          - template: modules\upload-onedrive.yml
+          - template: modules\send-teams.yml
+          # - template: modules\set-tag.yml  
+          
+  

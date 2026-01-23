@@ -1,0 +1,70 @@
+## ===================================
+## modules/send-email.yml
+## ===================================
+steps:
+  - task: PowerShell@2
+    displayName: '📧 Sending notification to the technical team.'
+    env:
+      GMAIL_PASS: "$(GMAIL_PASS)"
+    inputs:
+      targetType: 'inline'
+      script: |
+          $smtpServer = "smtp.gmail.com" 
+          $smtpPort = 587
+          $correoOrigen = "$(EMAIL_FROM)"  
+          $correoDestino = "$(EMAIL_TEAMS)" 
+          $asunto = "Azure DevOps - DataView2 >>> New Release Issued."
+      
+          $artLink = "$(SetValues.artifactLink)"  
+          $fileLink = "$(UploadToOneDrive.1DriveLink)" 
+
+          $rawInfoFeatures = "$(infoFeatures)"
+          $processedInfo = $rawInfoFeatures -replace '\[\[NEWLINE\]\]', "`n"
+                    
+          $processedInfo = ($processedInfo -split "`n" | ForEach-Object {
+            $_ -replace '^\s*#{1,2}\s*', ''
+          }) -join "`n"
+          
+          $processedInfo = $processedInfo -replace "`n", "<br/>"
+
+          # Write-Host ">>>NewFeatures :  $(newFeatures)"
+
+          $rawNewFeatures = "$(newFeatures)"
+          $processedNewFeatures = $rawNewFeatures -replace '\[\[NEWLINE\]\]', "<br/>"
+        
+
+          $cuerpo = @"
+          <html>
+          <body style='font-family: Calibri, sans-serif; white-space: pre-wrap; font-size: 14px;'>
+          <p>Hello everyone.</p>
+
+          <p>$(Title_1_Mail)</p>
+
+          <p>Repo-Azure: <a href='$artLink'>$artLink</a><br/><br/>
+          OneDrive: <a href='$fileLink'>$fileLink</a></p>
+          
+          <p><strong>Details:</strong></p>
+          <div>$processedInfo</div>
+
+          <p><strong>New Features:</strong></p>
+          <div>$processedNewFeatures</div>
+
+          <p>Cordially,<br/>
+          Romdas Dev. Team.</p>
+          </body>
+          </html>
+          "@
+
+         
+          & "$(Build.SourcesDirectory)\$(PCKG_NAME)\.scripts\Send-Email.ps1" `
+                -emailFrom $correoOrigen `
+                -emailTo $correoDestino `
+                -smtpServer $smtpServer `
+                -smtpPort $smtpPort `
+                -smtpUser $correoOrigen `
+                -emailSubject $asunto `
+                -emailBody $cuerpo `
+                -isBodyHtml $true 
+   
+
+

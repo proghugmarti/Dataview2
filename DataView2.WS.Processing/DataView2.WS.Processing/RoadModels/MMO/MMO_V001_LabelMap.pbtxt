@@ -1,0 +1,16 @@
+item {
+    id: 1
+    name: 'OpenedManhole'
+}
+item {
+    id: 2
+    name: 'ClosedManhole'
+}
+item {
+    id: 3
+    name: 'ExpansionJoint'
+}
+item {
+    id: 4
+    name: 'FireHD'
+}

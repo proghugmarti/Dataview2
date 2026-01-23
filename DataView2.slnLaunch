@@ -1,0 +1,22 @@
+[
+  {
+    "Name": "2Services and UI",
+    "Projects": [
+      {
+        "Path": "DataView2.WS.Processing\\DataView2.WS.Processing\\DataView2.WS.Processing.csproj",
+        "Action": "Start",
+        "DebugTarget": "DataView2.WS.Processing"
+      },
+      {
+        "Path": "DataView2.GrpcService\\DataView2.GrpcService.csproj",
+        "Action": "Start",
+        "DebugTarget": "DataView2.GrpcService"
+      },
+      {
+        "Path": "DataView2\\DataView2.csproj",
+        "Action": "Start",
+        "DebugTarget": "Windows Machine"
+      }
+    ]
+  }
+]

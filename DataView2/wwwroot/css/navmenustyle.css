@@ -1,0 +1,84 @@
+.nav-menu-header-black, .nav-group-header-black {
+    color: #EAEAEA;
+    background-color: #202123;
+    transition: background-color 0.3s ease;
+}
+
+    .nav-menu-header-black:hover {
+        background-color: #393C3E;
+    }
+
+    .nav-group-header-black.mud-list-item-active {
+        color: white !important;
+
+    }
+
+    .nav-group-header-black .mud-icon-root {
+        color: white !important;
+    }
+
+    .nav-group-header-black .mud-nav-link-text {
+        font-size: 14px;
+    }
+
+
+    .collapsed .mud-nav-link-text {
+        font-weight: 800 !important;
+    }
+
+.mud-nav-link:hover,
+.mud-nav-group:hover,
+.mud-list-item-active,
+.mud-nav-link-text {
+    color: white !important;
+}
+
+.dataset-buttons {
+    width: 100%;
+    display: block;
+    background-color: #202123;
+    transition: background-color 0.3s ease;
+}
+    .dataset-buttons:hover {
+        background-color: #393C3E;
+    }
+
+    .dataset-buttons .mud-button-label {
+        font-size: 12px;
+    }
+
+.icon-buttons .mud-icon-root {
+    color: white !important;
+}
+
+.mudtextfield input {
+    color: white !important;
+}
+
+.mudtextfield {
+    color: white !important;
+    background-color: #202123;
+}
+
+.nav-new-session {
+    color: #EAEAEA;
+    background-color: #202123;
+    transition: background-color 0.3s ease;
+}
+
+    .nav-new-session:hover {
+        background-color: #393C3E;
+        color: white !important;
+    }
+
+    .nav-new-session .mud-icon-root {
+        color: white !important;
+    }
+
+    .nav-new-session .mud-nav-link-text {
+        font-size: 14px;
+    }
+
+.mud-nav-group:hover .nav-new-session:not(:hover) {
+    background-color: #202123;
+}

@@ -1,0 +1,17 @@
+## ===================================
+## modules/read-features.yml
+## ===================================
+steps:
+  - task: PowerShell@2
+    displayName: 'Reading FEATURES.md'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $featuresFile = "$(Build.ArtifactStagingDirectory)/publish/DataView2/FEATURES.md"
+        if (!(Test-Path $featuresFile)) {
+          Write-Error "❌ File not found: $featuresFile"
+          exit 1
+        }
+        $features = Get-Content $featuresFile -Raw
+        $featuresEscaped = $features -replace "`r`n", "[[NEWLINE]]" -replace "`n", "[[NEWLINE]]"
+        Write-Host "##vso[task.setvariable variable=newFeatures]$featuresEscaped"

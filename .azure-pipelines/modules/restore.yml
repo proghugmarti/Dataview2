@@ -1,0 +1,18 @@
+﻿## ======================
+## modules/restore.yml
+## ======================
+steps:  
+ 
+  - task: UseDotNet@2
+    displayName: '🔧 Downloading SDK Tools'
+    inputs:
+      packageType: sdk
+      version: "$(DOTNET_SDK)"
+      includePreviewVersions: true
+      installationPath: $(Agent.ToolsDirectory)/dotnet
+ 
+  - task: DotNetCoreCLI@2
+    displayName: '🔄 Restore .NET Workloads'
+    inputs:
+      command: restore
+      projects: '$(packageName)/$(packageName).sln'

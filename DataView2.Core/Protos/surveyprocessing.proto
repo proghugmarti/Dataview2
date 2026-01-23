@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+option csharp_namespace = "DataView2.Core.Protos";
+
+package SurveyProcessing;
+
+service SurveyProcessing{
+	rpc ProcessSurvey (SurveyProcessingRequest) returns (stream SurveyProcessingResponse);
+	rpc SubscribeProcessingState (ProcessingStateRequest) returns (stream ProcessingStateResponse);
+}
+
+message SurveyProcessingRequest{
+	string folderPath = 1;
+	repeated string selectedFiles = 2;
+	string cfgFolder = 3;
+	string cfgFileName = 4;
+	repeated string processingObjects = 5;
+	bool xmlOnly = 6;
+	string DataviewVersion = 7;
+	string VideoPath = 8;
+	string PgrOutputSize = 9;
+	string PgrColorProcessing = 10;
+	bool PgrAdd6Images = 11;
+	repeated string selectedOverlayModules = 12;
+	bool GenerateRangeOverlay = 13;
+}
+
+message SurveyProcessingResponse{
+	
+	repeated string detailLogs = 1; //json DetailLogViewHelper
+	double longitude = 2;
+	double latitude = 3; 
+	string error = 4;
+}
+
+message ProcessingStateRequest {
+	string Id = 1; 
+}
+
+message ProcessingStateResponse {
+	enum Stage {
+    UNKNOWN = 0;
+    READING_PREREQS = 1;
+    PROCESSING_FIS = 2;
+    PROCESSING_XML = 3;
+	PROCESSING_VIDEO = 4;
+  }
+
+	Stage stage = 1;
+	double totalPercentage = 2;
+	double stagePercentage = 3;
+	string lastMessage = 4;
+	string lastUpdate = 5; 
+}

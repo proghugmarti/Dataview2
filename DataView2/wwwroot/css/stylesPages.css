@@ -1,0 +1,122 @@
+﻿/* stylesPages.css */
+
+
+.title-section {
+    padding-bottom: 16px;
+}
+
+.textFieldWithTitle{
+    margin-left: 10%;
+}
+
+
+.circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: #e57373;
+    color: white;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.line {
+    width: 2px;
+    flex: 1;
+    background-color: #e0e0e0;
+    margin-top: 6px;
+}
+
+.folder-button {
+    height: 56px;
+    width: 56px;
+}
+
+.page-background {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #f5f5f5;
+    overflow: hidden;
+}
+
+.mud-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 300px;
+    max-height: 80%;
+    overflow-y: auto;
+}
+
+.body-section {
+    margin-top: 16px;
+    padding-left: 50px;
+    padding-right: 80px;
+}
+
+   
+.action-section {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 16px;
+}
+.vertical-center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 110px;
+}
+
+.clickable-card:hover {
+    cursor: pointer;
+    background-color: #f2f2f2; /* Add the background color you want on hover */
+}
+
+.custom-dialog {
+    max-width: 70vw;
+}
+
+.subtext {
+    color: gray;
+}
+
+.custom-divider {
+    border-color: gray;
+    border-width: 2px;
+}
+
+.mud-header {
+    background-color: rgba(0,0,0,0.0392156862745098);
+}
+
+.upload-button-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+    cursor: pointer;
+}
+
+.icon-card {
+    cursor: pointer;
+    padding: 8px;
+}
+
+    .icon-card:hover {
+        background-color: #E5E4E2;
+    }
+
+    .icon-card.selected {
+        border: 1px solid gray;
+        background-color: #E5E4E2;
+    }
+
+.select-all-checkbox .mud-input-control-input-container > label > p {
+    font-size: 14px; 
+}

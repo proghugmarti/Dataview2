@@ -1,0 +1,90 @@
+## ==============================================
+## modules/generate-artifact.yml
+## ==============================================
+steps:
+  - task: PowerShell@2
+    displayName: '📦 Generate Installer'
+    retryCountOnTaskFailure: 3
+    inputs:
+       targetType: 'filePath'
+       filePath: '$(Build.SourcesDirectory)/$(packageName)/.scripts/Deployment-DataView2.ps1'
+       arguments: '-projectRootPath "$(Build.SourcesDirectory)" -pswCertificate "$(PASS_CERTIFICATE)" -devopsProjectName "$(PCKG_NAME)" -certificateSubjectName "$(CERTIFICATE_NAME)" -certificateFileName "$(CERTIFICATE_FILE_NAME)"'
+       pwsh: true   
+        
+  - task: PowerShell@2
+    displayName: 'Copy msix to folder installer'
+    inputs:
+      targetType: 'inline'
+      pwsh: true   
+      script: |
+        
+        $target = "$(LOCAL_AGENT_PATH)\$(INSTALLER_FILES_PATH)\win-x64"
+        Write-Host "🧹 Removing files in path: $target"
+        # Clean target
+        if (Test-Path $target) {
+           Get-ChildItem -Path $target -Include *.msix, *.cer -Recurse | Remove-Item -Force
+
+           $checkAppScript = Join-Path $target "Check_app.ps1"
+           if (Test-Path $checkAppScript) {
+              Remove-Item $checkAppScript -Force
+           }
+        } else {
+            New-Item -ItemType Directory -Path $target -Force
+        }
+
+        
+        $sourceBase = "$(Build.SourcesDirectory)\$(packageName)\$(packageName)\bin\Release\$(releaseOutputFolderName)\win10-x64\AppPackages\$(packageName)_$(fixedBuildVersion)_Test\"       
+        #Write-Host "🔍 Searching .msix at: $sourceBase"
+        if (!(Test-Path $sourceBase)) {
+          Write-Error "❌ Origin folder not found: $sourceBase"
+          exit 1
+        }
+
+        #Get installer .msix
+        $msixFile = Get-ChildItem -Path $sourceBase -Recurse -Filter *.msix | Select-Object -First 1
+        if (-not $msixFile) {
+          Write-Error "❌ File .msix was not found."
+          exit 1
+        }
+
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($msixFile.Name)
+        $cerFile = Join-Path -Path $msixFile.Directory.FullName -ChildPath "$baseName.cer"
+
+        if (!(Test-Path $cerFile)) {
+          Write-Error "❌ File .cer not found: $cerFile"
+          exit 1
+        }
+
+        # Write-Host "✅ Found MSIX: $($msixFile.FullName)"
+        # Write-Host "✅ Found CER: $cerFile"     
+
+        #Move files:
+        Write-Host "📂 Copying files from: $sourceBase"
+        Write-Host "📁 To: $target"
+        if (!(Test-Path $sourceBase)) {
+          Write-Error "❌ Folder not found: $sourceBase"
+          exit 1
+        }
+        # Copy-Item -Path "$sourceBase\*" -Destination $target -Recurse -Force
+        Get-ChildItem -Path $sourceBase -Include *.msix, *.cer -Recurse -File | ForEach-Object {
+            $destinationPath = Join-Path -Path $target -ChildPath $_.Name
+            Copy-Item -Path $_.FullName -Destination $destinationPath -Force
+        }
+
+  - task: PowerShell@2
+    name: SetZipPathStep
+    displayName: 'Creating ZIP file'
+    inputs:
+      targetType: 'inline'
+      pwsh: true   
+      script: |
+        $publishPath = "$(LOCAL_AGENT_PATH)\$(INSTALLER_FILES_PATH)"
+        $zipPath = "$(zipPathDeliverable)" 
+        Write-Host "✅ publishPath: $publishPath"
+        Write-Host "✅ zipPath: $zipPath"    
+        Remove-Item -Path "$(LOCAL_AGENT_PATH)\ArtifactDataView\*.zip" -Recurse -Force -ErrorAction SilentlyContinue
+        Add-Type -AssemblyName 'System.IO.Compression.FileSystem'
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($publishPath, $zipPath)
+        Write-Host "✅ ZIP created successfully"
+
+        Write-Host "##vso[task.setvariable variable=zipPathDeliverable;isOutput=true]$zipPath"

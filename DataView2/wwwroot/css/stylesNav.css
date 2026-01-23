@@ -1,0 +1,41 @@
+﻿/* stylesNav.css */
+
+.collapsed .mud-nav-link-text {
+    display: none;
+}
+
+.mud-nav-link:hover {
+    color: var(--mud-palette-primary);
+}
+
+.highlighted-group button {
+    color: var(--mud-palette-primary);
+    background-color: var(--mud-palette-primary-hover);
+}
+
+    .highlighted-group button .mud-icon-default {
+        color: var(--mud-palette-primary);
+    }
+
+.mud-navmenu.mud-navmenu-bordered .highlighted-group button {
+    border-inline-end-style: solid;
+    border-inline-end-width: 2px;
+}
+
+.dropDownDataset {
+    padding-left: 35px;
+    padding-inline-start: 45px;
+    padding-inline-end: unset;
+}
+
+.button-group-container {
+    display: flex;
+    justify-content: center; 
+    padding: 5px 0;
+}
+.mud-checkbox {
+    margin: 0;
+    padding: 0;
+    font-size: small;
+    font-weight: 500;
+}

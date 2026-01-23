@@ -1,0 +1,44 @@
+## ======================================
+## modules/test-checkapp.yml
+## ======================================
+steps:
+  - powershell: |      
+      # $scriptPath = Join-Path $env:msixPath "Check_app.ps1"
+      $scriptPath = Join-Path "$(Agent.WorkFolder)" "Check_app.ps1"
+      #$scriptPath = Join-Path $env:BUILD_SOURCESDIRECTORY ".scripts\Check-app.ps1"
+      # $artifactPath = Join-Path $(Build.SourcesDirectory) "$(packageName)\bin\Release\$(releaseOutputFolderName)\win10-x64\AppPackages\$(packageName)_$(fixedBuildVersion)_Test"
+      $artifactPath = "$(Agent.WorkFolder)"
+      Write-Host "##vso[task.setvariable variable=msixPath]$artifactPath"
+
+      #$artifactPath = $env:msixPath
+      Write-Host "Running  script: $scriptPath"
+      #Write-Host "Path sent to Test ps1:$env:msixPath"
+      Write-Host "Path artifactPath msix : $artifactPath"
+      Write-Host "Path Test result file : $(Build.ArtifactStagingDirectory)"
+
+      if (Test-Path $scriptPath) {
+         #Copy-Item -Path $scriptPath -Destination "$artifactPath\Check_app.ps1" -Force
+         Write-Host "✅ Copiado: $artifactPath\Check_app.ps1"
+         # & $scriptPath -ArtifactPath $artifactPath -ServicesActive "$(SERVICES_ACTIVE)" -TestResultPath $(Build.ArtifactStagingDirectory)       
+         & $scriptPath -ArtifactPath $artifactPath -ServicesActive "$(SERVICES_ACTIVE)" -TestResultPath $artifactPath
+      }
+
+     
+    displayName: '🧪 Run script check-app.ps1 Test App.Exe'
+    failOnStderr: true
+
+  # - task: PowerShell@2
+  #   displayName: 'Publish JUnit result'
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #       $xmlPath = '$(Build.ArtifactStagingDirectory)\test-results.xml'
+  #       if (Test-Path -Path $xmlPath) {
+  #         Write-Host "✅ File found at: $xmlPath"
+  #         Write-Host "##vso[results.publish type=JUnit;runTitle=DataView2 startup test result;]$xmlPath"
+  #       } else {
+  #         Write-Error "❌ File not found at: $xmlPath"
+  #         exit 1
+  #       }
+
+  #       #Write-Host "Path MSIX Installers: $env:msixPath"

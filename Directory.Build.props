@@ -1,0 +1,12 @@
+<Project>
+  <PropertyGroup>
+    <Authors>Data Collection Limited</Authors>
+    <Company>Data Collection Limited</Company>
+    <Product>ROMDAS</Product>
+    <Copyright>Copyright(c) Data Collection Limited, All rights reserved</Copyright>
+    <Platform>AnyCPU</Platform>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <PackageVersion>1.0.0.0</PackageVersion>
+  </PropertyGroup>
+</Project>

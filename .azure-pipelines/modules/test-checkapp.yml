@@ -1,0 +1,52 @@
+## ======================================
+## modules/test-checkapp.yml
+## ======================================
+steps:
+  - powershell: |
+      $scriptPath = Join-Path $env:BUILD_SOURCESDIRECTORY "$(PCKG_NAME)\.scripts\Check-app.ps1"
+      # $scriptSourcePath = Join-Path $env:BUILD_SOURCESDIRECTORY ".scripts\Check-app.ps1"
+      $artifactPath = "$(LOCAL_AGENT_PATH)\$(INSTALLER_FILES_PATH)\win-x64"
+      #$scriptPath = "$artifactPath\Check_app.ps1"
+      $pathExtraServices = "$(SERVICES_FOLDER)\$(ADDITIONAL_SERVICES_PATH_TEST)" 
+      #=========================TEST:
+
+      $artifactPath =  "C:\azagent\A1\DataView2_Installer_Files\win-x64"
+      #=========================TEST
+
+      Write-Host "FixedBuildVersion path: $(fixedBuildVersion)"
+      Write-Host "ZipPathDeliverable path: $(zipPathDeliverable)"
+      Write-Host "Artifact path: $artifactPath"
+      Write-Host "📦 Running  script: $scriptPath"
+      
+      Write-Host 'ServicesActive: "$(SERVICES_ACTIVE)"'
+      Write-Host 'TestResultPath: "$(LOCAL_AGENT_PATH)\ArtifactDataView"'
+      Write-Host "PathExtraServices: $pathExtraServices" 
+
+      if (Test-Path $scriptPath) {      
+         Copy-Item -Path $scriptPath -Destination "$artifactPath\Check_app.ps1" -Force
+
+      # if (Test-Path $scriptSourcePath) {
+       #  Copy-Item -Path $scriptSourcePath -Destination $scriptPath -Force
+         Write-Host "✅ Copied to:  $scriptPath"
+         & "$artifactPath\Check_app.ps1" -ArtifactPath $artifactPath -ServicesActive "$(SERVICES_ACTIVE)" -TestResultPath "$(LOCAL_AGENT_PATH)\ArtifactDataView" -PathExtraServices $pathExtraServices           
+         # & $scriptPath -ArtifactPath $artifactPath -ServicesActive "$(SERVICES_ACTIVE)" -TestResultPath "$(LOCAL_AGENT_PATH)\ArtifactDataView"       
+      }
+
+     
+    displayName: '🧪 Run application tests'
+    failOnStderr: true
+
+  - task: PowerShell@2
+    displayName: 'Publish JUnit result'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $xmlPath = '$(LOCAL_AGENT_PATH)\ArtifactDataView\test-results.xml'
+        if (Test-Path -Path $xmlPath) {
+          Write-Host "✅ File found at: $xmlPath"
+          Write-Host "##vso[results.publish type=JUnit;runTitle=DataView2 startup test result;]$xmlPath"
+        } else {
+          Write-Host "❌ Tests not finalized: File not found at: $xmlPath"
+        }
+
+      

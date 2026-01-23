@@ -1,0 +1,99 @@
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    # Permissions
+    Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File $($PSCommandPath)" -Verb RunAs
+    exit
+}
+
+#Log File:
+$setupFolder = "C:\DataView2\Logs\"
+#Log File:
+# Get the current date in the format yyyymmdd
+$currentDate = Get-Date -Format "yyyyMMdd"
+
+# Create the log file name using the date
+$logFileName = "SetUp-DataView2-$currentDate.log"
+
+# Combine the base directory and the log file name to get the full path
+$logFilePath = Join-Path -Path $setupFolder -ChildPath $logFileName
+
+# Ensure the directory exists
+if (-not (Test-Path -Path $setupFolder)) {
+    New-Item -Path $setupFolder -ItemType Directory
+}
+
+# Check if the log file exists
+if (-not (Test-Path -Path $logFilePath)) {
+    # Create the log file and write the initial entry
+    Set-Content -Path $logFilePath -Value "Log file created on $(Get-Date)"
+} else {
+    # Append a new entry to the existing log file
+    Add-Content -Path $logFilePath -Value "Log entry added on $(Get-Date)"
+}
+
+$WindowsAppsPath = "C:\Program Files\WindowsApps"
+#Get the Package:
+$WindowsApps = Get-ChildItem $WindowsAppsPath -Directory | Where-Object { $_.Name -like "C2DE6DFC-5006-4F36-A151-E19A945E85E7*" }
+
+# Verificar si se encontraron programas
+if ($WindowsApps.Count -gt 0) {
+    # Iterar sobre cada programa y mostrar su información
+    $WindowsApps | ForEach-Object {
+        $packageName = $_.Name}}
+# Uninstall DataView 2
+ if (-not [string]::IsNullOrEmpty($packageName)) {
+    $packageFullName = $packageName
+    Remove-AppxPackage -Package $packageFullName -AllUsers
+
+    # Log Uninstall program
+Add-Content -Path $logFilePath -Value "$(Get-Date) >> Program uninstalled."
+    }
+
+#Stop the GPS Process
+$proceso = Get-Process | Where-Object { $_.MainModule.FileName -like "*$DataView2.GrpcService.exe*" }
+
+# Verify if process was found
+if ($proceso) {   
+        $proceso | Stop-Process -Force
+        Write-Host "Proccess stopped."
+   # Log Uninstall program
+Add-Content -Path $logFilePath -Value "$(Get-Date) >> Proccess stopped."
+}
+Start-Sleep -Seconds 3
+#Delete Services folder
+$serviceFolder = "C:\DataView2\DataView2Services" 
+if (Test-Path $serviceFolder) {
+    # Verify path
+    Remove-Item $serviceFolder -Recurse -Force
+    Write-Host "Folder $serviceFolder deleted."
+    Add-Content -Path $logFilePath -Value "$(Get-Date) >> Folder $serviceFolder deleted."
+}
+
+$cfgFile = "C:\DataView2\version.json"
+if (Test-Path -Path $cfgFile) {
+    Remove-Item -Path $cfgFile -Force
+    Write-Output "File deleted."
+}
+
+#Install package silently:
+$msixFiles = Get-ChildItem -Path $PSScriptRoot -Filter "DataView2*.msix"
+
+# Verify if there are any files
+if ($msixFiles -ne $null) {
+    # Sort files by creation date, get the most recent
+    $latestMsixFile = $msixFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+     Write-Host "Nombre: $latestMsixFile"
+
+    # Obtain the path of the msix file
+    $msixPath = $latestMsixFile.FullName
+
+    # Verifying if the msix file was found
+    if ($msixPath -ne $null) {
+        # Open the MSIX package
+        Start-Process -FilePath $msixPath
+    } 
+}
+else {
+    Write-Host "No msix file matching the pattern 'DataView2*.msix' was found in the current directory."
+    Add-Content -Path $logFilePath -Value "$(Get-Date) >> No msix file matching the pattern 'DataView2*.msix' was found in the current directory."
+}
+#pause

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>DataView2</title>
+    <base href="/" />
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link href="css/app.css" rel="stylesheet" />
+    <link href="css/stylesPages.css" rel="stylesheet" />
+    <link href="css/stylesNav.css" rel="stylesheet" />
+    <link href="DataView2.styles.css" rel="stylesheet" />
+    <link href="css/snackbar.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://js.arcgis.com/4.27/esri/themes/light/main.css" />
+    <link rel="stylesheet" href="https://js.arcgis.com/calcite-components/2.4.0/calcite.css" />
+    <link href="css/navmenustyle.css" rel="stylesheet" />
+    <link href="css/layermenu.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div class="status-bar-safe-area"></div>
+
+    <div id="app">Loading...</div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script type="module" src="https://js.arcgis.com/calcite-components/2.4.0/calcite.esm.js"></script>
+</body>
+
+</html>
+
+<script>
+    window.scrollMudTableToRow = (rowIndex) => {
+        var tableElement = document.querySelector("div.mud-table-container");
+        var tableHeight = tableElement.offsetHeight;
+        var tableOffset = tableElement.scrollTop;
+        var tableRowElement = tableElement.querySelectorAll("tr.mud-table-row")[rowIndex];
+        var tableRowHeight = tableRowElement.scrollHeight;
+        var rowTopPosition = tableRowElement.offsetTop;
+
+        // Calculate a new scroll position to center the row
+        var centerPosition = rowTopPosition - ((tableHeight - tableRowHeight) / 2);
+        if (centerPosition < 0) {
+            centerPosition = 0; // Do not scroll above the table's top
+        }
+        tableElement.scrollTo({
+            top: centerPosition,
+            behavior: 'smooth'
+        });
+    }
+
+    document.addEventListener('keydown', (e) => {
+        e = e || window.event;
+        if (e.keyCode == 116)
+        {
+            e.preventDefault();
+        }
+    });
+</script>

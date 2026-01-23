@@ -1,0 +1,22 @@
+﻿## =======================================
+## modules/publish-artifact.yml
+## =======================================
+steps:
+
+  - task: PublishBuildArtifacts@1
+    displayName: '📦 Publish project Artifact'
+    inputs:
+      PathtoPublish: '$(zipPathDeliverable)'
+      ArtifactName: '$(PCKG_NAME)'
+      publishLocation: 'Container'
+  
+  - task: PowerShell@2
+    displayName: '📚 Get Artifact address'
+    name: SetValues
+    inputs:
+      targetType: 'inline'
+      pwsh: true   
+      script: |          
+      
+        $artLink = "$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=artifacts&type=publishedArtifacts"
+        Write-Host "##vso[task.setvariable variable=artifactLink;isOutput=true]$artLink"

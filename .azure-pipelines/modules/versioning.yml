@@ -1,0 +1,120 @@
+## ==========================
+## templates/versioning.yml
+## ==========================
+steps:
+  - task: PowerShell@2
+    name: SetVersionStep
+    displayName: '🔢 Generate automatic version'
+    inputs:
+      targetType: inline
+      script: |
+      
+          $repoRoot     = "$(Build.SourcesDirectory)"
+          $settings_Path = Join-Path $repoRoot "$(packageName)\$(packageName)\pipe_settings.json"
+
+          if (!(Test-Path $settings_Path)) {
+              Write-Host "❌ pipe_settings.json not found at $settings_Path"         
+          }
+          else{
+            Write-Host "##vso[task.setvariable variable=settingsPath]$settings_Path" 
+            Write-Host "##vso[task.setvariable variable=settingsPath;isOutput=true]$settings_Path" 
+            Write-Host "📦 pipe_settings.json Path: '$settings_Path'"       
+          }     
+         
+
+          # $assembly_version = "11.26.22.0"
+          $assembly_version = "$(fixedBuildVersion)"
+          Write-Host "Version received: $assembly_version"
+
+          if (-not $assembly_version) {
+            # $date = Get-Date -Format 'yyyy.MM.dd.HH.mm.ss'
+            $date = Get-Date -Format 'yyyy.MM.dd.ss'
+            $version = "{0}.{1}.{2}.{3}" -f $date.Year, $date.Month, $date.Day, $date.Second
+            $assembly_version = $version
+            Write-Host "Version generated automatically: $assembly_version"
+          }
+          
+          if ($assembly_version -match '^\d+\.\d+\.\d+$') {
+               $assembly_version += ".0"
+          }
+          
+          Write-Host "🛠 Version assigned: '$assembly_version'"
+
+          Write-Host "##vso[task.setvariable variable=fixedBuildVersion]$assembly_version"
+          Write-Host "##vso[task.setvariable variable=fixedBuildVersion;isOutput=true]$assembly_version"
+          
+          # Replace version in .csprj and manifiest
+          $projectPath = "$(Build.SourcesDirectory)\$(packageName)\$(packageName)\$(packageName).csproj"
+          
+          $version = $assembly_version  #"$(RELEASE_VERSION)"
+
+          #Write-Host "📁 Archivo .csproj: $projectPath"
+          Write-Host "🔢 New version: $version"
+
+          if (Test-Path $projectPath) {
+            (Get-Content $projectPath) -replace '<AssemblyVersion>.*?</AssemblyVersion>', "<AssemblyVersion>$version</AssemblyVersion>" | Set-Content $projectPath
+            Write-Host "✅ AssemblyVersion updated successfully."
+          } else {
+            Write-Host "❌ File .csproj was not found at: $projectPath"
+            exit 1
+          }
+
+          $manifestPath = "$(Build.SourcesDirectory)\$(packageName)\$(packageName)\Platforms\Windows\Package.appxmanifest"
+          if (Test-Path $manifestPath) {
+            $content = Get-Content $manifestPath -Raw
+           
+            if ($content -match '<Identity[^>]*\bVersion\s*=\s*"([^"]+)"') {
+                Write-Host "🔍 Current version in manifest: $($matches[1])"
+            } else {
+                  Write-Host "⚠️ No version attribute found in <Identity>."
+            }
+
+            $updatedContent = [regex]::Replace(
+                $content,
+                '<Identity([^>]*)\bVersion\s*=\s*"[^"]+"',
+                "<Identity`$1 Version=`"$version`""
+            )
+            $updatedContent | Set-Content $manifestPath -Encoding utf8
+            Write-Host "✅ Version updated successfully in Package.appxmanifest."
+ 
+          } else {
+            Write-Host "❌ File .appxmanifest was not found at: $manifestPath"
+            exit 1
+          }
+
+          git config user.email $(EMAIL_AUTHOR)
+          git config user.name  "Azure DevOps Build Agent"
+
+          $gitStatus = git status --porcelain
+          if (-not $gitStatus) {
+            Write-Host "✅ No changes in the files to commit. Skipping commit."
+            exit 0 #Exiting successfully
+          }
+
+          Write-Host "📦 Changes detected. Preparing for commit." 
+          git status # Show changes for debugging
+
+          # ---Add files in "staging area" of Git ---
+          git add $projectPath
+          git add $manifestPath
+          Write-Host "✅ Files added into Git: $projectPath, $manifestPath"
+
+          # ---Execute the commit ---
+          # [skip ci] VITAL to prevent this push from triggering the pipeline again
+          $commitMessage = "CI: Update version number.[skip ci]"
+          git commit -m $commitMessage 
+          Write-Host "✅ Commit executed with message: '$commitMessage'" 
+          
+          # ---Push the changes to the remote repository---
+          # The authentication token is managed through the pipeline configuration (see YAML).
+          # 'origin' is the default name of the remote repository. 'HEAD:main' pushes the current branch to 'main'.
+          # Change 'main' if your main branch has another name (e.g. 'master').
+
+          git push origin HEAD:main
+          Write-Host "🚀 Push to 'main' branch ot the repository"
+
+          Write-Host "📦 pipe_settings.json Path: '$settings_Path'"       
+    
+   
+    env:
+      System_AccessToken: $(System.AccessToken)

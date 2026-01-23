@@ -1,0 +1,53 @@
+## ==============================================
+## modules/copy-to-techserver.yml
+## ==============================================
+# steps:
+#   - task: PowerShell@2
+#     displayName: '🖥️ Copy App to Technical Server'
+#     inputs:
+#       targetType: 'filePath'
+#       filePath: '$(Build.SourcesDirectory)\Source\.scripts\SaveExe_TechServer.ps1' 
+steps:
+  - task: PowerShell@2
+    displayName: '🖥️ Copy App to Technical Server'
+    inputs:
+      targetType: 'inline'
+      script: |
+        try {
+          
+          $scriptPath = "$env:BUILD_SOURCESDIRECTORY\Source\.scripts\SaveExe_TechServer.ps1"
+
+          
+          $artLink = '$(Build.ArtifactStagingDirectory)\$(packageName).zip'
+          $pathFile = "$(LOCAL_AGENT_PATH)\DataView2_Artifact_path.txt"
+
+          # Write-Host "📄 Preparing artifact_path.txt at: $pathFile"
+          Write-Host "🔗 Artifact to save: $artLink"
+
+          if (Test-Path -Path $pathFile) {
+            Remove-Item -Path $pathFile -Force
+          }
+
+          New-Item -Path $pathFile -ItemType File -Force | Out-Null
+
+         
+          Set-Content -Path $pathFile -Value $artLink
+
+          # Validar que el contenido fue escrito correctamente
+          $content = (Get-Content -Path $pathFile -Raw).Trim()
+          if (-not (Test-Path -Path $content -PathType Leaf)) {
+            Write-Error "❌ The path stored in DataView2_Artifact_path.txt does not point to an existing file."
+            throw "Invalid path in artifact_path.txt or file does not exist."
+          }
+
+         
+
+          
+          Write-Host "▶️ Running script: $scriptPath"
+          & $scriptPath
+        }
+        catch {
+         Write-Host "❗ An error occurred while copying the app to the technical server:"
+         Write-Host $_.Exception.Message
+        }
+

@@ -1,0 +1,99 @@
+﻿## ==========================================
+## modules/upload-onedrive.yml
+## ==========================================
+steps:
+
+  - task: PowerShell@2
+    displayName: '🔑 Get fresh MS Graph token'
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    name: GetGraphToken
+    inputs:
+      targetType: 'inline'
+      script: |
+        try {
+          $clientId      = "$(CLIENT_ID)"
+          $refreshToken  = "$(REFRESH_TOKEN)"
+          $scopes        = "$(SCOPES)"         
+
+          $body = @{
+            client_id     = $clientId
+            grant_type    = "refresh_token"
+            refresh_token = $refreshToken
+            scope         = $scopes
+          }
+
+          $resp = Invoke-RestMethod `
+                  -Method POST `
+                  -Uri "https://login.microsoftonline.com/consumers/oauth2/v2.0/token" `
+                  -ContentType "application/x-www-form-urlencoded" `
+                  -Body $body
+         
+          $access = $resp.access_token  -replace "`r|`n", ''
+          $newRef = $resp.refresh_token -replace "`r|`n", ''
+         
+         
+          $scriptPath = "$env:BUILD_SOURCESDIRECTORY\$(PCKG_NAME)\.scripts\Update-VariableGroupValue.ps1"
+
+          if (-Not (Test-Path -Path $scriptPath)) {
+            throw "❌ Script not found '$scriptPath'"
+          }
+         
+          . $scriptPath
+         
+          Update-AzVariableGroupValue `
+            -Organization "$(ORGANIZATION)" `
+            -Project "$(PROJECT)" `
+            -GroupId "$(GROUPID)" `
+            -VariableName "REFRESH_TOKEN" `
+            -NewValue $newRef `
+            -SystemAccessToken $env:SYSTEM_ACCESSTOKEN
+          
+          Write-Host "##vso[task.setvariable variable=ACCESS_TOKEN;issecret=true]$access"
+          Write-Host "##vso[task.setvariable variable=REFRESH_TOKEN;issecret=true]$newRef"
+        }
+        catch {
+          Write-Error "❌ Error obtaining or updating the tokens: $_"
+          exit 1
+        } 
+  - task: PowerShell@2
+    displayName: '📤 Upload deliverable to OneDrive'
+    name: UploadToOneDrive
+    inputs:
+      targetType: 'inline'
+      pwsh: true
+      script: |
+        $zipPath = "C:\azagent\A1\ArtifactDataView\DataView2_Installer.zip" #$(zipPathDeliverable)
+        $accessToken = "$(ACCESS_TOKEN)"
+        $accessToken = $accessToken.Trim() -replace '\s', ''
+        $uploadScriptPath = "$env:BUILD_SOURCESDIRECTORY\$(PCKG_NAME)\.scripts\Upload-ToOneDrive.ps1"
+        Write-Host "🛡️ PowerShell version: $($PSVersionTable.PSVersion)"
+         
+
+        if (Test-Path $zipPath) {
+          Write-Host "✅ Zip found: $zipPath"
+          $fileName = [System.IO.Path]::GetFileName($zipPath).Trim()    
+          
+          if (-not (Test-Path $uploadScriptPath)) {
+            Write-Error "❌ The script 'Upload-ToOneDrive.ps1' was not found at: $uploadScriptPath"
+            exit 1
+          }
+          try {
+             Write-Host "Starting upload to OneDrive..."  
+             $oneDriveLink = & $uploadScriptPath -FilePath $zipPath -AccessToken $accessToken -Verbose
+
+              if ([string]::IsNullOrWhiteSpace($oneDriveLink)) {
+                 throw "Upload failed. The script did not return a OneDrive link."
+              }
+              Write-Host "✅ Upload completed successfully."
+              Write-Host "OneDrive link: $oneDriveLink"
+              Write-Host "##vso[task.setvariable variable=1DriveLink;isOutput=true]$oneDriveLink"
+          } catch {
+              Write-Error "❌ Error during the upload process: $($_.Exception.Message)"
+              exit 1
+            }          
+
+        } else {
+          Write-Error "❌ ZIP file not found: $zipPath"
+          exit 1
+        }      

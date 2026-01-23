@@ -1,0 +1,216 @@
+## ==========================
+## templates/set_values.yml
+## ==========================
+steps:  
+
+  - checkout: self
+    persistCredentials: true
+    clean: true
+    fetchDepth: 0
+  
+  - task: PowerShell@2
+    displayName: 'ℹ️ Set environment values'
+    # env:
+    #   SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+   # name: SetValues
+    inputs:
+      targetType: 'inline'
+      script: |
+        
+        $dotSDK = "$(DOTNET_SDK_VSN)"
+        $package = "$(PCKG_NAME)"        
+        $repoPath = "$(REPOSITORY_PATH)" 
+        
+        $artifactDir = "$env:BUILD_ARTIFACTSTAGINGDIRECTORY" 
+        # $zip_del = "$(ZIPPATH_DELIVERABLE)"
+        $zipPath =  "$(LOCAL_AGENT_PATH)\ArtifactDataView\$env:ZIPPATH_DELIVERABLE.zip"
+        #Write-Host ">>> Zip Path: $zipPath"
+
+        if ([string]::IsNullOrWhiteSpace($dotSDK)) {
+            Write-Host "❌ DOTNET_SDK variable is empty"
+            $dotSDK= '9.0.301'
+            Write-Host "##vso[task.setvariable variable=DOTNET_SDK]$dotSDK"
+        } else {
+            # Write-Host "🏷 Value assigned to DotnetSDK: $package"
+            Write-Host "##vso[task.setvariable variable=DOTNET_SDK]$dotSDK"
+        }
+
+        if ([string]::IsNullOrWhiteSpace($package)) {
+            Write-Host "❌ PACKAGENAME variable is empty"
+            $package = 'DataView2'
+            Write-Host "##vso[task.setvariable variable=packageName]$package"
+        } else {
+            # Write-Host "🏷 Value assigned to packageName: $package"
+            Write-Host "##vso[task.setvariable variable=packageName]$package"
+        }
+        
+        if ([string]::IsNullOrWhiteSpace($zipPath)) {
+            Write-Host "❌ ZIPPATHDELIVERABLE variable is empty."
+            $zipPath = '$(Build.ArtifactStagingDirectory)\DataView_Installer.zip'
+            Write-Host "##vso[task.setvariable variable=zipPathDeliverable]$zipPath"
+        } else {
+            # Write-Host "🏷 Value assigned to zipPathDeliverable: $zipPath"
+            Write-Host "##vso[task.setvariable variable=zipPathDeliverable]$zipPath"
+        }
+       
+        if ([string]::IsNullOrWhiteSpace($repoPath)) {
+            Write-Host "❌ REPOSITORYPATH  variable is empty"
+            $repoPath= '\\10.84.72.11\ROMDAS Testing\Releases\DataView2'
+            Write-Host "##vso[task.setvariable variable=repositoryPath]$repoPath"
+        } else {
+            # Write-Host "🏷 Value assigned to repositoryPath: $repoPath"
+            Write-Host "##vso[task.setvariable variable=repositoryPath]$repoPath"
+        }
+       
+        Write-Host "🏷 Environment values assigned." -ForegroundColor Green     
+        # Write-Host "🏷EMAIL_AUTHOR:  $(EMAIL_AUTHOR)"  
+        
+        cd "$(Build.SourcesDirectory)"
+        # git status
+        git config --global user.email  $(EMAIL_AUTHOR)
+        git config --global user.name "Azure DevOps Build Agent"         
+      
+        try {            
+              $project = $env:SYSTEM_TEAMPROJECT
+              $orgUrl = $env:SYSTEM_COLLECTIONURI
+              $artifactUrl = "${orgUrl}${project}/_build/results?buildId=$buildId&view=artifacts&type=publishedArtifacts"
+   
+              cd "$(Build.SourcesDirectory)"           
+
+              git fetch origin main
+              git reset --hard origin/main  
+           
+        } catch {
+            Write-Host "❌ Git fetch/reset failed: $($_.Exception.Message)"
+            exit 1
+        }
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken) 
+
+  - task: PowerShell@2
+    displayName: 'Uninstall Existing App Before Build'
+    inputs:
+      targetType: 'inline'
+      script: |
+          Set-ExecutionPolicy Unrestricted -Scope Process
+          . "$(Build.SourcesDirectory)\$(PCKG_NAME)\.scripts\uninstall.ps1"
+
+  - task: PowerShell@2
+    displayName: '📁 Artifact Folder'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $folder = '$(LOCAL_AGENT_PATH)\$(ARTIFACT_PATH)'
+        Write-Host "🔍 Verifying $folder existence..."
+
+        if (-Not (Test-Path -Path $folder)) {
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          Write-Host "✅ Folder created: $folder"
+        } else {
+          Write-Host "✅ Folder exists: $folder"
+        }
+
+        $installerFilesFolder = '$(LOCAL_AGENT_PATH)\$(INSTALLER_FILES_PATH)'
+        if (-Not (Test-Path -Path $installerFilesFolder)) {
+          $msg = "⚠️ Setup files folder: '$installerFilesFolder' does not exist. Place it with the setup files to continue..."
+          Write-Host $msg
+          Write-Host "##vso[task.logissue type=error]$msg"
+          Write-Host "##vso[task.complete result=Failed;]DONE"
+        }    
+  
+  - task: PowerShell@2
+    displayName: '📜 List commits from last "version_set" that match with types'
+    inputs:
+       targetType: 'inline'
+       script: |
+    
+         $tagName = git tag --list "*version_set*" --sort=-creatordate | Select-Object -First 1
+
+         if (-not $tagName) {
+          Write-Host "❌ No tag containing 'Version_Set' was found."
+          exit 0
+         }
+
+         
+         $lastVersionCommit = git rev-list -n 1 $tagName
+
+         Write-Host "✅ Latest tag containing 'Version_Set': $tagName"
+         Write-Host "🔢 Corresponding commit hash:: $lastVersionCommit"      
+
+         if (-not $lastVersionCommit) {
+           Write-Host "⚠️ No commit containing 'Version' was found. Showing last 10 commits as fallback:"
+           git log -n 10 --pretty=format:"🔹 %h - %an: %s (%cr)"
+         } else {
+           Write-Host "✅ Last commit with 'Version': $lastVersionCommit"
+
+           Write-Host "`n🔍 Commits after that CONTAIN 'feature', 'bug', 'improvement' o 'change':"
+
+           $commits = git log "$lastVersionCommit..HEAD" --pretty=format:"%s"
+           $filtered = $commits -split "`n" |
+             Where-Object { $_ -match '(?i)(feature/|bug/|improvement/|change/)' } |
+             Where-Object { $_ -notmatch '(?i)Merged' } |  
+             ForEach-Object { $_.Trim() } |
+             Select-Object -Unique |
+             ForEach-Object { "$_" }
+
+             $joined = ($filtered -join '|')
+             Write-Host "🔹 Final List:"
+             $filtered | ForEach-Object { Write-Host "🔹 $_" }
+
+             
+             Write-Host "##vso[task.setvariable variable=filteredCommits]$joined"
+          }
+
+  - task: PowerShell@2  
+    displayName: '🔄 Update features-release-icons in pipe_settings.json'
+    inputs:
+      targetType: 'inline'
+      workingDirectory: '$(Build.SourcesDirectory)'
+      script: |
+        $commitString = "$env:filteredCommits"
+        Write-Host "🔹Variable CommitString:"
+        $commitString | ForEach-Object { Write-Host "🔹 $_" }
+
+        if (-not $commitString) {
+            Write-Host "❌ No valid commits were found to update pipe_settings.json"
+            #exit 0
+        }
+
+        $commits = $commitString -split '\|'
+        $jsonPath = "$(Build.SourcesDirectory)\$(PCKG_NAME)\$(packageName)\pipe_settings.json"
+
+        if (-not (Test-Path $jsonPath)) {
+            Write-Host "❌ The file pipe_settings.json was not found in: $jsonPath"
+            exit 1
+        }
+
+        Write-Host "📄 Updating file: $jsonPath"
+        $json = Get-Content $jsonPath -Raw | ConvertFrom-Json
+
+        # Building new features-release-icons array
+        $newIcons = @()
+
+        if ($commitString) {
+          foreach ($msg in $commits) {
+            if ($msg -match '^(?<type>\w+)/(?<desc>.+)$') {
+                $type = $Matches['type']
+                $descRaw = $Matches['desc'] -replace '[_-]', ' '
+                $descFinal = $descRaw.Substring(0,1).ToUpper() + $descRaw.Substring(1)
+
+                $typeCapitalized = $type.Substring(0,1).ToUpper() + $type.Substring(1)
+
+                $newIcons += [PSCustomObject]@{
+                  type = $typeCapitalized
+                  description = "$descFinal."
+                }
+            }
+          }
+        
+          $json.'features-release-icons' = $newIcons
+          Write-Host "📄 pipe_settings.json newIcons: $newIcons"
+        }
+        Write-Host "📄 pipe_settings.json newIcons: $newIcons"
+        $json | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonPath -Encoding UTF8
+
+        Write-Host "✅ Field 'features-release-icons' updated successfully."
+ 

@@ -1,0 +1,98 @@
+﻿syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "DataView2.Core.SurveyRecordsProto";
+package DataView2;
+
+message DeviceLogDataRecord
+{
+    int32 Index = 1;
+    string Message = 2;
+    string LogType = 3;
+    double Chainage = 4;
+    double Speed = 5;
+    double Time = 6;
+    string DeviceName = 7;
+    google.protobuf.Timestamp LogTime = 8;
+}
+
+message OdoDataRecord
+{
+    double Chainage = 1;
+    double Speed = 2; 
+    double Time = 3;
+}
+
+message BiDataRecord
+{
+    OdoDataRecord OdoDataRecord = 1;
+    double Length = 2;
+    double Bi1Count = 3;
+    double Bi2Count = 4;
+    double CalibratedRoughness = 5; 
+}
+
+enum EventKeyType
+{
+    Point = 0;
+    Continuous = 1;
+    Switch = 2;
+}
+
+enum EventKeyState
+{
+    None = 0;
+    On = 1;
+    Off = 2;
+}
+
+message EventKeyDataRecord
+{
+    OdoDataRecord OdoDataRecord = 1;
+    string Key = 2;
+    EventKeyType KeyType = 3;
+    EventKeyState KeyState = 4;
+    string SwitchGroup = 5;
+    string Description = 6;
+    string Comments = 7;
+    bool RoughnessExclusionDuringEvent= 8;
+    bool EquivalentRoughnessDuringExclusion = 9;
+}
+
+message LrpDataRecord
+{
+    OdoDataRecord OdoDataRecord = 1;
+    string Name = 2;
+    string Description = 3;
+    int64 LrpNumber = 4;
+}
+
+message LcmsDataRecord
+{
+    OdoDataRecord OdoDataRecord = 1;
+    int64 LrpNumber = 2;
+    int64 SectionId = 3;    
+}
+
+message GpsDataRecord
+{
+    double Latitude = 1;
+    double Longitude = 2;
+    double Altitude = 3;
+}
+
+message GpsRawDataRecord
+{
+    OdoDataRecord OdoDataRecord = 1;
+    string NmeaLine = 2;
+}
+
+message VideoDataRecord
+{
+    OdoDataRecord OdoDataRecord = 1;
+    GpsDataRecord GpsDataRecord = 2;
+    int64 ImageNumber = 3;
+    string FileName = 4;
+    bool IsComplete = 5;
+}

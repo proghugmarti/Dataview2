@@ -1,0 +1,108 @@
+## ======================
+## templates/set-tag.yml
+## ======================
+steps:
+  # - checkout: self
+  #   persistCredentials: true
+
+  - task: PowerShell@2
+    displayName: '🔖 Set Release Tag' 
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    inputs:
+      targetType: 'inline' 
+      script: | 
+     
+        Write-Host "🔢 Path settings: $(settingsPath)"
+        Write-Host "🔢 Serie  Settings: $(fixedBuildVersion)"
+        
+
+        if (!(Test-Path $(settingsPath))) {
+          Write-Host "❌ pipe_settings.json not found at $settingsPath"
+          return
+        }
+
+        # Read pipe_settings.json
+        $json = Get-Content $(settingsPath) -Raw | ConvertFrom-Json
+        $tag  = $json.'Tag'
+
+        # 🛡️ Validate existence and visibility of 'Tag' section
+        if ($tag -and $tag.visible -eq 1) {
+           # 🏷️ Build label name
+          $buildTag = if (-not [string]::IsNullOrWhiteSpace($tag.value)) {
+                          "version_set_v.$(fixedBuildVersion) $($tag.value)"
+                      } else {
+                          "version_set_v.$(fixedBuildVersion)"
+                      }
+        }
+        else {
+            Write-Host "ℹ️ Tag creation stage skipped because visibility is disable (0)"
+            $buildTag ="version_set_v._$(fixedBuildVersion)"
+        } 
+
+        Write-Host "🏷️ Añadiendo build tag '$buildTag'"
+        Write-Host "##vso[build.addbuildtag]$buildTag"
+
+          function ConvertTo-GitSafeTag {
+            param([string]$raw)
+
+            $safe = $raw -replace '[^A-Za-z0-9._-]', '-'   # Just letters, numbers, point, hyphen, underscore
+            $safe = $safe -replace '-{2,}', '-'            # collapse duplicate hyphen
+            $safe = $safe.Trim('-')                        # remove hyphens at the beginning/end
+            if ($safe.Length -gt 30) { $safe = $safe.Substring(0,30) }  # trim to 30
+            if ($safe -match '^\.')  { $safe = $safe.TrimStart('.') }   # not start with a dot
+            if ($safe -match '\.$')  { $safe = $safe.TrimEnd('.') }     # “do not end with a dot
+            if ([string]::IsNullOrWhiteSpace($safe)) {
+                $safe = "build-" + ([guid]::NewGuid().ToString().Substring(0,8))
+            }
+            return $safe
+          }
+
+        $gitTag = ConvertTo-GitSafeTag $buildTag
+        Write-Host "🏷️ Resulting Git tag: '$gitTag'"
+
+
+        # ---------- Create + Git tag push ----------
+          cd "$(Build.SourcesDirectory)"
+          git config user.email $(EMAIL_AUTHOR)
+          git config user.name  "Azure DevOps Build Agent"
+
+          try {
+
+              $buildId = $env:BUILD_BUILDID
+              $project = $env:SYSTEM_TEAMPROJECT
+              $orgUrl = $env:SYSTEM_COLLECTIONURI
+              $artifactUrl = "${orgUrl}${project}/_build/results?buildId=$buildId&view=artifacts&type=publishedArtifacts"
+
+
+              #Delete Tag============:
+              cd "$(Build.SourcesDirectory)"
+
+              # Delete locally
+              git tag -d $gitTag
+
+              # Delete remotely
+              git push origin :refs/tags/$gitTag
+
+            
+              # Create the message with the link
+              $tagMessage = "Release $gitTag`n`n🔗 Artifacts: $artifactUrl"
+               
+               # Create the annotated tag with a multi‑line message (with link)
+               git tag -a $gitTag -m $tagMessage
+
+              if ($LASTEXITCODE -ne 0) { throw "git tag finished with code $LASTEXITCODE" }
+
+              git push origin $gitTag
+              if ($LASTEXITCODE -ne 0) { throw "git push finished with code $LASTEXITCODE" }
+
+              Write-Host "✅ Git tag '$gitTag' created and sent to repository."
+         }
+         catch {
+              Write-Warning "⚠️  Git tag could not be created or uploaded."
+              Write-Warning "↳ Detail: $($_.Exception.Message)"
+              exit 0
+         }
+
+          
+   

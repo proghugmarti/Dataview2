@@ -1,0 +1,64 @@
+﻿body {
+}
+
+.mudlist-style {
+    background-color: #202123;
+}
+
+.paper-main {
+    margin: 0.5rem !important;
+    padding: 0.5rem !important;
+    background-color: #202123;
+}
+
+.mudlist-main {
+    background-color: #312F2F;
+    color: white;
+}
+
+.mudtext-style {
+    color: white !important;
+    margin-bottom: 5px;
+}
+
+.mudtext-icons {
+    color: white;
+}
+
+.item-container {
+    display: flex;
+    align-items: center;
+    padding: 0px;
+    height: 32px;
+}
+    .item-container:hover {
+        background-color: #363636;
+    }
+
+    .item-container:hover .layer-icons {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .item-container .mud-input-control-input-container > label > p {
+        font-size: small;
+    }
+
+    .item-container > .mud-input-control-input-container > label > span > svg {
+        font-size: 18px;
+    }
+
+    .layer-icons {
+    display: flex;
+    margin-left: auto;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    }
+        .layer-icons .mud-icon-button > span > svg {
+            font-size: 18px;
+        }
+
+.layer-icons-active {
+    opacity: 1 !important;
+}

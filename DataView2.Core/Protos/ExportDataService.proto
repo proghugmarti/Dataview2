@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+option csharp_namespace = "DataView2.Core.Protos";
+
+package ExportDataService;
+
+service ExportDataService{
+	rpc ExportData (ExportDataObjRequest) returns (ExportDataObjResponse);
+	rpc RecreateOverlay (RecreateOverlayRequest) returns (RecreateOverlayResponse);
+}
+
+message ExportDataObjRequest{
+	 string SelectedSurveys = 1;
+	 string SavePathDirectory = 2;
+	 bool csv = 3;
+	 bool kmz = 4;
+	 bool shp = 5;
+	 bool  rangeimg = 6;
+	 bool  overlayimg= 7;
+	 bool  bandinfo= 8;
+	 bool  PaveImg = 9;
+	 bool  RowImg = 10;
+	 bool  createvideo= 11;
+	 string videoext=12;
+	 string timeunit=13;
+	 int32 delayperframe=14;
+	 string CoordinatesSystem = 15;
+	 string DatasetName = 16;
+	 bool PCI = 17;
+	 repeated string INSGeometryLayer = 18;
+	 repeated string LCMSLayers = 19;
+	 repeated string MetaLayers = 20;
+	 repeated string summaryLayers = 21;
+	 repeated string VideoLayers = 22;
+	 repeated string ImageLayers = 23;
+	 repeated string CameraLayers = 24;
+	 map<string, bool> ImgBands = 25;
+	 repeated string keycodeLayers = 26;
+	 repeated string lasLayers = 27;
+}
+
+message ExportDataObjResponse{
+	
+	string message = 1;
+}
+
+message RecreateOverlayRequest{
+	string SurveyId = 1;
+	repeated string Overlays = 2;
+	repeated string ImageTypes = 3;
+}
+
+message RecreateOverlayResponse{
+	repeated string errorMessages = 1;
+	int32 totalFiles = 2;
+	int32 failedFiles = 3;
+}

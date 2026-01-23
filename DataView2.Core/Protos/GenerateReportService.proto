@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option csharp_namespace = "DataView2.Core.Protos";
+
+package GenerateReportService;
+
+service GenerateReportService{
+	rpc GenerateReportData (GenerateReportObjRequest) returns (GenerateReportObjResponse);
+}
+
+message GenerateReportObjRequest{
+	 string SelectedSurveys = 1;
+	 string SavePathDirectory = 2;
+	 string FunctionName = 3;
+	 string Param1Type = 4;
+}
+
+message GenerateReportObjResponse{
+	
+	string message = 1;
+}
