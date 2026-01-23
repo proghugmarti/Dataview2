@@ -363,3 +363,29 @@ MigrationBackup/
 FodyWeavers.xsd
 
 .publish/
+
+# Binary files
+*.dll
+*.exe
+*.so
+*.dylib
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+
+# Zip/archives
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# Machine learning models
+*.pb
+*.onnx
+*.enc
+
+# Lcms / other libs
+**/LcmsDll/*.dll
+**/Libs/*.dll
