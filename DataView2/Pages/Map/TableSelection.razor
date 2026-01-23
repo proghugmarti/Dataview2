@@ -1,0 +1,94 @@
+﻿@using DataView2.Core.Models.Other
+@using DataView2.States
+@using static DataView2.Pages.Map.AddNewTableLayer
+@inject ApplicationState appState;
+
+<table class="mud-table my-2">
+    <thead>
+        <tr>
+            @foreach (var metaTable in TableFields)
+            {
+                <th>@metaTable.FieldName</th>
+            }
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            @foreach (var metaTable in TableFields)
+            {
+                <td>
+                    @if (metaTable.FieldType == ColumnType.Text.ToString())
+                    {
+                        <MudTextField T="string" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value=metaTable.DefaultValue />
+                    }
+                    else if (metaTable.FieldType == ColumnType.Number.ToString())
+                    {
+                        <MudNumericField T="double?" Variant="Variant.Outlined" Margin="Margin.Dense" Step="1"
+                        Value="@GetNumericValue(metaTable.DefaultValue)" ValueChanged="@(v => metaTable.DefaultValue = v?.ToString())" />
+                    }
+                    else if (metaTable.FieldType == ColumnType.Dropdown.ToString())
+                    {
+                        <MudSelect T="string" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="metaTable.DefaultValue">
+                            @foreach (var dropdown in metaTable.DropdownValues)
+                            {
+                                <MudSelectItem Value="dropdown">@dropdown</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    else if (metaTable.FieldType == ColumnType.Date.ToString())
+                    {
+                        <MudDatePicker Date="date" DateChanged="@(date => OnDateChanged(date, metaTable))" ShowToolbar="false" PickerVariant="PickerVariant.Dialog" />
+                    }
+                    else if (metaTable.FieldType == ColumnType.Measurement.ToString())
+                    {
+                        <div role="group" class="d-flex flex-row justify-center align-center">
+                            <MudNumericField T="double?" Variant="Variant.Outlined" Margin="Margin.Dense" Step="1"
+                            Value="@GetNumericValue(metaTable.DefaultValue)" ValueChanged="@(v => metaTable.DefaultValue = v?.ToString())" />
+                            <MudTooltip Text="Distance">
+                                <MudIconButton Class="ml-2" Size="Size.Small" OnClick="@(() => MeasurementClicked(metaTable, "Polyline"))">
+                                    <ChildContent>
+                                        <calcite-icon icon="measure-line" style="color: #333333;"></calcite-icon>
+                                    </ChildContent>
+                                </MudIconButton>
+                            </MudTooltip>
+                            <MudTooltip Text="Area">
+                                <MudIconButton Size="Size.Small" OnClick="@(() => MeasurementClicked(metaTable, "Polygon"))">
+                                    <ChildContent>
+                                        <calcite-icon icon="measure-area" style="color: #333333;"></calcite-icon>
+                                    </ChildContent>
+                                </MudIconButton>
+                            </MudTooltip>
+                        </div>
+                    }
+                </td>
+            }
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    [Parameter] public List<FieldModel> TableFields { get; set; }
+    DateTime? date;
+
+    private double? GetNumericValue(string value)
+    {
+        if (double.TryParse(value, out var result))
+            return result;
+        return null; // Return null if parsing fails
+    }
+
+    private void OnDateChanged(DateTime? newDate, FieldModel metaTable)
+    {
+        // Convert DateTime? to string using the specified format, and assign it to DefaultValue
+        date = newDate;
+        metaTable.DefaultValue = date?.ToString("dd/MM/yyyy");
+    }
+
+    private void MeasurementClicked(FieldModel metaTable, string type)
+    {
+        //Enable measurement on the map
+        appState.EnableMeasurement(type);
+        appState.PendingMeasurementField = metaTable;
+    }
+}
+

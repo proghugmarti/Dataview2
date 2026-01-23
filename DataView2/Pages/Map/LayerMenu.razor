@@ -1,0 +1,1680 @@
+﻿@using CommunityToolkit.Maui.Storage
+@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Engines;
+@using DataView2.States;
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes;
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject ApplicationEngine appEngine;
+@inject ApplicationState appState;
+@inject LayerViewModel viewModel;
+@inject IDialogService DialogService;
+@implements IDisposable;
+
+
+
+<MudNavGroup Title="Layers" Icon="@Icons.Material.Filled.Layers" Class="nav-group-header-black" HideExpandIcon="true" Style="font-size:medium" />
+
+<MudPaper Class="paper-main" Outlined="true">
+    <MudList Class="mudlist-main"Dense="true" T="string">
+        <div class="d-flex justify-content-between">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" Color=Color.Primary Variant=Variant.Outlined Class="m-1" OnClick="FetchTableNames" />
+            <div class="d-flex">
+                <MudMenu Icon="@Icons.Material.Filled.Add" Size="Size.Small" Color=Color.Primary Variant=Variant.Outlined
+                Class="m-1" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense>
+                    <MudMenuItem OnClick="@(()=>Import("shapefile"))">Shapefile</MudMenuItem>
+                    <MudMenuItem OnClick="@(()=>Import("fod"))">FOD</MudMenuItem>
+                    <MudMenuItem OnClick="@(()=>Import("las"))">LAS file</MudMenuItem>
+                    <MudMenuItem OnClick="@(()=>Import("lasRut"))">LAS Rutting</MudMenuItem>
+                    <MudMenuItem OnClick="@(()=>Import("custom table"))">Custom Table</MudMenuItem>
+                    <MudMenuItem OnClick="@(()=>Import("summary"))">Summary</MudMenuItem>
+                    <MudMenuItem OnClick="@(()=>Import("past summary"))">Past Summary</MudMenuItem>
+                </MudMenu>
+                <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" OnClick="Delete" Color=Color.Primary Class="m-1" Variant=Variant.Outlined />
+            </div>
+        </div>
+
+        @if (tableNames.Count > 0)
+        {
+            <MudItem Class="item-container">
+                @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == "All") != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == "All").LayerLoading : false)
+                {
+                    <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                }
+                else
+                {
+                    <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == "All")!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == "All").LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                        <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == "All")!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == "All").Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == "All")!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == "All").ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers("All", value))"></MudToggleIconButton>
+                    </MudTooltip>
+                }
+
+                <MudCheckBox Size="Size.Small" Value="@selectAllChecked" Label="Select All" ValueChanged="@((bool value) => HandleSelectAll(value))" />
+            </MudItem>
+
+            @* extraTables -> vehicle path, ins geometrty, segmentation *@
+            @if (extraTables.Count > 0)
+            {
+                foreach (var extraTable in extraTables)
+                {
+                    <MudItem Class="item-container">
+
+                    @if (toggleLayerClassList.FirstOrDefault(k => k.LayerName == extraTable)?.LayerLoading == true)
+                    {
+                        <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(k => k.LayerName == extraTable)?.LoadType ?? "Load")"
+                                    Arrow="true" Placement="Placement.Top">
+
+                            <MudToggleIconButton Style="padding: 1px;"
+                                                 Icon="@Icons.Material.Filled.DownloadForOffline"
+                                                 Toggled="@(toggleLayerClassList.FirstOrDefault(k => k.LayerName == extraTable)?.Loaded ?? false)"
+                                                 Size="Size.Small"
+                                                 ToggledColor="@(toggleLayerClassList.FirstOrDefault(k => k.LayerName == extraTable)?.ToggleColor ?? Color.Tertiary)"
+                                                 ToggledChanged="@((bool value) => ToggleLayers(extraTable, value))" />
+                        </MudTooltip>
+                    }
+
+                    <MudCheckBox Size="Size.Small"
+                                 Value="@((checkedTables.TryGetValue(extraTable, out var checkedValue) ? checkedValue : false))"
+                                 Label="@extraTable"
+                                 ValueChanged="@((bool value) => HandleCheckBoxChanged(value, extraTable))" />
+
+                    <div class="layer-icons">
+                        @if (extraTable != tblSegmentation)
+                        {
+                            <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               Size="Size.Small"
+                                               OnClick="@(() => OpenLayerEditor(extraTable))"
+                                               Style="padding:3px;" />
+                            </MudTooltip>
+                        }
+                    </div>
+
+                    <span class="small-icon-placeholder"></span>
+                    <span class="small-icon-placeholder"></span>
+                </MudItem>
+                }
+            }
+          
+            @if (lcmsTables.Count > 0 || multiLayerNames.Count > 0)
+            {
+                <MudText Color="Color.Primary" Typo="Typo.subtitle1" Align="Align.Center">LCMS</MudText>
+                @foreach (var tableName in tableNames.Where(x => lcmsTables.Contains(x) || multiLayerNames.Any(m => m.LayerName == x)))
+                {
+                    if (lcmsTables.Contains(tableName))
+                    {
+                        <MudItem class="item-container">
+                            @{
+                                bool TablecheckedValue;
+                                if (!checkedTables.TryGetValue(tableName, out TablecheckedValue))
+                                {
+                                    TablecheckedValue = false;
+                                }
+
+                                bool TogglecheckedValue;
+                                if (!toggledStates.TryGetValue(tableName, out TogglecheckedValue))
+                                {
+                                    TogglecheckedValue = false;
+                                }
+                            }
+
+                            @if (tableName != LayerNames.Segment)
+                            {
+                                @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == tableName) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == tableName).LayerLoading : false)
+                                {
+                                    <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == tableName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == tableName).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                        <MudToggleIconButton style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == tableName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == tableName).Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == tableName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == tableName).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(tableName, value))"></MudToggleIconButton>
+                                    </MudTooltip>
+                                }
+                            }
+                            else
+                            {
+                                <span class="medium-icon-placeholder"></span>
+                            }
+                                
+                             <MudCheckBox Size="Size.Small" Value="@TablecheckedValue" Label="@tableName" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, tableName))"  />
+
+                            @if (tableName == LayerNames.Segment)
+                            {
+                                <MudText Typo="Typo.body2" Style="margin-left: auto;">(Loaded : @appState.segmentCount)</MudText>
+                            }
+                            <div class="layer-icons @(TogglecheckedValue || selectedTables.Contains(tableName)? "layer-icons-active" : "")">
+                            @if (tableName != LayerNames.Segment && tableName != LayerNames.FOD && tableName != LayerNames.PCI && tableName != LayerNames.PASER)
+                            {
+                                <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" OnClick="@(() => OpenLayerEditor(tableName))" Style="padding:3px;" />
+                                </MudTooltip>
+
+                                <MudTooltip Text="Highlight" Arrow="true" Placement="Placement.Top">
+                                    <MudIconButton Icon="@Icons.Material.Filled.HighlightAlt" Size="Size.Small" OnClick="@(() => MultiSelect(tableName))" Style="padding:3px;" Class="@(selectedTables.Contains(tableName) ? "selected" : "")"  />
+                                </MudTooltip>
+
+                                @if (tableName != "Boundary" && tableName != "LasPoints")
+                                {
+                                    <MudTooltip Text="Drawing tool" Arrow="true" Placement="Placement.Left">
+                                        <MudToggleIconButton ToggledChanged="@((bool newState) => HandleToggleStateChanged(tableName, newState))" Toggled="@TogglecheckedValue" Size="Size.Small" Style="padding:3px;" Icon="@Icons.Material.Filled.AddCircle" ToggledIcon="@Icons.Material.Filled.RemoveCircle" ToggledSize="Size.Small"  ToggledColor="Color.Primary" />
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    <span class="small-icon-placeholder"></span> <!-- Placeholder for the third icon button -->
+                                }
+                            }
+                        </div>
+                    </MudItem>
+                    }
+                    else if (multiLayerNames.Any(m => m.LayerName == tableName))
+                    {
+                        var multiLayer = multiLayerNames.First(m => m.LayerName == tableName);
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == multiLayer.LayerName) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == multiLayer.LayerName).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == multiLayer.LayerName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == multiLayer.LayerName).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == multiLayer.LayerName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == multiLayer.LayerName).Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == multiLayer.LayerName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == multiLayer.LayerName).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(multiLayer.LayerName, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }
+
+                            <MudCheckBox Size="Size.Small" Label="@(multiLayer.LayerName == LayerNames.SegmentGrid ? "Crack Classification" : multiLayer.LayerName)" Value="multiLayer.SelectAll" ValueChanged="@((bool value) => HandleMultipleLayerAll(multiLayer, value))" />
+
+                            <div class="layer-icons @(selectedTables.Contains(multiLayer.LayerName)? "layer-icons-active" : "")">
+                                @if (multiLayer.LayerName == LayerNames.SegmentGrid)
+                                {
+
+                                    <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(multiLayer.LayerName))" Style="padding:3px;" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Highlight" Arrow="true" Placement="Placement.Top">
+                                        <MudIconButton Icon="@Icons.Material.Filled.HighlightAlt" Size="Size.Small" OnClick="@(() => MultiSelect(multiLayer.LayerName))" Style="padding:3px;" Class="@(selectedTables.Contains(multiLayer.LayerName) ? "selected" : "")"  />
+                                    </MudTooltip>
+
+                                }
+                            </div>
+                            <MudToggleIconButton Size="Size.Small" Style="color:white" Icon="@Icons.Material.Filled.ArrowDropDown" ToggledIcon="@Icons.Material.Filled.ArrowDropUp" @bind-Toggled="multiLayer.ExpandLayer" />
+
+                        </MudItem>
+
+                        <MudCollapse Expanded="multiLayer.ExpandLayer">
+                            @foreach (var layer in multiLayer.SubLayers)
+                            {
+                                <MudItem Class="ms-3">
+                                    <MudItem Class="item-container">
+                                        <span class="medium-icon-placeholder"></span>
+                                        <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(layer, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@layer" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, layer))"  />
+                                        <div class="layer-icons">
+                                            @if (multiLayer.LayerName != LayerNames.SegmentGrid)
+                                            {
+                                                <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(layer))" Style="padding:3px;" />
+                                                </MudTooltip>
+
+                                                <MudTooltip Text="Highlight" Arrow="true" Placement="Placement.Top">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.HighlightAlt" Size="Size.Small" OnClick="@(() => MultiSelect(multiLayer.LayerName))" Style="padding:3px;" Class="@(selectedTables.Contains(multiLayer.LayerName) ? "selected" : "")" />
+                                                </MudTooltip>
+                                                <span class="small-icon-placeholder"></span>
+                                            }
+                                        </div>
+                                    </MudItem>
+                                </MudItem>
+                            }
+                        </MudCollapse>
+                    }
+                }
+            }
+
+            @if (videoTables.Count > 0)
+            {
+                <MudPaper Class="my-2 py-2 mudlist-main">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Align="Align.Center">Video</MudText>
+                    @foreach (var video in videoTables)
+                    {                            
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == video) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == video).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == video)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == video).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == video)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == video).Loaded:false)" Size="Size.Small"  ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == video)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == video).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(video, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }
+
+                            <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(video, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@video" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, video))" />
+                            <span class="label"></span>
+
+                            <div class="layer-icons">
+                                <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(video))" Style="padding:3px;" />
+                                </MudTooltip>
+                            </div>
+                            <span class="small-icon-placeholder"></span>
+                            <span class="small-icon-placeholder"></span>
+                        </MudItem>
+                    }
+                </MudPaper>
+            }
+
+            @if (keycodeTables.Count > 0)
+            {
+                <MudPaper Class="my-2 py-2 mudlist-main">
+                    <MudText Typo="Typo.body2" Color="Color.Primary" Align="Align.Center">Keycodes</MudText>
+                    @foreach (var keycode in keycodeTables)
+                    {
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == keycode.Key) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == keycode.Key).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == keycode.Key)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == keycode.Key).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == keycode.Key)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == keycode.Key).Loaded:false)" Size="Size.Small" Style="padding:3px;" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == keycode.Key)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == keycode.Key).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(keycode.Key, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }
+
+                            <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(keycode.Key, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@keycode.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, keycode.Key))" />
+                            <span class="label"></span>
+                           
+                            <div class="layer-icons" >
+
+                                <MudTooltip Text="Drawing tool" Arrow="true" Placement="Placement.Left">
+                                    <MudToggleIconButton ToggledChanged="@((bool newState) => HandleToggleStateChanged(keycode.Key, newState))" Toggled="@toggledStates[keycode.Key]" Size="Size.Small" Style="padding:3px;"
+                                    Icon="@Icons.Material.Filled.AddCircle" ToggledIcon="@Icons.Material.Filled.RemoveCircle" ToggledSize="Size.Small" ToggledColor="Color.Primary" />
+                                </MudTooltip>                            
+                            </div>
+                            <span class="small-icon-placeholder"></span>
+                            <span class="small-icon-placeholder"></span>
+                        </MudItem>
+                    }
+                </MudPaper>
+            }
+
+            @if (LASTables.Count > 0)
+            {
+                <MudPaper Class="my-2 py-2 mudlist-main">
+                    <MudText Typo="Typo.body2" Color="Color.Primary" Align="Align.Center">LAS (.las) tables</MudText>
+                    @foreach (var lasTable in LASTables)
+                    {
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == lasTable) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == lasTable).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == lasTable)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == lasTable).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == lasTable)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == lasTable).Loaded:false)" Size="Size.Medium" Style="padding:3px;" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == lasTable)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == lasTable).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(lasTable, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }
+
+                            <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(lasTable, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@lasTable" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, lasTable))" />
+                            <span class="label"></span>
+                            <div class="layer-icons">
+                                <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(lasTable))" Style="padding:3px;" Color="Color.Tertiary"/>
+                                 </MudTooltip>
+                                 
+                                @if(lasTable == "LasRutting")
+                                {
+                                     <MudTooltip Text="Recalculate">
+                                         <MudIconButton Icon="@Icons.Material.Filled.Calculate" Size="Size.Small" OnClick="@(() => RecalculateRutting(lasTable))" Style="padding:3px;" Color="Color.Tertiary" />
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                     <span class="small-icon-placeholder"></span>
+
+                                }
+
+                            </div>
+
+                            
+                        </MudItem>
+                    }
+                </MudPaper>
+            }
+          
+            @if (metaTables.Count > 0)
+            {
+                <MudPaper Class="my-2 py-2 mudlist-main">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Align="Align.Center">Custom Tables</MudText>
+                    @foreach (var metaTable in metaTables)
+                    {
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == metaTable.Key) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == metaTable.Key).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == metaTable.Key)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == metaTable.Key).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == metaTable.Key)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == metaTable.Key).Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == metaTable.Key)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == metaTable.Key).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(metaTable.Key, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }
+
+
+                            <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(metaTable.Key, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@metaTable.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, metaTable.Key))" />
+                            <div class="layer-icons @(selectedTables.Contains(metaTable.Key)? "layer-icons-active" : "")">
+                                @if (!metaTable.Key.StartsWith("IRI") && !metaTable.Key.Contains("Meter Section"))
+                                {
+
+                                    <MudMenu Icon="@Icons.Material.Filled.Edit" Size="Size.Small" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense>
+                                        <MudMenuItem OnClick="@(() => OpenLayerEditor(metaTable.Key))">Layer Editor</MudMenuItem>
+                                        <MudMenuItem OnClick="@(() => OpenEditTable(metaTable.Key))">Edit Table Schema</MudMenuItem>
+                                    </MudMenu>
+                                    <MudTooltip Text="Highlight" Arrow="true" Placement="Placement.Top">
+                                        <MudIconButton Icon="@Icons.Material.Filled.HighlightAlt" Size="Size.Small" OnClick="@(() => MultiSelect(metaTable.Key))" Style="padding:3px;" Class="@(selectedTables.Contains(metaTable.Key) ? "selected" : "")"  />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Drawing tool" Arrow="true" Placement="Placement.Left">
+                                        <MudToggleIconButton ToggledChanged="@((bool newState) => HandleToggleStateChanged(metaTable.Key, newState))" Toggled="@toggledStates[metaTable.Key]" Size="Size.Small" Style="padding:3px;"
+                                        Icon="@Icons.Material.Filled.AddCircle" ToggledIcon="@Icons.Material.Filled.RemoveCircle" ToggledSize="Size.Small" ToggledColor="Color.Primary"/>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="Layer Editor" Arrow="true" Placement="Placement.Top">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(metaTable.Key))" Style="padding:3px;" />
+                                    </MudTooltip>
+                                    <span class="small-icon-placeholder"></span>
+                                    <span class="small-icon-placeholder"></span>
+                                }
+                            </div>
+                        </MudItem>
+                    }
+                </MudPaper>
+            }
+
+            @if (summaryTables.Count > 0)
+            {
+                <MudPaper Class="my-2 py-2 mudlist-main">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Align="Align.Center">Summaries</MudText>
+
+                    @foreach (var layer in summaryTables)
+                    {
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == layer) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == layer).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer).Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(layer, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }      
+                            <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(layer, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@layer" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, layer))" />
+                            <div class="layer-icons">                                
+                                <MudTooltip Text="Layer Editor">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(layer))" Style="padding:3px;" />
+                                </MudTooltip>
+
+                                <MudTooltip Text="Recalculate">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Calculate" Size="Size.Small" OnClick="@(() => RecalculateSummaries(layer))" Style="padding:3px;" />
+                                </MudTooltip>
+
+                                <span class="small-icon-placeholder"></span> <!-- Placeholder for the second icon button -->
+                            </div>
+                        </MudItem>
+                    }
+                </MudPaper>
+            }
+
+            @if (shapefiles.Count > 0)
+            {
+                <MudPaper Class="my-2 py-2 mudlist-main">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Primary" Align="Align.Center">Shapefiles</MudText>
+
+                    @foreach (var layer in shapefiles)
+                    {
+                        <MudItem Class="item-container">
+                            @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == layer) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == layer).LayerLoading : false)
+                            {
+                                <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                    <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer).Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == layer).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(layer, value))"></MudToggleIconButton>
+                                </MudTooltip>
+                            }
+                            <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(layer, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@layer" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, layer))" />
+                            <div class="layer-icons">
+                                <MudTooltip Text="Layer Editor">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(layer))" Style="padding:3px;" />
+                                </MudTooltip>
+
+                                <span class="small-icon-placeholder"></span> <!-- Placeholder for the second icon button -->
+                                <span class="small-icon-placeholder"></span> <!-- Placeholder for the third icon button -->
+                            </div>
+                        </MudItem>
+                    }
+                </MudPaper>
+            }
+
+            @if (pciDefectNames.Count > 0)
+            {
+                @foreach (var pciDefect in pciDefectNames)
+                {
+                    <MudPaper Class="my-2 py-2 mudlist-main">
+                        <MudStack Row>
+                            <MudSpacer />
+                            <MudText Typo="Typo.subtitle1" Color="Color.Primary">PCI Rating - @pciDefect.Key</MudText>
+                            <MudSpacer />
+                        </MudStack>
+
+                        @if (pciDefect.Value.Count > 1)
+                        {
+                            foreach (var layer in pciDefect.Value)
+                            {
+                                <MudItem Class="item-container">
+                                    @{
+                                        var newLayerName = pciDefect.Key + "-" + layer;
+                                    }
+                                    @if (toggleLayerClassList.FirstOrDefault(K => K.LayerName == newLayerName) != null ? toggleLayerClassList.FirstOrDefault(K => K.LayerName == newLayerName).LayerLoading : false)
+                                    {
+                                        <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                                    }
+                                    else
+                                    {
+                                        <MudTooltip Text="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == newLayerName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == newLayerName).LoadType:"Load")" Arrow="true" Placement="Placement.Top">
+                                            <MudToggleIconButton Style="padding: 1px;" Icon="@Icons.Material.Filled.DownloadForOffline" Toggled="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == newLayerName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == newLayerName).Loaded:false)" Size="Size.Small" ToggledColor="@(toggleLayerClassList.FirstOrDefault(K=>K.LayerName == newLayerName)!=null?toggleLayerClassList.FirstOrDefault(K=>K.LayerName == newLayerName).ToggleColor:Color.Tertiary)" ToggledChanged="@((bool value) => ToggleLayers(newLayerName, value))"></MudToggleIconButton>
+                                        </MudTooltip>
+                                    }
+                                    <MudCheckBox Size="Size.Small" Value="@((checkedTables.TryGetValue(newLayerName, out var TablecheckedValue) ? TablecheckedValue : false))" Label="@layer" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, newLayerName))" />
+                                    <div class="layer-icons">
+                                        @if (layer != "Sample Unit")
+                                        {
+                                            <MudTooltip Text="Layer Editor">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenLayerEditor(newLayerName))" Style="padding:3px;" />
+                                            </MudTooltip>
+                                        }
+                                    </div>
+                                    <span class="small-icon-placeholder"></span> <!-- Placeholder for the second icon button -->
+                                    <span class="small-icon-placeholder"></span> <!-- Placeholder for the third icon button -->
+                                </MudItem>
+                            }
+                        }
+                        else
+                        {
+                            <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center">
+                                <MudText Typo="Typo.caption">No Defects Found</MudText>
+                            </MudStack>
+                        }
+
+                    </MudPaper>
+                }
+            }
+
+            @if (temporaryTables.Count > 0)
+            {
+                @foreach (var tempTable in temporaryTables)
+                {
+                    <MudItem Class="item-container">
+                        <span class="medium-icon-placeholder"></span>
+                        <MudCheckBox Size="Size.Small" Label="@tempTable.Key" ReadOnly />
+                        <span class="label"></span>
+                        <span class="small-icon-placeholder"></span>
+                        <span class="small-icon-placeholder"></span>
+                        <div class="layer-icons" >
+                            <MudTooltip Text="Drawing tool" Arrow="true" Placement="Placement.Left">
+                                <MudToggleIconButton ToggledChanged="@((bool newState) => HandleToggleStateChanged(tempTable.Key, newState))" Toggled="@toggledStates[tempTable.Key]" Size="Size.Small" Style="padding:3px;"
+                                Icon="@Icons.Material.Filled.AddCircle" ToggledIcon="@Icons.Material.Filled.RemoveCircle" ToggledSize="Size.Small" ToggledColor="Color.Primary" />
+                            </MudTooltip>
+                        </div>
+                    </MudItem>
+                }
+            }
+
+        }
+        else
+        {
+            <MudListItem Class="d-flex justify-content-center align-content-center">
+                <MudText Typo="Typo.body2" Align="Align.Center">Not Found</MudText>
+            </MudListItem>
+        }
+    </MudList>
+</MudPaper>
+
+
+<style>
+    .mud-grid-item:hover {
+    background-color: #363636;
+    }
+
+    .mud-icon-button {
+        color: white;
+    }
+
+    .selected {
+        color: red;
+    }
+
+    .small-icon-placeholder {
+    width: 18px;
+    height: 18px;
+    }
+
+    .medium-icon-placeholder {
+    width: 24px;
+    height: 24px;
+    }
+
+
+</style>
+
+@code {
+    private Dictionary<string, bool> checkedTables = new Dictionary<string, bool>();
+    private Dictionary<string, bool> toggledStates = new Dictionary<string, bool>();
+
+    //main table
+    private HashSet<string> tableNames = new HashSet<string>();
+
+    //grouped tables
+    private HashSet<string> lcmsTables = new HashSet<string>();
+    private HashSet<MultiLayer> multiLayerNames = new HashSet<MultiLayer>();
+    private HashSet<string> shapefiles = new HashSet<string>();
+    private HashSet<string> summaryTables = new HashSet<string>();
+    private Dictionary<string, List<string>> pciDefectNames = new Dictionary<string, List<string>>();
+    private Dictionary<string, string> metaTables = new Dictionary<string, string>();
+    private Dictionary<string, (string geoType, string iconPath)> temporaryTables = new Dictionary<string, (string, string)>();
+    private HashSet<string> videoTables = new HashSet<string>();
+    private Dictionary<string, string> keycodeTables = new Dictionary<string, string>();
+    private HashSet<string> LASTables = new HashSet<string>();
+    private HashSet<string> extraTables = new HashSet<string>();
+    private string tblSegmentation = "Survey Segmentation";
+
+    private bool selectAllChecked = false, segmentsOnLoad = false;
+    private List<string> selectedTables = new List<string>();
+    public List<ToggleLayerClass> toggleLayerClassList = new List<ToggleLayerClass>();
+
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    string genFileImage = "/images/download.gif";
+    string genFileText = "Loading Layers...";
+    DialogParameters parameters;
+    IDialogReference dialog = null;
+    string vehiclePath = "Vehicle Path";
+    string iNSGeometry = "INS Geometry";
+    string laspoints = "LasPoints";
+    string lasrut = "LasRutting";
+
+    public class MultiLayer
+    {
+        public string LayerName { get; set; }
+        public List<string> SubLayers { get; set; }
+        public bool ExpandLayer { get; set; }
+        public bool SelectAll { get; set; }
+    }
+
+    public class ToggleLayerClass
+    {
+        public string LayerName { get; set; }
+        public string LoadType { get; set; } = "Load";
+        public bool Loaded { get; set; } = false;
+        public bool LayerLoading { get; set; } = false;
+        public Color ToggleColor { get; set; } = Color.Tertiary;
+        public Color Color { get; set; } = Color.Tertiary;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        appState.OnTableNamesRefreshed += FetchTableNames;
+        appState.OnCloseDrawingToolInvoked += ToggleAllBack;
+        appState.TableNamesUpdated += async (isBoundary) =>
+        {
+            await UpdateTableNames(isBoundary);
+        };
+        appState.OnNewLayerAdded += AddNewLayer;
+        appState.OnLayerSelectionCompleted += async (selectedLayers, loadType) => await LayerSelectionDone(selectedLayers, loadType);
+        appState.OnNewSurveySelected += NewlyAddedSurveys;
+        appState.OnToggleLayers += ToggleLayers;
+        appState.SegmentsLoaded += SegmentCounted;
+        appState.OnLayerLoadHighlightRequested += LoadLayersAndHighlightDefects;
+        appState.OnLayerToggleRequestedFromPCI += AddOrDeleteExistingDefect;
+        appState.PCILayerVisibilityToggled += UnloadPCIRatingLayer;
+    }
+    private void CloseLayerLoadingDialog()
+    {
+        dialog?.Close();
+        dialog = null;
+    }
+
+    public void Dispose()
+    {
+        appState.OnTableNamesRefreshed -= FetchTableNames;
+        appState.OnCloseDrawingToolInvoked -= ToggleAllBack;
+        appState.TableNamesUpdated -= async (isBoundary) =>
+       {
+           await UpdateTableNames(isBoundary);
+       };
+        appState.OnNewLayerAdded -= AddNewLayer;
+        appState.OnLayerSelectionCompleted -= async (selectedLayers, loadType) => await LayerSelectionDone(selectedLayers, loadType);
+        appState.OnNewSurveySelected -= NewlyAddedSurveys;
+        appState.OnLayerLoadHighlightRequested -= LoadLayersAndHighlightDefects;
+        appState.OnLayerToggleRequestedFromPCI -= AddOrDeleteExistingDefect;
+        appState.PCILayerVisibilityToggled -= UnloadPCIRatingLayer;
+    }
+
+    public void SegmentCounted(int segments)
+    {
+        appState.segmentCount = segments;
+        StateHasChanged();
+    }
+
+    private async void ToggleLayers(string tableName, bool state, List<string> newSurveys = null)
+    {
+        await InvokeAsync(() =>
+        {
+            OpenLayerLoadingDialog();
+        });
+
+        CheckToggleLayersList(tableName, state);
+
+        string layerType = string.Empty;
+
+        if (metaTables.ContainsKey(tableName))
+        {
+            layerType = "MetaTable";
+        }
+        else if (shapefiles.Contains(tableName))
+        {
+            layerType = "Shapefile";
+        }
+        else if (summaryTables.Contains(tableName))
+        {
+            layerType = "Summary";
+        }
+        else if (IsTableNameInPCIDefectNames(tableName))
+        {
+            layerType = "PCIDefect";
+        }
+        else if (videoTables.Contains(tableName))
+        {
+            layerType = "Video";
+        }
+        else if (keycodeTables.ContainsKey(tableName))
+        {
+            layerType = "Keycode";
+        }
+        else if (LASTables.Contains(tableName))
+        {
+            layerType = "LAS";
+        }
+
+
+        // Notify the changes to AppState
+        appState.LayerSelected(tableName, state, layerType, newSurveys);
+
+        //show/hide on the map as per the loaded layers
+        if (tableName == "All")
+        {
+            HandleSelectAll(state);
+        }
+        else if (multiLayerNames.FirstOrDefault(x => x.LayerName == tableName) is MultiLayer multiLayer)
+        {
+            HandleMultipleLayerAll(multiLayer, state);
+        }
+        else
+        {
+            // if (segmentsOnLoad)
+            //     segmentsOnLoad = false;
+            // else
+            HandleCheckBoxChanged(state, tableName);
+        }
+        appState.UpdateSessionVars();
+        StateHasChanged();
+    }
+
+    private bool IsTableNameInPCIDefectNames(string tableName)
+    {
+
+        foreach (var kvp in pciDefectNames)
+        {
+            string pciRating = kvp.Key;
+            foreach (var defect in kvp.Value)
+            {
+                if (tableName == pciRating + "-" + defect)
+                {
+                    return true;
+
+                }
+            }
+        }
+
+        return false;
+
+
+    }
+
+    private void CheckToggleLayersList(string tableName, bool state)
+    {
+        try
+        {
+
+            ToggleLayerClass tlc = toggleLayerClassList.FirstOrDefault(t => t.LayerName == tableName); 
+            if (tlc != null)
+            {
+                tlc.LayerLoading = true;
+            }
+            else
+            {
+                toggleLayerClassList.Add(new ToggleLayerClass
+                    {
+                        LayerName = tableName,
+                        LayerLoading = true
+                    });
+            }
+
+            if (tableName == "All")
+            {
+                toggleLayerClassList.ToList().ForEach(t => t.LayerLoading = true);
+            }
+
+            StateHasChanged();
+
+
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in CheckToggleLayersList : {ex.Message}");
+        }
+    }
+
+    private async void NewlyAddedSurveys(IEnumerable<string> newSurveys)
+    {
+        await InvokeAsync(() =>
+       {
+           OpenLayerLoadingDialog();
+       });
+        await Task.Yield();
+
+        const bool state = true;
+
+        // Load data for newly added graphics on the map
+        var tasks = toggleLayerClassList
+            .Where(tlc => tlc.Loaded && tlc.LayerName != "All")
+            .Select(async tlc =>
+            {
+                string layerType = string.Empty;
+
+                if (metaTables.ContainsKey(tlc.LayerName))
+                {
+                    layerType = "MetaTable";
+                }
+                else if (shapefiles.Contains(tlc.LayerName))
+                {
+                    layerType = "Shapefile";
+                }
+                else if (summaryTables.Contains(tlc.LayerName))
+                {
+                    layerType = "Summary";
+                }
+                else if (IsTableNameInPCIDefectNames(tlc.LayerName))
+                {
+                    layerType = "PCIDefect";
+                }
+                else if (videoTables.Contains(tlc.LayerName))
+                {
+                    layerType = "Video";
+                }
+                else if (keycodeTables.ContainsKey(tlc.LayerName))
+                {
+                    layerType = "Keycode";
+                }
+                else if (LASTables.Contains(tlc.LayerName))
+                {
+                    layerType = "LAS";
+                }
+                // Notify the changes to AppState
+                appState.LayerSelected(tlc.LayerName, state, layerType, newSurveys.ToList());
+
+                await Task.Delay(1);
+            });
+
+        // Run them all in parallel
+        await Task.WhenAll(tasks);
+
+        CheckForLayersLoad();
+        StateHasChanged();
+        CloseLayerLoadingDialog();
+
+    }
+
+
+    private async Task LayerSelectionDone(string selectedLayer, string loadType)
+    {
+        List<Task> tasks = new();
+
+        ToggleLayerClass existingLayer  = toggleLayerClassList.FirstOrDefault(t => t.LayerName == selectedLayer);
+        if (existingLayer == null)
+        {
+            existingLayer = new ToggleLayerClass
+            {
+                LayerName = selectedLayer,
+                LoadType = loadType,
+                ToggleColor = loadType == "Unload" ? Color.Error : Color.Default,
+                Loaded = loadType == "Unload"
+            };
+            toggleLayerClassList.Add(existingLayer);
+        }
+
+        if (selectedLayer == "All")
+        {
+            foreach (ToggleLayerClass item in toggleLayerClassList)
+            {
+                tasks.Add(UpdateToggleItem(item, loadType));
+            }
+        }
+        else
+        {
+            tasks.Add(UpdateToggleItem(existingLayer, loadType));
+        }
+
+        await Task.WhenAll(tasks);
+        StateHasChanged();
+        CheckForLayersLoad();
+    }
+
+    private void OpenLayerLoadingDialog()
+    {
+        if (dialog == null)
+        {
+            //islayerLoading = true;
+            parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+            dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+        }
+    }
+
+    private void CheckForLayersLoad()
+    {
+        //when all layers are loaded, dialog will be stopped
+        if (!toggleLayerClassList.Any(t => t.LayerLoading))
+        {
+            if (dialog != null)
+            {
+                dialog.Close();
+                dialog = null;
+                //islayerLoading = false;
+            }
+        }
+    }
+
+    private async Task UpdateToggleItem(ToggleLayerClass item, string loadType)
+    {
+        item.LoadType = loadType;
+        item.ToggleColor = loadType == "Unload" ? Color.Error : Color.Default;
+        item.Loaded = loadType == "Unload" ? true : false;
+        item.LayerLoading = false;
+    }
+
+    public void ClearTables()
+    {
+        toggleLayerClassList.Clear();
+        checkedTables.Clear();
+        shapefiles.Clear();
+        metaTables.Clear();
+        summaryTables.Clear();
+        temporaryTables.Clear();
+        videoTables.Clear();
+        keycodeTables.Clear();
+        LASTables.Clear();
+        lcmsTables.Clear();
+        multiLayerNames.Clear();
+        pciDefectNames.Clear();
+        toggledStates.Clear();
+        segmentsOnLoad = true;
+        tableNames.Clear();
+        extraTables.Clear();
+    }
+
+    public async void FetchTableNames()
+    {
+        await InvokeAsync(() =>
+        {
+            OpenLayerLoadingDialog();
+        });
+        try
+        {
+            ClearTables();
+            appState.ClearAllGraphics();
+
+            var lcmsFetchedTables = await appEngine.SurveyService.FetchLCMSTables(new Empty());
+            if (lcmsFetchedTables.Count > 0)
+            {
+                foreach (var lcms in lcmsFetchedTables)
+                {
+                    tableNames.Add(lcms);
+                    if (TableNameHelper.MultiLayerNameMappings.TryGetValue(lcms, out var layers))
+                    {
+                        if (lcms == LayerNames.Roughness)
+                        {
+                            var hasCwpIRI = await appEngine.RoughnessService.HasCwpIRI(new Empty());
+                            if (hasCwpIRI.Id == 0)
+                            {
+                                layers = layers.Where(layer => layer != "Cwp IRI");
+                            }
+                        }
+
+                        // Create MultiLayer object and add it
+                        var newMultiLayer = new MultiLayer
+                            {
+                                LayerName = lcms,
+                                SubLayers = layers.ToList(),
+                                ExpandLayer = true,
+                                SelectAll = false
+                            };
+
+                        foreach (var layer in layers)
+                        {
+                            tableNames.Add(layer);
+                        }
+                        multiLayerNames.Add(newMultiLayer);
+                    }
+                    else
+                    {
+                        lcmsTables.Add(lcms);
+                    }
+                }
+            }
+
+            var hasGPSprocessed = await appEngine.GPSProcessedService.HasData(new Empty());
+            if (hasGPSprocessed.Id == 1)
+            {
+                extraTables.Add(vehiclePath);
+                tableNames.Add(vehiclePath);
+            }
+
+            var hasINSGeometryprocessed = await appEngine.GPSProcessedService.HasINSGeometryData(new Empty());
+            if (hasINSGeometryprocessed.Id == 1)
+            {
+                extraTables.Add(iNSGeometry);
+                tableNames.Add(iNSGeometry);
+            }
+
+            var hasSurveySegmetaion = await appEngine.SurveySegmentationService.HasData(new Empty());
+            if (hasSurveySegmetaion.Count > 0)
+            {
+                extraTables.Add(tblSegmentation);
+                tableNames.Add(tblSegmentation);
+            }
+
+            var hasKeycodes = await appEngine.KeycodeService.HasData(new Empty());
+            if (hasKeycodes.Count > 0)
+            {
+                foreach (var keycode in hasKeycodes)
+                {
+                    keycodeTables[keycode.Description] = keycode.ContinuousStatus;
+                    tableNames.Add(keycode.Description);
+                }
+            }
+            var hasLAS = await appEngine.LASfileService.HasData(new Empty());
+            if (hasLAS.Id == 1)
+            {
+               
+                tableNames.Add(laspoints);
+                LASTables.Add(laspoints);
+              
+            }
+            var haslasrut = await appEngine.LAS_RuttingService.HasData(new Empty());
+            if (haslasrut.Id == 1)
+            {
+
+                tableNames.Add(lasrut);
+                LASTables.Add(lasrut);
+
+            }
+            var hasVideo = await appEngine.VideoFrameService.HasData(new Empty());
+            if (hasVideo.Count > 0)
+            {
+                foreach (var video in hasVideo)
+                {
+                    tableNames.Add(video);
+                    videoTables.Add(video);
+                }
+            }
+
+            var has360Video = await appEngine.Camera360FrameService.HasData(new Empty());
+            if (has360Video.Id == 1)
+            {
+                tableNames.Add("360 Video");
+                videoTables.Add("360 Video");
+            }
+
+            var hasShapefiles = await appEngine.ShapefileService.HasData(new Empty());
+            if (hasShapefiles.Count > 0 && hasShapefiles is List<string> shapefileList)
+            {
+                foreach (var shapefile in shapefileList)
+                {
+                    tableNames.Add(shapefile);
+                    shapefiles.Add(shapefile);
+                }
+            }
+
+            var hasMetaTable = await appEngine.MetaTableService.HasData(new Empty());
+            if (hasMetaTable.Count > 0)
+            {
+                foreach (var metaTable in hasMetaTable)
+                {
+                    metaTables[metaTable.TableName] = metaTable.GeoType;
+                    tableNames.Add(metaTable.TableName);
+                }
+            }
+
+            var hasSummaries = await appEngine.SummaryService.HasData(new Empty());
+            if (hasSummaries.Count > 0)
+            {
+                foreach (var summary in hasSummaries)
+                {
+                    tableNames.Add(summary);
+                    summaryTables.Add(summary);
+                }
+            }
+
+            var hasPCIRatingAndDefects = await appEngine.PCIDefectsService.HasData(new Empty());
+            if (hasPCIRatingAndDefects.Count > 0)
+            {
+                foreach (var pciRatingAndDefect in hasPCIRatingAndDefects)
+                {
+                    var pciRating = pciRatingAndDefect.PCIRatingName;
+                    var pciDefects = pciRatingAndDefect.PCIDefectName;
+
+                    pciDefectNames[pciRating] = pciDefects;
+
+                    foreach (var defectname in pciDefects)
+                    {
+                        var newTableName = pciRating + "-" + defectname;
+                        tableNames.Add(newTableName);
+                    }
+                }
+            }
+
+            if (tableNames.Count > 0)
+            {
+                foreach (var tableName in tableNames) 
+                {
+                    checkedTables[tableName] = false;
+                    toggledStates[tableName] = false;
+                }
+
+                selectAllChecked = false;
+
+                //add all checktables names into toggle classes
+                if (!toggleLayerClassList.Any(x => x.LayerName == "All"))
+                    toggleLayerClassList.Add(new ToggleLayerClass { LayerName = "All" });
+            }
+
+            foreach (string item in tableNames)
+            {
+                if (!multiLayerNames.Any(ml => ml.SubLayers.Contains(item)))
+                {
+                    if (!toggleLayerClassList.Any(x => x.LayerName == item))
+                        toggleLayerClassList.Add(new ToggleLayerClass { LayerName = item });
+                }
+            }
+
+            //load all segments by default
+            ToggleLayers(LayerNames.Segment, true);
+
+            bool isPCIWindowOpen = Application.Current.Windows.Any(w => w.Title == "PCI Rating Mode");
+            if (isPCIWindowOpen)
+            {
+                //draw pci sample units again
+                appState.RedrawPCISampleUnits();
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+        CloseLayerLoadingDialog();
+    }
+
+    private void HandleCheckBoxChanged(bool isChecked, string tableName)
+    {
+
+        checkedTables[tableName] = isChecked;
+
+        //all tables are managed on manual selection
+        // if (isChecked)
+        //     checkedTables[LayerNames.Segment] = isChecked;
+
+        if (tableName.EndsWith("shp") && isChecked)
+        {
+            appState.ShapefileCheckboxChanged(tableName);
+        }
+        // Notify the changes to AppState
+        NotifyChangesToAppState();
+
+    }
+
+    private void HandleSegmentOnSelection(bool isChecked)
+    {
+
+        if (isChecked && !checkedTables[LayerNames.Segment])
+            checkedTables[LayerNames.Segment] = isChecked;
+
+    }
+
+    private void HandleSelectAll(bool isChecked)
+    {
+
+        selectAllChecked = isChecked;
+
+        // Set all individual checkboxes to the same state as "Select All"
+        foreach (var tableName in tableNames)
+        {
+            checkedTables[tableName] = isChecked;
+        }
+
+        // Notify the changes to AppState
+        NotifyChangesToAppState();
+        StateHasChanged();
+
+    }
+
+    private void HandleMultipleLayerAll(MultiLayer multiLayer, bool isChecked)
+    {
+
+        multiLayer.SelectAll = isChecked;
+
+        foreach (var subLayer in multiLayer.SubLayers)
+        {
+            checkedTables[subLayer] = isChecked;
+        }
+        //HandleSegmentOnSelection(isChecked);
+        NotifyChangesToAppState();
+        StateHasChanged();
+
+    }
+
+    private void NotifyChangesToAppState()
+    {
+        selectAllChecked = checkedTables.All(pair => pair.Value);
+
+        //handle multiLayerAllChecked
+        if (multiLayerNames.Count > 0)
+        {
+            foreach (var multiLayer in multiLayerNames)
+            {
+                var relevant = checkedTables.Where(pair => multiLayer.SubLayers.Contains(pair.Key));
+                multiLayer.SelectAll = relevant.Any() && relevant.All(pair => pair.Value);
+            }
+        }
+
+        var checkedTableNames = checkedTables.Where(pair => pair.Value).Select(pair => pair.Key).ToList();
+
+        // Notify the changes to AppState
+        appState.CheckBoxChanged(checkedTableNames);
+    }
+
+    private void OpenLayerEditor(string tableName)
+    {
+        string type = null;
+        if (lcmsTables.Contains(tableName) || multiLayerNames.Any(x => x.SubLayers.Contains(tableName) || multiLayerNames.Any(x => x.LayerName == tableName)))
+        {
+            type = "LCMS";
+        }
+        else if (metaTables.ContainsKey(tableName))
+        {
+            //if it is point metaTable, graphics are icon -> Treat differently
+            if (metaTables[tableName] == "Point")
+            {
+                type = "Icon";
+            }
+            else
+            {
+                type = "MetaTable";
+            }
+        }
+        else if (shapefiles.Contains(tableName))
+        {
+            type = "Shapefile";
+        }
+        else if (summaryTables.Contains(tableName))
+        {
+            type = "Summary";
+        }
+        else if (videoTables.Contains(tableName))
+        {
+            type = "Video";
+        }
+        else if (keycodeTables.ContainsKey(tableName))
+        {
+            type = "Keycode";
+        }
+        else if (IsTableNameInPCIDefectNames(tableName))
+        {
+            type = "PCIDefect";
+        }
+      
+        if (type == "Icon")
+        {
+            viewModel.OpenIconEditor(tableName);
+        }
+        else
+        {
+            viewModel.OpenLayerEditor(tableName, type);                        
+        }
+    }
+
+    private void MultiSelect(string tableName, bool? state = null)
+    {
+        //from PCI
+        if (state != null)
+        {
+            selectedTables.Clear();
+            selectedTables.Add(tableName);
+        }
+        //from UI
+        else
+        {
+            if (selectedTables.Contains(tableName))
+            {
+                selectedTables.Remove(tableName); // Deselect the table if already selected
+            }
+            else
+            {
+                selectedTables.Add(tableName); // Select the table if not selected
+            }
+        }
+
+        appState.PassSelectableTables(selectedTables);
+    }
+
+    private void Import(string file)
+    {
+
+        if (file == "custom table")
+        {
+            //new table popup
+            viewModel.OpenNewTablePopup("add");
+        }
+        else if (file == "summary")
+        {
+            viewModel.OpenSummariesPopup("summary");
+        }
+        else
+        {
+            //shapefile or FOD popup
+            viewModel.OpenImportLayerPopup(file);
+        }
+
+    }
+
+    private void Delete()
+    {
+        viewModel.OpenSelectLayersPopup();
+    }
+
+    private void OpenEditTable(string tableName)
+    {
+        viewModel.OpenNewTablePopup("edit", tableName);
+    }
+
+    public async Task UpdateTableNames(bool isBoundary)
+    {
+
+        if (isBoundary)
+        {
+            await InvokeAsync(() => FetchTableNames());
+        }
+        else
+        {
+            //Update Summaries
+            var hasSummaries = await appEngine.SummaryService.HasData(new Empty());
+            if (hasSummaries != null && hasSummaries.Count > 0)
+            {
+                foreach (var summary in hasSummaries)
+                {
+                    if (!summaryTables.Contains(summary))
+                    {
+                        tableNames.Add(summary);
+                        summaryTables.Add(summary);
+                        checkedTables[summary] = false;
+                        if (!toggleLayerClassList.Any(x => x.LayerName == summary))
+                            toggleLayerClassList.Add(new ToggleLayerClass { LayerName = summary });
+                    }
+                }
+            }
+
+            //Update MetaTables
+            var hasMetaTable = await appEngine.MetaTableService.HasData(new Empty());
+            if (hasMetaTable.Count > 0)
+            {
+                foreach (var metaTable in hasMetaTable)
+                {
+                    if (!tableNames.Contains(metaTable.TableName))
+                    {
+                        if (temporaryTables != null && temporaryTables.ContainsKey(metaTable.TableName))
+                        {
+                            temporaryTables.Remove(metaTable.TableName);
+                        }
+                        tableNames.Add(metaTable.TableName);
+                        metaTables.Add(metaTable.TableName, metaTable.GeoType);
+                        checkedTables[metaTable.TableName] = false;
+                        toggledStates[metaTable.TableName] = false;
+                        if (!toggleLayerClassList.Any(x => x.LayerName == metaTable.TableName))
+                            toggleLayerClassList.Add(new ToggleLayerClass { LayerName = metaTable.TableName });
+                    }
+
+                    //load metaTable
+                    //ToggleLayers(metaTable.TableName, true);
+                }
+            }
+
+            //Update PCI defects
+            var hasPCIRatingAndDefects = await appEngine.PCIDefectsService.HasData(new Empty());
+            if (hasPCIRatingAndDefects.Count > 0)
+            {
+                foreach (var pciRatingAndDefect in hasPCIRatingAndDefects)
+                {
+                    var pciRating = pciRatingAndDefect.PCIRatingName;
+                    var pciDefects = pciRatingAndDefect.PCIDefectName;
+
+                    if (!pciDefectNames.TryGetValue(pciRating, out var existingDefects))
+                    {
+                        // If the rating does not exist, create a new list with "Sample Unit"
+                        existingDefects = new List<string> { "Sample Unit" };
+                        pciDefectNames[pciRating] = existingDefects;
+                    }
+
+                    if (pciDefects != null)
+                    {
+                        // Find and add missing defects
+                        var missingDefects = pciDefects.Except(existingDefects).ToList();
+                        if (missingDefects.Any())
+                        {
+                            existingDefects.AddRange(missingDefects);
+                            foreach (var defectName in missingDefects)
+                            {
+                                var newTableName = pciRating + "-" + defectName;
+                                if (checkedTables.TryAdd(newTableName, false)) // Ensures no duplicate insert
+                                {
+                                    tableNames.Add(newTableName);
+                                    if (!toggleLayerClassList.Any(x => x.LayerName == newTableName))
+                                    {
+                                        toggleLayerClassList.Add(new ToggleLayerClass { LayerName = newTableName });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            await InvokeAsync(() => StateHasChanged());
+
+        }
+    }
+
+    private void AddOrDeleteExistingDefect(string name, bool isAdding)
+    {
+
+        if (isAdding)
+        {
+            HandleToggleStateChanged(name, true);
+        }
+        else
+        {
+            MultiSelect(name, true);
+            appState.RequestDefectMultiSelection();
+        }
+        StateHasChanged();
+
+    }
+
+    private async void HandleToggleStateChanged(string name, bool currentState)
+    {
+
+        if (currentState)
+        {
+            // Reset all toggled states
+            foreach (var key in toggledStates.Keys.ToList())
+            {
+                toggledStates[key] = false;
+            }
+
+            // Set the toggled state of the selected table
+            toggledStates[name] = true;
+
+            string geoType = string.Empty;
+            string iconPath = null;
+
+            if (metaTables.ContainsKey(name))
+            {
+                geoType = metaTables[name];
+            }
+            //Adding a new table
+            else if (temporaryTables.ContainsKey(name))
+            {
+                geoType = temporaryTables[name].geoType;
+            }
+            //Adding keycode 
+            else if (keycodeTables.ContainsKey(name))
+            {
+                string eventKeyType = "";
+                // Check if the value corresponding to the name is "continuous"
+                if (keycodeTables[name] == "STARTED" || keycodeTables[name] == "ENDED")
+                {
+                    eventKeyType = "Continuous";
+                }
+                else
+                {
+                    eventKeyType = "Point";
+                }
+                List<Keycode> selectedkeycode = await appEngine.KeycodeService.GetByDescription(name);
+                Keycode keycode = selectedkeycode.FirstOrDefault();
+
+                appState.SetDrawingKeycode(name, keycode);
+                StateHasChanged();
+                return; // Exit early to avoid redundant calls
+
+
+            }
+            else
+            {
+                IsLcmsTable(name, out geoType);
+            }
+
+            // Open the drawing tool
+            appState.SetDrawingToolVisibility(name, geoType);
+        }
+        else
+        {
+            toggledStates[name] = false;
+            appState.SetDrawingToolVisibility(null, null);
+            appState.SetDrawingKeycode(null, null);
+
+
+        }
+
+        // Notify the component to re-render
+        StateHasChanged();
+
+    }
+
+    private bool IsLcmsTable(string tableName, out string geoType)
+    {
+
+
+        geoType = string.Empty;
+
+        switch (tableName)
+        {
+            case LayerNames.CornerBreak:
+            case LayerNames.Pickout:
+            case LayerNames.Potholes:
+                geoType = "Point";
+                break;
+            case LayerNames.Cracking:
+            case LayerNames.ConcreteJoint:
+            case LayerNames.SealedCrack:
+            case LayerNames.CurbDropOff:
+            case LayerNames.Geometry:
+            case LayerNames.CrackSummary:
+                geoType = "Polyline";
+                break;
+            case LayerNames.Spalling:
+            case LayerNames.Patch:
+            case LayerNames.Ravelling:
+            case LayerNames.MarkingContour:
+            case LayerNames.MMO:
+            case LayerNames.Pumping:
+            case LayerNames.Shove:
+            case LayerNames.RumbleStrip:
+            case LayerNames.SagsBumps:
+            case LayerNames.Grooves:
+                // case LayerNames.MacroTexture: //multi polygon
+                geoType = "Polygon";
+                break;
+            case LayerNames.Bleeding: //multi polygon
+                geoType = "MultiPolygon";
+                break;
+            default:
+                return false;
+        }
+
+        return true;
+
+    }
+
+    private void ToggleAllBack()
+    {
+
+        var keys = toggledStates.Keys.ToList();
+
+        foreach (var key in keys)
+        {
+            toggledStates[key] = false;
+        }
+
+        StateHasChanged();
+
+    }
+
+    private void AddNewLayer(string tableName, string geoType, string iconPath)
+    {
+
+        if (!toggledStates.ContainsKey(tableName))
+        {
+            toggledStates[tableName] = true;
+        }
+        if (!temporaryTables.ContainsKey(tableName))
+        {
+            temporaryTables.Add(tableName, (geoType, iconPath));
+        }
+
+        HandleToggleStateChanged(tableName, toggledStates[tableName]);
+        StateHasChanged();
+
+    }
+
+    private void RecalculateSummaries(string sampleUnitSetName)
+    {
+
+        viewModel.OpenSummariesPopup("recalculate", sampleUnitSetName);
+
+    }
+
+    private void RecalculateRutting(string customTableName)
+    {
+      var ruttingToggle = toggleLayerClassList.FirstOrDefault(t => t.LayerName == "LasRutting");
+      if(ruttingToggle != null && ruttingToggle.Loaded && appState.SelectedTables.Contains("LasRutting")){
+         appState.RecalculateRuttingSelected();
+         appState.ToggleLayers("LasRutting", true);
+      }     
+      else
+       Application.Current.MainPage.DisplayAlert( "Warning ⚠️", "Please load the LAS Rutting layer to recalculate the values!", 
+       "OK");
+    }
+
+    // private void OpenExportSummaryDialog()
+    // {
+    //     viewModel.OpenSummariesPopup("exportSummaries");
+    // }
+
+    private async void LoadLayersAndHighlightDefects(string mode, IEnumerable<string> selectedTable, string surveyId, string secondSurveyId)
+    {  
+        //Load layers
+        await Task.WhenAll(selectedTable.Select(async table =>
+        {
+            ToggleLayerClass tlc = toggleLayerClassList.FirstOrDefault(t => t.LayerName.Contains(table));
+            if (tlc != null && !tlc.Loaded)
+            {
+                await InvokeAsync(() => ToggleLayers(table, true));
+
+                //Wait until the layer is fully loaded
+                while (tlc.LayerLoading)
+                {
+                    await Task.Delay(100);
+                }
+            }
+        }));
+
+        //Convert multi layer key to individual layer name
+        var newSelectedTables = new List<string>(selectedTable);
+        foreach (var mapping in TableNameHelper.MultiLayerNameMappings)
+        {
+            if (selectedTable.Contains(mapping.Key))
+            {
+                foreach (var layer in mapping.Value)
+                {
+                    newSelectedTables.Add(layer);
+                }
+            }
+        }
+
+        if (mode == "Double Up")
+        {
+            appState.PreviewDoubleUps(newSelectedTables, surveyId, secondSurveyId);
+        }
+        else if (mode == "Boundary")
+        {
+            appState.PreviewDefectsOutsideBoundary(newSelectedTables, surveyId);
+        }
+    }
+
+    private async void UnloadPCIRatingLayer(int pciRatingId)
+    {
+        var pciRating = await appEngine.PCIRatingService.GetById(new Core.Models.LCMS_Data_Tables.IdRequest { Id = pciRatingId });
+        if (pciRating != null && pciRating.RatingName != null)
+        {
+            if (pciDefectNames.ContainsKey(pciRating.RatingName))
+            {
+                //unload all layers if any layer is loaded
+                var matchValues = pciDefectNames[pciRating.RatingName];
+
+                if (matchValues == null || matchValues.Count == 0) return; 
+                foreach (var matchValue in matchValues)
+                {
+                    var newLayerName = pciRating.RatingName + "-" + matchValue;  
+
+                    var layer = toggleLayerClassList.FirstOrDefault(k => k.LayerName == newLayerName);
+                    if (layer != null && layer.Loaded)
+                    {
+                        ToggleLayers(newLayerName, false);
+                    }
+                }
+            }
+        }
+    }
+}

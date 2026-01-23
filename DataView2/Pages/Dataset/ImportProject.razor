@@ -1,0 +1,544 @@
+﻿@page "/ImportProject"
+
+@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Helper;
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Database_Tables
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using Google.Protobuf.WellKnownTypes;
+@using DataView2.ViewModels;
+@using DataView2.Engines
+@using DataView2.States;
+@using Microsoft.Data.Sqlite
+@using Serilog;
+@using MudBlazor;
+@using System.Text.Json;
+@using Microsoft.Win32;
+@using IFolderPicker = DataView2.Resources.Others.IFolderPicker;
+
+@inject IProjectRegistryService _projectRegistryService;
+@inject NewProjectViewModel NewProjectViewModel;
+@inject IDialogService DialogService;
+@inject ApplicationEngine _appEngine;
+@inject ApplicationState _appState;
+@inject ISnackbar Snackbar;
+@inject IFolderPicker _folderPicker;
+
+<MudSnackbarProvider />
+
+
+<div class="page-background">
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+    <MudPaper Elevation="1" Class="pa-8" Style="width: 100%;">
+            <MudText Typo="Typo.h4">Import a Project</MudText>
+            <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+                Select a Project to Import
+            </MudText>
+        <MudGrid Spacing="3">
+
+            <MudItem xs="1" Class="d-flex flex-column align-center">
+                <div class="circle">1</div>
+                <div class="line"></div>
+            </MudItem>
+                <MudItem xs="11">
+                <MudText Typo="Typo.subtitle1" Color="Color.Secondary">Folder Path</MudText>
+                <MudStack Row>
+                        <MudTextField @bind-Value="sourceProjectPath" Required="true" Variant="Variant.Outlined" Small="true" ReadOnly="true" FullWidth />
+                        <MudButton Variant="Variant.Outlined" OnClick="PickSourceFolder" Class="folder-button d-flex align-center justify-center">
+                            <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                        </MudButton>
+
+                </MudStack>                    
+            </MudItem>
+
+            @if (dataSets.Count() > 0)
+            {
+                <MudItem xs="1" Class="d-flex flex-column align-center">
+                    <div class="circle">2</div>
+                    <div class="line"></div>
+                </MudItem>
+                <MudItem xs="11">
+                    <MudStack Row>
+                    <MudText Typo="Typo.subtitle1" Color="Color.Secondary">Select datasets</MudText>
+                <MudSpacer/>
+                            @if (dataSets.Count() > 1)
+                            {
+                                <MudCheckBox Size="Size.Small" Value="@selectAllChecked" Label="Select All" ValueChanged="@((bool value) => HandleSelectAll(value))" Color="Color.Primary" />
+                            }
+                            @if (backupFound)
+                            {
+                                <MudCheckBox Size="Size.Small" @bind-Value="importBackUp" Label="Import Backups" Color="Color.Primary" />
+                            }
+                        </MudStack>
+                    <MudItem xs="12">
+
+                        @foreach (var tableName in dataSets)
+                        {
+                            <MudCard Outlined="true" Class="mud-card-item">
+                                <MudCardContent>
+                                    <MudCheckBox Size="Size.Small" Value="@(checkedDataSets.TryGetValue(tableName, out var v) && v)" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, tableName))" Color="Color.Primary">
+                                        @tableName
+                                    </MudCheckBox>
+                                </MudCardContent>
+                            </MudCard>
+                        }
+                                
+                    </MudItem>
+            </MudItem>
+                    <MudItem xs="12">
+                        <div class="action-section">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportProjectAndDataset" Style="padding: 15px">Import </MudButton>
+                        </div>
+                    </MudItem>
+        }
+        </MudGrid>
+    </MudPaper>
+</MudContainer>
+</div>
+
+@code {
+    private string sourceProjectPath;
+    private string destinationFolderPath = AppPaths.DefaultProjectFolder;
+
+    private Dictionary<string, bool> checkedDataSets = new Dictionary<string, bool>();
+    private HashSet<string> dataSets = new HashSet<string>();
+    private bool selectAllChecked = false;
+    private int projectId = 0;
+    private int datasetsImported = 0;
+    private List<string> dbFiles = new List<string>(); // .db files in folder of the Current Project
+    private IDialogReference dialogImport;
+    private bool backupFound = false;
+    private bool importBackUp = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _appEngine = MauiProgram.AppEngine;
+        //await FetchTableNames();
+    }
+
+    // this does nothing
+    // public async Task FetchTableNames()
+    // {
+    //     try
+    //     {
+    //         dataSets.Clear();
+    //         checkedDataSets.Clear();
+    //         foreach (var tableName in dataSets)
+    //         {
+    //             checkedDataSets[tableName] = false;
+    //         }
+    //         selectAllChecked = false;
+    //         await Task.CompletedTask;
+    //         StateHasChanged();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine(ex.Message);
+    //     }
+    // }
+
+    private void HandleCheckBoxChanged(bool isChecked, string tableName)
+    {
+        checkedDataSets[tableName] = isChecked;
+    }
+
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    string genFileImage = "/images/download.gif";
+    string genFileText = "Reading datasets.....";
+    DialogParameters parameters;
+    string[] _files; // .db files in selected folder.
+
+    private async Task PickSourceFolder()
+    {
+        var folder = await PickFolderPath(AppPaths.DocumentsFolder);
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            Snackbar.Add("No folder selected.", Severity.Warning);
+            return;
+        }
+        sourceProjectPath = folder;
+        LoadDatasets(folder);
+    }
+
+    private async Task PickDestinationFolder()
+    {
+        var folder = await PickFolderPath(destinationFolderPath);
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            Snackbar.Add("No folder selected.", Severity.Warning);
+            return;
+        }
+
+        destinationFolderPath = folder;
+    }
+
+    private void LoadDatasets(string folderPath)
+    {
+        dataSets.Clear();
+        checkedDataSets.Clear();
+
+        var datasetsFolder = Path.Combine(folderPath, "Datasets");
+        if (Directory.Exists(datasetsFolder))
+        {
+            var dbFiles = Directory.GetFiles(datasetsFolder, "*.db");
+            _files = dbFiles;
+            dataSets = new HashSet<string>(_files.Select(Path.GetFileName));
+            checkedDataSets = dataSets.ToDictionary(name => name, _ => false);
+
+            var backupFolder = Path.Combine(datasetsFolder, "Backups");
+            if (Directory.Exists(backupFolder))
+            {
+                var backupFiles = Directory.GetFiles(backupFolder, "*.db");
+                if (backupFiles != null && backupFiles.Count() > 0)
+                {
+                    backupFound = true;
+                }
+            }
+        }
+        else
+        {
+            _files = Array.Empty<string>();
+        }
+
+        if (_files.Length == 0)
+        {
+            Snackbar.Add("No datasets found in the selected location.", Severity.Warning);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task<string> PickFolderPath(string initialFolderPath)
+    {
+        return await Task.FromResult(_folderPicker.PickFolder(initialFolderPath) ?? string.Empty);
+    }
+
+    private void HandleSelectAll(bool isChecked)
+    {
+        selectAllChecked = isChecked;
+
+        // Set all individual checkboxes to the same state as "Select All"
+        foreach (var dataSet in dataSets)
+        {
+            checkedDataSets[dataSet] = isChecked;
+        }
+        StateHasChanged();
+    }
+
+    private async Task ImportProjectAndDataset()
+    {
+        string origianlProjectName = Path.GetFileNameWithoutExtension(sourceProjectPath);
+        var finalProjectName = origianlProjectName;
+
+        try
+        {
+            if (!checkedDataSets.Values.Any(value => value))
+            {
+                Snackbar.Add($"Select at least one DataSet to include.", Severity.Warning);
+                return;
+            }
+            //Check if project name already exists
+            var checkResult = await _appEngine.ProjectRegistryService.CheckExistByName(finalProjectName);
+            while (checkResult.Id == -1)
+            {
+                Snackbar.Add($"A project with the name '{finalProjectName}' already exists. Please choose a different name.", Severity.Warning);
+
+                var newProjectName = await ShowInputDialog("Set Imported Project Name", finalProjectName);
+                if (string.IsNullOrWhiteSpace(newProjectName))
+                {
+                    Snackbar.Add("Project name can't be empty.", Severity.Warning);
+                    return;
+                }
+
+                finalProjectName = newProjectName;
+                checkResult = await _appEngine.ProjectRegistryService.CheckExistByName(finalProjectName);
+            }
+
+            var finalProjectFolderPath = Path.Combine(destinationFolderPath, finalProjectName);
+
+            //show import UI
+            genFileText = "Importing a Project and datasets...";
+            parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+            dialogImport = Dialog.Show<Charging>("", parameters, maxWidth);
+            await Task.Delay(2000);
+
+            // STEP 1: Copy Project DB to the destination path
+            IdReply idreply = await _appEngine.LocalProjectService.ImportProjectAsync(new ImportProjectPath
+            {
+                SourceProjectPath = sourceProjectPath,
+                DestinationProjectPath = finalProjectFolderPath
+            });
+
+            if (idreply.Id == -1)
+            {
+                Snackbar.Add(idreply.Message, Severity.Error);
+                Serilog.Log.Warning($"CopyProject failed: {idreply.Message}");
+                return;
+            }
+
+            // STEP 2: Fetch original project from copied DB
+            Project project;
+            try
+            {
+                project = await _appEngine.LocalProjectService.GetByName(finalProjectName);
+                if (project == null)
+                {
+                    Serilog.Log.Error("GetByName returned null after DB copy.");
+                    Snackbar.Add("Project data not found in the copied database.", Severity.Error);
+                    return;
+                }
+            }
+            catch (Exception getProjectEx)
+            {
+                Serilog.Log.Error($"GetByName failed: {getProjectEx.Message}");
+                Snackbar.Add("Error retrieving project from copied database.", Severity.Error);
+                return;
+            }
+
+            // STEP 3: Create the same project to metadata (app level)
+            var newProjectRequest = new ProjectRegistry
+            {
+                IdProject = project.IdProject.ToString(),
+                Name = finalProjectName,
+                CreatedAtActionResult = project.CreatedAtActionResult,
+                UpdatedAtActionResult = project.UpdatedAtActionResult,
+                FolderPath = project.FolderPath,
+                DBPath = project.DBPath
+            };
+
+            var projectRply = await _appEngine.ProjectRegistryService.Create(newProjectRequest);
+            if (projectRply.Id == -1)
+            {
+                Log.Error($"Error creating a new project when Importing external project");
+            }
+
+            // STEP 4: import datasets and backups
+            bool datasetsImported = await ImportDatasets(
+                Path.Combine(sourceProjectPath, "Datasets"),
+                Path.Combine(finalProjectFolderPath, "Datasets")
+            );
+
+            if (!datasetsImported)
+            {
+                Snackbar.Add($"No datasets were imported.", Severity.Warning);
+                Snackbar.Add($"Project {finalProjectName} was not imported.", Severity.Warning);
+                Serilog.Log.Warning($"Project {finalProjectName} was not imported due to missing datasets.");
+                dialogImport?.Close();
+                return;
+            }
+
+            Snackbar.Add($"The Project : {finalProjectName} was imported successfully.", Severity.Info);
+            Serilog.Log.Information($"The Project : {finalProjectName} was imported successfully.");
+            dialogImport?.Close();
+
+            _appState.UpdateBaseProject(newProjectRequest);
+            _appState.UpdateProject(project);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: Project {finalProjectName} was not imported.", Severity.Warning);
+            Serilog.Log.Warning($"Error: Project {finalProjectName} was not imported.");
+            dialogImport?.Close();
+            Serilog.Log.Error($"Error importing Project: {ex.Message}");
+        }
+    }
+
+
+    // private async Task<int> CreateNewProjectAsync(string projectName, string projectFolderPath, string id)
+    // {
+    //     var projectRply = await NewProjectViewModel.ImportProjectAsync(projectName, projectFolderPath, id);
+    //     try
+    //     {
+
+    //         if (projectRply.Id != -1)
+    //         {
+    //             IdRequest idrequest = new IdRequest
+    //                 {
+    //                     Id = projectRply.Id
+    //                 };
+
+    //             ProjectRegistry projectRegistry = await _projectRegistryService.GetById(idrequest);
+
+    //             //create a folder in the destinationFolderPath with the name of project
+    //             finalProjectFolderPath = Path.Combine(destinationFolderPath, importedProjectName);
+    //             // Ensure the project folder exists
+    //             if (!Directory.Exists(finalProjectFolderPath))
+    //             {
+    //                 Directory.CreateDirectory(finalProjectFolderPath);
+    //             }
+
+    //             Serilog.Log.Information($"Project {projectName} created (imported).");
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Log.Error($"Error creating a new project when Importing external project: {ex.Message}");
+    //     }
+    //     return projectRply.Id;
+    // }
+
+
+    // private async Task<string> CopyProject(string sourceDirectoryPath, string destinationFolderPath)
+    // {
+
+    //     try
+    //     {
+    //         if (!Directory.Exists(sourceDirectoryPath))
+    //         {
+    //             Log.Warning($"Source directory does not exist: {sourceDirectoryPath}");
+    //             return "Source directory does not exists";
+    //         }
+
+    //         if (!Directory.Exists(destinationFolderPath))
+    //         {
+    //             Directory.CreateDirectory(destinationFolderPath);
+    //         }
+
+    //         // Get the first file in the directory
+    //         string[] files = Directory.GetFiles(sourceDirectoryPath, "*.db"); // Only get .db files
+    //         if (files.Length == 0)
+    //         {
+    //             Log.Warning($"No files found in source directory: {sourceDirectoryPath}");
+    //             return "No project files found in source directory";
+    //         }
+
+    //         string fileName = files[0]; // Take the first file
+    //         string targetFilePath = Path.Combine(destinationFolderPath, Path.GetFileName(fileName));
+
+    //         File.Copy(fileName, targetFilePath, overwrite: true);
+
+    //         Log.Information($"File copied: {fileName} -> {targetFilePath}");
+
+    //         return targetFilePath;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Log.Error($"Error copying file: {ex.Message}");
+    //         return $"Error copying file: {ex.Message}";
+    //     }
+    // }
+
+
+
+    private async Task<string> ShowInputDialog(string title, string initialValue)
+    {
+        var parameters = new DialogParameters
+        {
+
+            { "UserInput", initialValue }
+        };
+
+        var options = new DialogOptions { CloseOnEscapeKey = true };
+
+        var dialog = DialogService.Show<InputDialog>(title, parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            return result.Data.ToString();
+        }
+
+        return (string.Empty);
+    }
+
+
+    private async Task<bool> ImportDatasets(string sourceProjectPath, string destinationProjectPath)
+    {
+        if (!Directory.Exists(destinationProjectPath))
+        {
+            Directory.CreateDirectory(destinationProjectPath);
+        }
+
+        try
+        {
+            //handle backups
+            var backupResponse = await _appEngine.DatasetBackupService.HandleBackupImportOption(new ImportBackupRequest { ImportBackup = importBackUp, SourceFolder = sourceProjectPath, DestinationFolder = destinationProjectPath });
+
+            //datasets
+            foreach (var dataset in checkedDataSets.Where(ds => ds.Value)) // Only process checked datasets
+            {
+                string datasetSourcePath = Path.Combine(sourceProjectPath, dataset.Key);
+                string datasetDestinationPath = Path.Combine(destinationProjectPath, dataset.Key);
+
+                if (!File.Exists(datasetSourcePath))
+                {
+                    Log.Warning($"Dataset not found: {datasetSourcePath}");
+                    continue;
+                }
+
+                try
+                {
+                    //copy and update only if source and destination paths are different
+                    if (datasetSourcePath != datasetDestinationPath)
+                    {
+                        File.Copy(datasetSourcePath, datasetDestinationPath, overwrite: true);
+                    }
+                    await _appEngine.DatabaseRegistryService.EnsureDatabaseIsUpToDate(datasetDestinationPath);
+
+
+                    //update local database registry
+                    DatabaseRegistryLocal databaseRegistryLocal = await _appEngine.DatabaseRegistryService.GetByName(Path.GetFileNameWithoutExtension(dataset.Key));
+                    if (databaseRegistryLocal != null)
+                    {
+                        databaseRegistryLocal.Path = datasetDestinationPath; //change the path
+                        await _appEngine.DatabaseRegistryService.RenameDataset(databaseRegistryLocal);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Error copying file : {ex.Message}");
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error copying datasets: {ex.Message}");
+            return false;
+        }
+    }
+
+    // //not used, bu can be implemented
+    // private async Task<bool> ImportBackups(string folderBackupsToChange, string targetBackupsDirectory, string DatabasePath)
+    // {
+    //     try
+    //     {
+    //         if (!Directory.Exists(folderBackupsToChange))
+    //         {
+
+    //             Console.WriteLine("Origin folder does not exist: " + folderBackupsToChange);
+    //             return false;
+    //         }
+    //         if (Directory.Exists(targetBackupsDirectory))
+    //         {
+    //             Directory.Delete(targetBackupsDirectory, true);
+    //             Directory.CreateDirectory(targetBackupsDirectory);
+    //         }
+    //         else
+    //         {
+    //             Directory.CreateDirectory(targetBackupsDirectory);
+    //         }
+    //         string[] files = Directory.GetFiles(folderBackupsToChange, "*.db");
+
+    //         BackupPathRequest listBackups = new BackupPathRequest { BackupPaths = files.ToList(), folderBackupToChange = folderBackupsToChange, folderBackupTarget = targetBackupsDirectory, DatabasePath = DatabasePath };
+    //         ListRequest result = await _appEngine.DatabaseRegistryService.ChangeBackups(listBackups);
+    //         if (result != null && result.ListData.Count() > 0)
+    //         {
+    //             return true;
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Log.Error("Error copying backups from the imported project : " + ex.Message);
+    //     }
+    //     return false;
+    // }
+}

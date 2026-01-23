@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:DataView2"
+             xmlns:viewModels ="clr-namespace:DataView2.ViewModels"
+             x:DataType="local:ImageComponent"
+             x:Class="DataView2.ImageComponent">
+    <ContentView.Resources>
+        <local:Drawable x:Key="drawable"/>
+        <viewModels:ImageViewModel x:Key="ImageViewModel" />
+    </ContentView.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition x:Name="topGrid" Height="*"/>
+            <RowDefinition x:Name="bottomGrid" Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" x:Name="grdImage">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0">
+                <Image x:Name="ImageRange" Aspect="Fill" />
+                <GraphicsView x:Name="rangeGraphicsView" 
+                          Drawable="{StaticResource drawable}"
+                          StartInteraction="OnStartInteraction"
+                          DragInteraction="OnDragInteraction"
+                          EndInteraction="OnEndInteraction">
+                    <GraphicsView.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnRightClicked" Buttons="Secondary" />
+                        <PointerGestureRecognizer PointerEntered="PointerEntered" PointerExited="PointerExited"/>
+                    </GraphicsView.GestureRecognizers>
+                </GraphicsView>
+                <Label x:Name="RangeLabel" Text="Range" BackgroundColor="White" HorizontalOptions="Center" VerticalOptions="Start" Margin="10"/>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <HorizontalStackLayout HorizontalOptions="End" Spacing="7">
+                    <Button x:Name="ImagePopup" ToolTipProperties.Text="Toggle image popup window" Style="{StaticResource CalciteStyle}" Text="&#xE1BF;" FontSize="15" Padding="10" WidthRequest="38" HeightRequest="38" Clicked="ImagePopup_Clicked" />
+                    <Button x:Name="ToggleOverlay" ToolTipProperties.Text="Toggle raw/overlay image" Style="{StaticResource CalciteStyle}" Text="&#xE027;" FontSize="15" Padding="10" WidthRequest="38" HeightRequest="38" Clicked="ToggleOverlay_Clicked" />
+                </HorizontalStackLayout>
+            </Grid>
+            
+            <Grid Grid.Row="2">
+                <Image x:Name="ImageIntensity" Aspect="Fill"/>
+                <GraphicsView x:Name="intensityGraphicsView"
+                          Drawable="{StaticResource drawable}"
+                          StartInteraction="OnStartInteraction"
+                          DragInteraction="OnDragInteraction"
+                          EndInteraction="OnEndInteraction">
+                    <GraphicsView.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnRightClicked" Buttons="Secondary" />
+                        <TapGestureRecognizer Tapped="OnDoubleClickImage" NumberOfTapsRequired="2" Buttons="Primary" />
+                        <PointerGestureRecognizer PointerEntered="PointerEntered" PointerExited="PointerExited"/>
+                    </GraphicsView.GestureRecognizers>
+                </GraphicsView>
+                <Label x:Name="IntensityLabel" Text="Intensity" BackgroundColor="White" HorizontalOptions="Center" VerticalOptions="Start" Margin="10"/>
+                <Label x:Name="CrackClassificationLbl" Text="Double Click to enable/disable Crack Segments" BackgroundColor="Black" TextColor="White" HorizontalOptions="Center" VerticalOptions="EndAndExpand" Margin="10"/>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="1"  x:Name="grdOption">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" VerticalOptions="End" HorizontalOptions="Center">
+                <Label x:Name="lblNoImageFound"  TextColor="White" Text="No Image Found" HorizontalOptions="Center" VerticalOptions="Center" Margin="10"></Label>
+            </Grid>
+        
+            <Grid Grid.Row="1" VerticalOptions="End" HorizontalOptions="Center">
+                <Button x:Name="btnUpdateImageSource" Text="Click to Update Image Source" HorizontalOptions="Center" VerticalOptions="Center" Clicked="btnUpdateImageSource_Clicked"></Button>
+            </Grid>
+        </Grid>
+    </Grid>
+</ContentView>

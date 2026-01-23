@@ -1,0 +1,1041 @@
+﻿@using CommunityToolkit.Maui.Storage
+@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes
+@using Serilog
+@using System.Text
+@using Microsoft.VisualBasic.FileIO;
+
+@inject ApplicationEngine appEngine;
+@inject ApplicationState appState;
+@inject LayerViewModel viewModel;
+@inject ISnackbar Snackbar
+@inject MudBlazor.IDialogService DialogService
+
+<MudProviders />
+
+@if(mode == "add")
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2">
+            <MudText Typo="Typo.h6" Class="mx-2">Add a New Table</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudRadioGroup T="bool" Class="mx-auto" Value="IsExistingTable" ValueChanged="RefreshValues">
+            <MudRadio T="bool" Value="false">New Table</MudRadio>
+            <MudRadio T="bool" Value="true">Existing Table</MudRadio>
+        </MudRadioGroup>
+        <MudContainer>
+            @if (!IsExistingTable)
+            {
+                <MudForm Class="mx-2">
+                    <MudTextField T="string" Label="Table Name" Variant="Variant.Outlined" @bind-Value="newTableName" />
+                    <MudStack Row>
+                        <MudSelect T="string" Label="GeoType" Variant="Variant.Outlined" @bind-Value="geoType" Adornment="Adornment.End">
+                            <MudSelectItem Value="@("Point")" />
+                            <MudSelectItem Value="@("Polyline")" />
+                            <MudSelectItem Value="@("Polygon")" />
+                        </MudSelect>
+                        @if (geoType == "Point")
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Collections" OnClick="TogglePopover" />
+                        }
+                    </MudStack>
+
+                    <MudPopover Open="@_isPopoverOpen" AnchorOrigin="Origin.CenterRight" TransformOrigin="Origin.CenterRight" Style="border:1px solid gray; max-width:400px" DropShadow="false" Class="p-4">
+                        <div class="d-flex justify-content-between">
+                            <MudText Typo="Typo.button" Class="p-2 mb-2">Icon Picker</MudText>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="TogglePopover" Class="mb-2"></MudIconButton>
+                        </div>
+                        <div style="overflow-y:auto; max-height:250px; padding:5px;">
+                            <MudGrid>
+                                @foreach (var icon in existingIconsBase64)
+                                {
+                                    <MudItem>
+                                        <MudPaper Elevation="0" Class="@(selectedIconPath == icon.Key ? "icon-card selected" : "icon-card")" @onclick="() => SelectIcon(icon.Key)">
+                                            <img src="@icon.Value" alt="@icon.Key" style="width: 30px; height:30px;" />
+                                        </MudPaper>
+                                    </MudItem>
+                                }
+                            </MudGrid>
+                        </div>
+                        <MudStack Row Class="mt-5" Justify="Justify.Center" AlignItems="AlignItems.Center">
+                            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="UploadIcon">Upload</MudButton>
+                            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="TogglePopover">Select</MudButton>
+                        </MudStack>
+                    </MudPopover>
+
+                </MudForm>
+                <MudPaper class="m-2" Outlined="true" MaxHeight="200">
+                    <MudGrid>
+                        <MudItem xs="4" Style="margin-top:25px; border-right: 1px solid lightgray;">
+                            <MudList T="string" Dense>
+                                <MudListItem OnClick="@(() => AddField("Text"))"><MudIcon Icon="@Icons.Material.Filled.Abc" /> Text</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Number"))"><MudIcon Icon="@Icons.Material.Filled._123" /> Number</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Dropdown"))"><MudIcon Icon="@Icons.Material.Filled.ArrowDropDown" /> Dropdown</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Date"))"><MudIcon Icon="@Icons.Material.Filled.CalendarMonth" /> Date</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Measurement"))"><MudIcon Icon="@Icons.Material.Filled.Straighten" /> Measurement</MudListItem>
+                            </MudList>
+                        </MudItem>
+
+                        <MudItem xs="8">
+                            @if (addedFields.Any())
+                            {
+                                <MudPaper Elevation="0" Style="overflow-y: auto; max-height: 200px;">
+
+                                    @foreach (var field in addedFields.Select((value, index) => new { value, index }))
+                                    {
+                                        <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center">
+                                            <MudTextField T="string" Label=@($"Header Name ({field.value.FieldType})") @bind-Value="field.value.FieldName" Margin="Margin.Dense" FullWidth></MudTextField>
+                                            @if (field.value.FieldType == "Dropdown")
+                                            {
+                                                <MudTooltip Text="Add dropdown values">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.ArrowDropDownCircle" Size="Size.Small" OnClick="@(() => OpenDropdownDialog(field.index))" />
+                                                </MudTooltip>
+                                            }
+                                            else if (field.value.FieldType == "Text" || field.value.FieldType == "Number")
+                                            {
+                                                <MudTextField Label="Default Value" @bind-Value="field.value.DefaultValue" />
+                                            }
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="@(() => RemoveField(field.index))" />
+                                        </MudStack>
+                                    }
+                                </MudPaper>
+                            }
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            }
+            else
+            {
+                <MudSelect T="string" Label="Existing Tables" Variant="Variant.Outlined" Value="selectedExistingTable" ValueChanged="OnSelectedExistingTableChanged" Class="mb-3">
+                    @foreach (var table in existingTables)
+                    {
+                        <MudSelectItem Value="table.Key" />
+                    }
+                </MudSelect>
+
+                @if (selectedExistingTable != null && addedFields.Any())
+                {
+                    @if (existingTables.TryGetValue(selectedExistingTable, out var geoType))
+                    {
+                        //add existing table schema here
+                        <MudPaper Elevation="0" Class="mt-2">
+                            <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center">
+                                <MudText Typo="Typo.button" Align="Align.Center">TABLE SCHEMA</MudText>
+                            </MudStack>
+                            <MudTable Items="addedFields" Dense="true" Hover="true" Bordered="true">
+                                <ToolBarContent>
+                                    <MudText Typo="Typo.body2"><b>GeoType</b> : @geoType.ToString()</MudText>
+                                </ToolBarContent>
+                                <HeaderContent>
+                                    <MudTh>Field Name</MudTh>
+                                    <MudTh>Type</MudTh>
+                                    <MudTh>Default Value</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd DataLabel="Field Name">@context.FieldName</MudTd>
+                                    <MudTd DataLabel="Type">@context.FieldType</MudTd>
+                                    <MudTd DataLabel="Default Value">@context.DefaultValue</MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        </MudPaper>
+
+                    }
+                }
+            }
+
+            <div class="d-flex align-items-center m-2 mt-4">
+                <!-- Left: Icon buttons -->
+                <div>
+                    <MudStack Row Spacing="1">
+                        <MudTooltip Class="ms-9" Placement="Placement.Top" Text="Load a custom table template">
+                            <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Primary" Variant="Variant.Outlined" OnClick="LoadCustomTableTemplate" />
+                        </MudTooltip>
+                        <MudTooltip Text="Save as a template" Placement="Placement.Top">
+                            <MudIconButton Icon="@Icons.Material.Filled.FileUpload" Color="Color.Primary" Variant="Variant.Outlined" OnClick="SaveCustomTableTemplate" />
+                        </MudTooltip>
+                    </MudStack>
+                </div>
+
+                <!-- Center: Save button -->
+                <div class="mx-auto">
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveNewTableLayer">Save</MudButton>
+                </div>
+
+                <!-- Right: Empty space to balance layout -->
+                <div class="ms-auto"></div>
+            </div>
+        </MudContainer>
+    </MudStack>
+}
+else if (mode == "edit")
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="m-2 my-5">
+            <MudText Typo="Typo.h6" Class="mx-2">Edit or Delete @tableName schema</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudContainer>
+            @if(metaTable != null)
+            {
+                <MudPaper Class="m-2" Outlined="true" MaxHeight="380">
+                    <MudGrid>
+                        <MudItem xs="4" Style="margin-top:25px; border-right: 1px solid lightgray;">
+                            <MudList T="string" Dense>
+                                <MudListItem OnClick="@(() => AddField("Text"))"><MudIcon Icon="@Icons.Material.Filled.Abc" /> Text</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Number"))"><MudIcon Icon="@Icons.Material.Filled._123" /> Number</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Dropdown"))"><MudIcon Icon="@Icons.Material.Filled.ArrowDropDown" /> Dropdown</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Date"))"><MudIcon Icon="@Icons.Material.Filled.CalendarMonth" /> Date</MudListItem>
+                                <MudListItem OnClick="@(() => AddField("Measurement"))"><MudIcon Icon="@Icons.Material.Filled.Straighten" /> Measurement</MudListItem>
+                            </MudList>
+                        </MudItem>
+
+                        <MudItem xs="8">
+                            @if (addedFields.Any())
+                            {
+                                <MudPaper Elevation="0" Style="overflow-y: auto; max-height: 380px;">
+
+                                    @foreach(var field in addedFields.Select((value, index) => new { value, index }))
+                                    {
+                                        <MudStack Row>
+                                            <MudTextField T="string" Label=@($"Header Name ({field.value.FieldType})") @bind-Value="field.value.FieldName" Margin="Margin.Dense" FullWidth Disabled="@(field.value.IsNonEditable == true)"></MudTextField>
+                                            @if (field.value.FieldType == "Dropdown")
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" OnClick="@(() => OpenDropdownDialog(field.index))" />
+                                            }
+                                            else if (field.value.FieldType == "Text" || field.value.FieldType == "Number")
+                                            {
+                                                <MudTextField Label="Default Value" @bind-Value="field.value.DefaultValue" />
+                                            }
+                                            <!-- Remove Field -->
+                                            @if (!field.value.IsNonEditable)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                                Size="Size.Small"
+                                                OnClick="@(() => RemoveField(field.index))" />
+                                            }
+                                        </MudStack>                                    
+                                    }
+                                </MudPaper>
+                            }
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            }
+
+            <div class="d-flex justify-content-center align-items-center m-2 mt-4 gap-3">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="EditMetaTable">Edit</MudButton>
+                <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="DeleteMetaTable">Delete</MudButton>
+            </div>
+        </MudContainer>
+    </MudStack>
+}
+else
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2">
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudText>Sorry, the page can not be found.</MudText>
+    </MudStack>
+}
+
+<!-- The Dialog for Adding Dropdown Values -->
+<MudDialog Options="_dialogOptions" style="height:330px" Visible="_dialogVisible" VisibleChanged="OnDropdownDialogVisibilityChanged">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            Dropdown Values
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_activeFieldIndex >= 0 && _activeFieldIndex < addedFields.Count)
+        {
+            <!-- Button to manage dropdown values -->
+            <MudPaper Outlined Style="overflow-y: auto; height: 200px; width: 300px; padding:10px">
+                <MudStack Row Spacing="1">
+                    <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary" Size="Size.Small" Variant="Variant.Outlined" OnClick="AddDropdownValue" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Remove" Color="Color.Primary" Size="Size.Small" Variant="Variant.Outlined" OnClick="RemoveDropdownValue" />
+                </MudStack>
+                @foreach (var value in _tempDropdownValues.Select((v, idx) => new { v, idx }))
+                {
+                    <MudTextField T="string" Label="Value" @bind-Value="_tempDropdownValues[value.idx]" Margin="Margin.Dense" />
+                }
+            </MudPaper>
+
+            <div class="d-flex justify-content-center align-content-center m-1">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveDropdownChanges">Save</MudButton>
+            </div>
+        }
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter]
+    public string mode { get; set; }
+    [Parameter]
+    public string tableName { get; set; }
+    private string newTableName;
+    private string geoType;
+    //private string selectedIconName;
+    private string selectedIconPath;
+
+    private bool IsExistingTable = false;
+    private Dictionary<string, string> existingTables = new Dictionary<string, string> ();
+    private string selectedExistingTable = string.Empty;
+
+    private MetaTable metaTable;
+    private Dictionary<string, string> existingIconsBase64 = new Dictionary<string, string>();
+
+    private List<FieldModel> addedFields = new();
+    public class FieldModel
+    {
+        public string FieldType { get; set; } // Text, Number, etc.
+        public string FieldName { get; set; } // User input for the field name
+        public string DefaultValue { get; set; }
+        public string NewValue { get; set; }
+        public List<string> DropdownValues { get; set; } = new();
+        public bool IsNonEditable { get; set; } = false;// New property to identify if it's an added field
+    }
+
+    private bool _isPopoverOpen;
+    private bool _dialogVisible = false;
+    private int _activeFieldIndex = -1;
+    private readonly DialogOptions _dialogOptions = new() { CloseButton = true };
+    private List<string> _tempDropdownValues = new();
+
+    //default images 
+    private string[] resourceImageNames = new[] { "car.png", "check.png", "heart.png", "pin.png", "pin_black.png", "question.png", "star.png", "warning.png",
+                                                  "arrow_down.png", "arrow_left.png", "arrow_right.png", "arrow_up.png" };
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        if (mode == "add")
+        {
+            GetExistingTables();
+        }
+        else if (mode == "edit")
+        {
+            if (tableName != null)
+            {
+                GetMetaTables(tableName);
+            }
+        } 
+        LoadExistingIcons();
+    }
+
+    private async void GetExistingTables()
+    {
+        //get meta tables that don't eixst in the label layers
+        var MetaTablesToAdd = await appEngine.MetaTableService.HasNoData(new Empty());
+        if (MetaTablesToAdd.Count > 0)
+        {
+            foreach (var metaTable in MetaTablesToAdd)
+            {
+                if (metaTable.TableName.StartsWith("IRI") && metaTable.TableName.Contains("Meter Section")) continue; //don't include IRI custom meter section
+                existingTables.Add(metaTable.TableName, metaTable.GeoType);
+            }
+        }
+    }
+
+    private async void GetMetaTables(string tableName)
+    {
+        metaTable = await appEngine.MetaTableService.GetByName(tableName);
+
+        if(metaTable != null && metaTable.TableName != null)
+        {
+            addedFields.Clear();
+            for (int i = 1; i <= 25; i++)
+            {
+                var columnName = (string)metaTable.GetType().GetProperty($"Column{i}")?.GetValue(metaTable);
+                var columnType = (string)metaTable.GetType().GetProperty($"Column{i}Type")?.GetValue(metaTable);
+                var columnDefault = (string)metaTable.GetType().GetProperty($"Column{i}Default")?.GetValue(metaTable);
+
+                if (!string.IsNullOrEmpty(columnName))
+                {
+                    var fieldModel = new FieldModel
+                        {
+                            FieldName = columnName,
+                            FieldType = columnType
+                        };
+
+                    if (columnDefault != null)
+                    {
+                        fieldModel.DefaultValue = columnDefault;
+
+                        if (columnType == "Dropdown")
+                        {
+                            var dropdownValues = columnDefault.Split(',')
+                                    .Select(value => value.Trim())
+                                    .ToList();
+                            fieldModel.DropdownValues = dropdownValues;
+                        }
+                    }
+
+                    fieldModel.IsNonEditable = true;
+                    addedFields.Add(fieldModel);
+                }
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void TogglePopover()
+    {
+        _isPopoverOpen = !_isPopoverOpen;
+    }
+
+    private void SelectIcon(string selectedIcon)
+    {
+        selectedIconPath = selectedIcon;
+    }
+
+    private async void UploadIcon()
+    {
+        var customFileType = new FilePickerFileType(
+            new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                { DevicePlatform.iOS, new[] { "public.image" } }, // UTType for image files
+                { DevicePlatform.Android, new[] { "image/png", "image/jpeg" } }, // MIME types for PNG and JPEG
+                { DevicePlatform.WinUI, new[] { ".png", ".jpg", ".jpeg" } }, // file extensions
+                { DevicePlatform.macOS, new[] { "public.image" } } // UTType for image files
+                });
+
+        var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Please select a text file",
+                FileTypes = customFileType,
+            });
+        if (result != null)
+        {
+            //Save uploaded icon into the icon folder
+            var uploadFolderPath = AppPaths.IconFolder;
+            if (!Path.Exists(uploadFolderPath))
+            {
+                Directory.CreateDirectory(uploadFolderPath);
+            }
+
+            var filePath = Path.Combine(uploadFolderPath, result.FileName);
+
+            using (var fileStream = await result.OpenReadAsync())
+            using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
+            {
+                await fileStream.CopyToAsync(stream);
+            }
+
+            using (var fileStream = await result.OpenReadAsync())
+            {
+                using (var memoryStream = new MemoryStream())
+                {
+                    await fileStream.CopyToAsync(memoryStream);
+                    var fileBytes = memoryStream.ToArray();
+                    var base64String = Convert.ToBase64String(fileBytes);
+                    var iconBase64 = $"data:image/png;base64,{base64String}";
+
+                    // Update the dictionary with the new icon
+                    existingIconsBase64[result.FileName] = iconBase64;
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async void LoadExistingIcons()
+    {
+        foreach (var imageName in resourceImageNames)
+        {
+            existingIconsBase64[imageName] = $"Images/{imageName}";
+        }
+
+        var uploadFolderPath = AppPaths.IconFolder;
+        if (!Directory.Exists(uploadFolderPath))
+        {
+            Directory.CreateDirectory(uploadFolderPath);
+        }
+        else
+        {
+            var userImageFiles = Directory.GetFiles(uploadFolderPath);
+
+            foreach (var file in userImageFiles)
+            {
+                var fileBytes = File.ReadAllBytes(file);
+                var base64String = Convert.ToBase64String(fileBytes);
+
+                // Avoid duplicate keys (in case user-uploaded file has the same name as a default icon)
+                if (!existingIconsBase64.ContainsKey(file))
+                {
+                    existingIconsBase64[file] = $"data:image/png;base64,{base64String}";
+                }
+            }
+        }
+
+    }
+
+    private MetaTable BuildMetaTableFromFields(string normalizedTableName)
+    {
+        var metaTable = new MetaTable
+        {
+            TableName = normalizedTableName,
+            GeoType = geoType
+        };
+
+        if (geoType == "Point" && !string.IsNullOrEmpty(selectedIconPath))
+        {
+            metaTable.Icon = selectedIconPath;
+            metaTable.IconSize = 20; //default
+        }
+
+        for (int i = 0; i < addedFields.Count; i++)
+        {
+            var field = addedFields[i];
+
+            var columnProp = typeof(MetaTable).GetProperty($"Column{i + 1}");
+            var columnTypeProp = typeof(MetaTable).GetProperty($"Column{i + 1}Type");
+            var columnDefaultProp = typeof(MetaTable).GetProperty($"Column{i + 1}Default");
+
+            columnProp.SetValue(metaTable, field.FieldName);
+            columnTypeProp?.SetValue(metaTable, field.FieldType);
+
+            if (field.FieldType == "Text" || field.FieldType == "Number")
+            {
+                columnDefaultProp?.SetValue(metaTable, field.DefaultValue);
+            }
+            else if (field.FieldType == "Dropdown" && field.DropdownValues.Any())
+            {
+                // Join dropdown values as comma-separated for storage
+                columnDefaultProp?.SetValue(metaTable, string.Join(",", field.DropdownValues));
+            }
+        }
+
+        return metaTable;
+    }
+
+    private async Task<bool> ValidateTableInput()
+    {
+        if (string.IsNullOrWhiteSpace(newTableName) || string.IsNullOrWhiteSpace(geoType))
+        {
+            Snackbar.Add("All fields must be filled.", Severity.Error);
+            return false;
+        }
+
+        if (addedFields.Any())
+        {
+            foreach (var field in addedFields)
+            {
+                if (!ValidateField(field))
+                    return false;
+            }
+        }
+
+        if (geoType == "Point" && string.IsNullOrEmpty(selectedIconPath))
+        {
+            Snackbar.Add("Please select an icon.", Severity.Error);
+            return false;
+        }
+
+        return true;
+    }
+
+    private async void SaveNewTableLayer()
+    {
+        if (IsExistingTable)
+        {
+            var selectedGeotype = existingTables[selectedExistingTable];
+            appState.AddNewLayer(selectedExistingTable, selectedGeotype);
+            Close();
+        }
+        else
+        {
+            if (!await ValidateTableInput())
+                return;
+
+            string normalizedTableName = (char.ToUpper(newTableName[0]) + newTableName.Substring(1).ToLower()).Trim();
+
+            if (await IsTableNameDuplicate(normalizedTableName))
+            {
+                //warning message
+                Snackbar.Add($"Table name '{newTableName}' already exists.", Severity.Error);
+                return;
+            }
+
+            if (addedFields.Count == 0)
+            {
+                bool result = await App.Current.MainPage.DisplayAlert(
+                    "Confirmation",
+                    "Are you sure you want to create a new table without any fields? The table will be created without any defined columns.",
+                    "Yes", "No");
+
+                if (!result)
+                    return;
+            }
+            var metaTable = BuildMetaTableFromFields(normalizedTableName);
+            var response = await appEngine.MetaTableService.CreateMetaTable(metaTable);
+            if (response.Id != -1)
+            {
+                await App.Current.MainPage.DisplayAlert("Success", "A new table has been added. Please find it in the Layer Menu.", "OK");
+                appState.AddNewLayer(normalizedTableName, geoType);
+            }
+            else
+            {
+                await App.Current.MainPage.DisplayAlert("Error", "Something went wrong. Please try again.", "OK");
+            }
+            Close();
+        }
+    }
+
+    private async Task<bool> IsTableNameDuplicate(string tableName)
+    {
+        var normalizedInput = tableName.ToLowerInvariant().Replace(" ", "");
+
+        //Check if the table name already exists in metaTable
+        var metaTable = await appEngine.MetaTableService.GetByName(tableName);
+        if (metaTable.TableName != null)
+        {
+            return true;
+        }
+
+        //Check if table name is same as lcms
+        var lcmsTables = TableNameHelper.GetAllLCMSOverlayIds()
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.ToLowerInvariant().Replace(" ", ""))
+            .ToList();
+
+        return lcmsTables.Contains(normalizedInput);
+    }
+
+    private void Close()
+    {
+        viewModel.ClosePopup();
+    }
+
+    // Method to add a field when clicking the left panel items
+    private void AddField(string fieldType)
+    {
+        var count = addedFields.Count;
+        if (count < 25)
+        {
+            addedFields.Add(new FieldModel { FieldType = fieldType, FieldName = "" });
+        }
+    }
+
+    private void RemoveField(int index)
+    {
+        if (index >= 0 && index < addedFields.Count)
+        {
+            addedFields.RemoveAt(index);
+        }
+    }
+
+    // Opens the dialog for managing dropdown values
+    private void OpenDropdownDialog(int fieldIndex)
+    {
+        if (addedFields.Count > 0 )
+        {
+            _tempDropdownValues.Clear();
+            if (addedFields[fieldIndex].DropdownValues.Count == 0)
+            {
+                //add initial empty values
+                _tempDropdownValues.Add("");
+                _tempDropdownValues.Add("");
+            }
+            else
+            {
+                _tempDropdownValues = new List<string>(addedFields[fieldIndex].DropdownValues);
+            }
+            _activeFieldIndex = fieldIndex;
+            _dialogVisible = true;
+        }
+    }
+
+    private void OnDropdownDialogVisibilityChanged(bool visible)
+    {
+        _dialogVisible = visible;
+        if (!visible)
+        {
+            _tempDropdownValues.Clear(); // discard changes
+        }
+    }
+
+    // Add/Remove Dropdown Values
+    private void AddDropdownValue()
+    {
+        _tempDropdownValues.Add("");
+    }
+
+    private void RemoveDropdownValue()
+    {
+        // Remove the last value in the dropdown values list
+        _tempDropdownValues.RemoveAt(_tempDropdownValues.Count - 1);
+    }
+
+    private void SaveDropdownChanges()
+    {
+        var uniqueValues = new HashSet<string>();
+
+        foreach (var dropdown in _tempDropdownValues)
+        {
+            if (string.IsNullOrEmpty(dropdown))
+            {
+                Snackbar.Add("Dropdown values cannot be empty.", Severity.Error);
+                return;
+            }
+
+            if (!uniqueValues.Add(dropdown))
+            {
+                Snackbar.Add("Dropdown values must be unique.", Severity.Error);
+                return;
+            }
+        }
+
+        if (_activeFieldIndex >= 0 && _activeFieldIndex < addedFields.Count)
+        {
+            addedFields[_activeFieldIndex].DropdownValues = new List<string>(_tempDropdownValues);
+        }
+
+        _dialogVisible = false;
+    }
+
+    private bool ValidateField(FieldModel field)
+    {
+        if (string.IsNullOrEmpty(field.FieldName))
+        {
+            Snackbar.Add("Header Names cannot be empty.", Severity.Error);
+            return false;
+        }
+
+        if (field.FieldType == ColumnType.Dropdown.ToString())
+        {
+            if (field.DropdownValues.Count == 0)
+            {
+                Snackbar.Add($"Please add dropdown values to field '{field.FieldName}'.", Severity.Error);
+                return false;
+            }
+        }
+        else if (field.FieldType == ColumnType.Number.ToString())
+        {
+            if (field.DefaultValue != null && !double.TryParse(field.DefaultValue, out _))
+            {
+                Snackbar.Add("The default value for a field of type 'Number' must be a valid numeric value.", Severity.Error);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void OnSelectedExistingTableChanged(string selectedTable)
+    {
+        selectedExistingTable = selectedTable;
+
+        //show schema
+        GetMetaTables(selectedTable);
+    }
+
+    private async void EditMetaTable()
+    {
+        if(metaTable != null)
+        {
+            for (int i = 0; i < addedFields.Count; i++)
+            {
+                var field = addedFields[i];
+
+                if (!ValidateField(field))
+                {
+                    return;
+                }
+
+                var columnProp = typeof(MetaTable).GetProperty($"Column{i + 1}");
+                var columnTypeProp = typeof(MetaTable).GetProperty($"Column{i + 1}Type");
+                var columnDefaultProp = typeof(MetaTable).GetProperty($"Column{i + 1}Default");
+
+                columnProp.SetValue(metaTable, field.FieldName);
+                columnTypeProp?.SetValue(metaTable, field.FieldType);
+
+                if (field.FieldType == ColumnType.Text.ToString() || field.FieldType == ColumnType.Number.ToString())
+                {
+                    columnDefaultProp?.SetValue(metaTable, field.DefaultValue);
+                }
+                else if (field.FieldType == ColumnType.Dropdown.ToString() && field.DropdownValues.Any())
+                {
+                    // Join dropdown values as comma-separated for storage
+                    columnDefaultProp?.SetValue(metaTable, string.Join(",", field.DropdownValues));
+                }
+            }
+
+            var response = await appEngine.MetaTableService.EditMetaTable(metaTable);
+            if(response != null &&  response.Id == 0)
+            {
+                await App.Current.MainPage.DisplayAlert("Success", $"{metaTable.TableName} table has been successfully edited.", "OK");
+            }
+            else
+            {
+                Console.WriteLine($"Error in editing metatable. {response.Message}");
+                await App.Current.MainPage.DisplayAlert("Error", "Something went wrong. Please try again.", "OK");
+            }
+            Close();
+        }
+        else
+        {
+            Snackbar.Add("Please select a table.", Severity.Error);
+        }
+    }
+
+    private async void DeleteMetaTable()
+    {
+        if (metaTable != null)
+        {
+            bool result = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure you want to delete the table '{metaTable.TableName}' ? This will permanently remove the table schema and all associated data.", "Yes", "No");
+            if(result == true)
+            {
+                //Delete both metaTable and associated metaTableValues
+                var response = await appEngine.MetaTableService.DeleteMetaTable(metaTable);
+                if(response.Id == 0)
+                {
+                    await App.Current.MainPage.DisplayAlert("Success", $"{metaTable.TableName} table has been successfully deleted.", "OK");
+                }
+                else
+                {
+                    Console.WriteLine($"Error in deleting metatable. {response.Message}");
+                    await App.Current.MainPage.DisplayAlert("Error", "Something went wrong. Please try again.", "OK");
+                }
+            }
+
+            //Update Layer menu
+            appState.RefreshTableNames();
+            Close();
+        }
+        else
+        {
+            Snackbar.Add("Please select a table.", Severity.Error);
+        }
+    }
+
+    private async void LoadCustomTableTemplate()
+    {
+        if (IsExistingTable)
+        {
+            Snackbar.Add("Templates can only be loaded through the 'New Table' option.", Severity.Error);
+            return;
+        }
+
+        //open file picker
+        var customFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".csv" } } });
+        var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Please select a CSV file",
+                FileTypes = customFileType,
+            });
+
+        if (result != null)
+        {
+            var metaTable = await ParseCsvToCustomTables(result);
+            if (metaTable != null)
+            {
+                newTableName = metaTable.TableName;
+                geoType = metaTable.GeoType;
+                if (metaTable.Icon != null)
+                {
+                    selectedIconPath = metaTable.Icon;
+                }
+
+                addedFields.Clear();
+
+                for (int i = 1; i <= 25; i++)
+                {
+                    var name = typeof(MetaTable).GetProperty("Column" + i)?.GetValue(metaTable)?.ToString();
+                    var type = typeof(MetaTable).GetProperty("Column" + i + "Type")?.GetValue(metaTable)?.ToString();
+                    var def = typeof(MetaTable).GetProperty("Column" + i + "Default")?.GetValue(metaTable)?.ToString();
+
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        addedFields.Add(new FieldModel
+                        {
+                            FieldName = name,
+                            FieldType = type,
+                            DefaultValue = type == "Dropdown" ? null : def,
+                            DropdownValues = type == "Dropdown" ? def?.Split(',').ToList() ?? new() : new()
+                        });
+                    }
+                }
+            }
+            else
+            {
+                Snackbar.Add("CSV format error. Please Check if the file is a valid custom table template.", Severity.Error);
+            }
+
+        }
+        StateHasChanged();
+    }
+
+    private async Task<MetaTable> ParseCsvToCustomTables(FileResult result)
+    {
+        var item = new MetaTable();
+
+        // Read CSV content from file
+        using var stream = await result.OpenReadAsync();
+        using var reader = new StreamReader(stream);
+        using var parser = new TextFieldParser(reader)
+            {
+                TextFieldType = Microsoft.VisualBasic.FileIO.FieldType.Delimited,
+                Delimiters = new[] { "," },
+                HasFieldsEnclosedInQuotes = true
+            };
+
+        // Skip header
+        if (!parser.EndOfData)
+            parser.ReadFields();
+
+        var foundKeys = new HashSet<string>();
+        while (!parser.EndOfData)
+        {
+            var fields = parser.ReadFields();
+            if (fields == null || fields.Length != 2) return null;
+
+            var key = fields[0].Trim();
+            var value = fields[1].Trim();
+            foundKeys.Add(key);
+
+            var prop = typeof(MetaTable).GetProperty(key);
+            if (prop != null)
+            {
+                var targetType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+
+                object? convertedValue;
+
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    convertedValue = null;
+                }
+                else if (targetType == typeof(int))
+                {
+                    convertedValue = int.TryParse(value, out var i) ? i : null;
+                }
+                else
+                {
+                    convertedValue = value;
+                }
+
+                prop.SetValue(item, convertedValue);
+            }
+        }
+
+        // Validate required keys
+        var requiredKeys = new[] { "TableName", "GeoType" };
+        foreach (var required in requiredKeys)
+        {
+            if (!foundKeys.Contains(required)) return null;
+        }
+
+        return item;
+    }
+
+    private async Task SaveCustomTableTemplate()
+    {
+        var newMetaTable = new MetaTable();
+        if (!IsExistingTable)
+        {
+            if (!await ValidateTableInput())
+                return;
+
+            string normalizedTableName = (char.ToUpper(newTableName[0]) + newTableName.Substring(1).ToLower()).Trim();
+            newMetaTable = BuildMetaTableFromFields(normalizedTableName);
+        }
+        else
+        {
+            if (selectedExistingTable != null && metaTable != null)
+            {
+                newMetaTable = metaTable;
+            }
+        }
+
+        if (newMetaTable != null)
+        {
+            //open file saver
+            var cancellationToken = new CancellationToken();
+            var csvContent = new StringBuilder();
+
+            //add csv header
+            csvContent.AppendLine("Key,Value");
+
+            //add csv data
+            csvContent.AppendLine("\"TableName\",\"" + (newMetaTable.TableName ?? "").Replace("\"", "\"\"") + "\"");
+            csvContent.AppendLine("\"GeoType\",\"" + (newMetaTable.GeoType ?? "").Replace("\"", "\"\"") + "\"");
+            csvContent.AppendLine("\"Icon\",\"" + (newMetaTable.Icon ?? "").Replace("\"", "\"\"") + "\"");
+            csvContent.AppendLine("\"IconSize\",\"" + (newMetaTable.IconSize?.ToString() ?? "") + "\"");
+
+            for (int i = 1; i <= 25; i++)
+            {
+                var col = typeof(MetaTable).GetProperty("Column" + i)?.GetValue(newMetaTable)?.ToString() ?? "";
+                var type = typeof(MetaTable).GetProperty("Column" + i + "Type")?.GetValue(newMetaTable)?.ToString() ?? "";
+                var def = typeof(MetaTable).GetProperty("Column" + i + "Default")?.GetValue(newMetaTable)?.ToString() ?? "";
+
+                if (!string.IsNullOrWhiteSpace(col))
+                {
+                    csvContent.AppendLine("\"Column" + i + "\",\"" + col.Replace("\"", "\"\"") + "\"");
+                    csvContent.AppendLine("\"Column" + i + "Type\",\"" + type.Replace("\"", "\"\"") + "\"");
+                    csvContent.AppendLine("\"Column" + i + "Default\",\"" + def.Replace("\"", "\"\"") + "\"");
+                }
+            }
+
+            using var stream = new MemoryStream(Encoding.Default.GetBytes(csvContent.ToString()));
+
+            try
+            {
+                var filePromptTask = Application.Current?.MainPage?.DisplayPromptAsync("Save Custom Table Template", "Choose filename");
+                var fileName = await filePromptTask;
+
+                // Check if user canceled the prompt
+                if (fileName == null)
+                {
+                    Snackbar.Add("File naming cancelled. The save operation was not performed.", Severity.Error);
+                    return; // Exit if filename is null or whitespace, thus not proceeding further
+                }
+                else if (fileName == string.Empty)
+                {
+                    fileName = "untitled";
+                }
+
+                // Ensure filename ends with '.csv'
+                if (!fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                {
+                    fileName += ".csv";
+                }
+
+                var fileSaverResult = await FileSaver.Default.SaveAsync(fileName, stream, cancellationToken);
+                if (fileSaverResult.IsSuccessful)
+                {
+                    Snackbar.Add($"A custom table template saved successfully to {fileSaverResult.FilePath}", Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add($"Failed to save file '{fileName}'. Please try again.", Severity.Error);
+                    Console.WriteLine($"File save error: {fileSaverResult.Exception?.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"An error occurred: {ex.Message}", Severity.Error);
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+    }
+
+    private void RefreshValues(bool value)
+    {
+        IsExistingTable = value;
+        metaTable = new MetaTable();
+        newTableName = null;
+        geoType = null;
+        addedFields.Clear();
+        selectedIconPath = null;
+        selectedExistingTable = string.Empty;
+        StateHasChanged();
+    }
+}

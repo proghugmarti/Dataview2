@@ -1,0 +1,259 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Engines
+@using DataView2.States
+@using Google.Protobuf.WellKnownTypes
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using static DataView2.Core.Helper.TableNameHelper
+
+
+@inject ApplicationEngine appEngine
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:7px;" OnClick="Close"></MudIconButton>
+</div>
+<MudContainer>
+    <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="mb-3">APPLY OFFSET</MudText>
+    <MudSelect T="Survey" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=100 LockScroll="false"
+    Class="my-2" SelectedValues="selectedSurveys" SelectedValuesChanged="OnSurveySelected" Disabled="isPreviewing" OnOpen="GetSurveys" MultiSelection="true">
+        @if (surveys.Count > 0)
+        {
+            @foreach (var survey in surveys)
+            {
+                <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+            }
+        }
+    </MudSelect>
+    <MudSelect Margin="Margin.Dense" Dense="true" MultiSelection="true" SelectAll=true Variant="Variant.Outlined" Label="Please select defect layers" MaxHeight=150 LockScroll="false" Class="my-2" @bind-SelectedValues="selectedTables" Disabled="isPreviewing">
+        @if (tableNames.Count > 0)
+        {
+            @foreach (var tableName in tableNames)
+            {
+                <MudSelectItem T="string" Value="@tableName">@tableName</MudSelectItem>
+            }
+        }
+    </MudSelect>
+    <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Spacing="2">
+        <MudNumericField Margin="Margin.Dense" HideSpinButtons="true" Variant="Variant.Filled" Label="Horizontal Offset(mm)" @bind-Value=horizontalOffset Max="1000000" Disabled="isPreviewing"></MudNumericField>
+        <MudNumericField Margin="Margin.Dense" HideSpinButtons="true" Variant="Variant.Filled" Label="Vertical Offset(mm)" @bind-Value=verticalOffset Max="1000000" Disabled="isPreviewing"></MudNumericField>
+    </MudStack>
+    <div class="d-flex justify-content-center align-items-center mt-3">
+        @if (isPreviewing)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="RevertOffset">Revert</MudButton>
+        }
+        else
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="PreviewOffset">Preview</MudButton>
+        }
+        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="ApplyOffsetInDB" Disabled="isEditingDatabase">Apply</MudButton>
+    </div>
+</MudContainer>
+@if (isEditingDatabase)
+{
+    <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+            <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+            <MudText Typo="Typo.caption" Align="Align.Center" Style="background-color:white">Applying offset... Please wait.</MudText>
+        </MudStack>
+    </MudOverlay>
+}
+
+@code {
+    [Inject] private IDialogService DialogService { get; set; }
+    bool isEditingDatabase = false;
+    bool isPreviewing = false;
+    double horizontalOffset = 0;
+    double verticalOffset = 0;
+    List<Survey> surveys = new List<Survey>();
+    IEnumerable<Survey> selectedSurveys = new HashSet<Survey>();
+
+    List<string> tableNames = new List<string>();
+    private IEnumerable<string> selectedTables = new List<string>();
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        appState.GraphicsInMapCleared += RefreshPage;
+    }
+
+    private void RefreshPage()
+    {
+        //GetSurveys();
+        selectedSurveys = new HashSet<Survey>();
+        horizontalOffset = 0;
+        verticalOffset = 0;
+        isPreviewing = false;
+        tableNames.Clear();
+        selectedTables = null;
+        appState.offsetData = null;
+        StateHasChanged();
+    }
+
+    private void GetSurveys()
+    {
+        surveys = appState.ExistingSurveys.ToList();
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        appState.ClosePopupInMap();
+    }
+
+    private async void OnSurveySelected(IEnumerable<Survey> surveys)
+    {
+        selectedSurveys = surveys;
+        selectedTables = null;
+        tableNames.Clear();
+
+        foreach (var survey in surveys)
+        {
+            var request = new SurveyIdRequest
+            {
+                SurveyId = survey.Id,
+                SurveyExternalId = survey.SurveyIdExternal
+            };
+
+            //LCMS tables
+            var tablesToAdd = await appEngine.SurveyService.FetchLCMSTablesBySurvey(request);
+            if (tablesToAdd != null && tablesToAdd.Count > 0)
+            {
+                foreach (var table in tablesToAdd)
+                {
+                    if (!tableNames.Contains(table))
+                    {
+                        tableNames.Add(table);
+                    }
+                }
+            }
+
+            //Cameras
+            var cameras = await appEngine.VideoFrameService.HasDataBySurvey(request);
+            if (cameras != null && cameras.Count > 0)
+            {
+                foreach (var camera in cameras)
+                {
+                    if (!tableNames.Contains(camera))
+                    {
+                        tableNames.Add(camera);
+                    }
+                }
+            }
+        }
+
+        StateHasChanged();
+    }
+
+
+    private void PreviewOffset()
+    {
+        if (selectedSurveys != null && selectedSurveys.Count() > 0)
+        {
+            if (selectedTables != null && selectedTables.Count() > 0)
+            {
+                var defects = selectedTables.ToList();
+
+                foreach (var mapping in TableNameHelper.MultiLayerNameMappings)
+                {
+                    if (selectedTables.Contains(mapping.Key))
+                    {
+                        foreach (var layer in mapping.Value)
+                        {
+                            defects.Add(layer);
+                        }
+                    }
+                }
+
+                var surveyIds = selectedSurveys.Select(x => x.SurveyIdExternal).ToList();
+                //Pass offset data to the map for preview
+                var offsetData = new OffsetData
+                {
+                    SurveyIds = surveyIds,
+                    Defects = defects,
+                    HorizontalOffset = horizontalOffset,
+                    VerticalOffset = verticalOffset
+                };
+                appState.PreviewOffsetOnMap(offsetData);
+
+                isPreviewing = true;
+            }
+            else
+            {
+                Snackbar.Add("No defect layers were found.", Severity.Error);
+            }
+        }
+        else
+        {
+            Snackbar.Add("No survey was found.", Severity.Error);
+        }
+    }
+
+    private void RevertOffset()
+    {
+        if (!isEditingDatabase)
+        {
+            var previousOffsetData = appState.offsetData;
+            var revertOffsetData = new OffsetData
+            {
+                SurveyIds = previousOffsetData.SurveyIds,
+                Defects = previousOffsetData.Defects,
+                HorizontalOffset = -(previousOffsetData.HorizontalOffset),
+                VerticalOffset = -(previousOffsetData.VerticalOffset)
+            };
+            appState.PreviewOffsetOnMap(revertOffsetData);
+            isPreviewing = false;
+            appState.offsetData = null;
+        }
+    }
+
+    private async void ApplyOffsetInDB()
+    {
+        try
+        {
+            if (selectedSurveys != null && selectedSurveys.Count() > 0)
+            {
+                if (appState.offsetData != null)
+                {
+                    isEditingDatabase = true;
+                    StateHasChanged();
+                    await Task.Run(async () =>
+                    {
+                        //Update LCMS tables
+                        var response = await appEngine.SegmentService.UpdateOffsetBySurvey(appState.offsetData);
+                    });
+
+                    EnableApplyButton();
+                    RefreshPage();
+                }
+                else
+                {
+                    Snackbar.Add("Please preview the graphics before applying the offset to the database.", Severity.Info);
+                }
+            }
+            else
+            {
+                Snackbar.Add("No survey was found.", Severity.Error);
+            }
+        }
+        catch(Exception ex)
+        {
+            Console.Write(ex.Message);
+        }
+    }
+
+    private void EnableApplyButton()
+    {
+        isPreviewing = false;
+        isEditingDatabase = false;
+        horizontalOffset = 0;
+        verticalOffset = 0;
+        Snackbar.Add("Offset successfully applied to the dataset.", Severity.Success);
+        StateHasChanged();
+    }
+}

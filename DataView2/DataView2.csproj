@@ -1,0 +1,384 @@
+
+
+
+
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+	
+
+	<PropertyGroup>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net9.0-windows10.0.26100.0</TargetFrameworks>
+		<!-- Uncomment to also build the tizen app. You will need to install tizen by following this: https://github.com/Samsung/Tizen.NET -->
+		<!-- <TargetFrameworks>$(TargetFrameworks);net7.0-tizen</TargetFrameworks> -->
+		<OutputType>Exe</OutputType>
+		<RootNamespace>DataView2</RootNamespace>
+		<UseMaui>true</UseMaui>
+		<SkipValidateMauiImplicitPackageReferences>true</SkipValidateMauiImplicitPackageReferences>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<EnableDefaultCssItems>false</EnableDefaultCssItems>
+
+		<!-- Display name -->
+		<ApplicationTitle>DataView2</ApplicationTitle>
+		<ApplicationIcon>Resources\AppIcon\logo.ico</ApplicationIcon>
+
+		<!-- App Identifier -->
+		<ApplicationId>Romdas.dataview2</ApplicationId>
+		
+		 <!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
+		<WindowsPackageType>MSIX</WindowsPackageType>
+		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+
+		<!-- Versions -->
+		<ApplicationDisplayVersion>1.0.6</ApplicationDisplayVersion> 
+		<ApplicationVersion>1</ApplicationVersion>
+
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">14.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">14.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">26.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.19041.0</SupportedOSPlatformVersion>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.19041.0</TargetPlatformMinVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'tizen'">6.5</SupportedOSPlatformVersion>
+		<ApplicationDisplayVersion>1.0.46</ApplicationDisplayVersion>
+		<AssemblyVersion>1.1.58.0</AssemblyVersion>
+	</PropertyGroup>
+
+	
+	<ItemGroup>
+		<!-- App Icon -->
+		<MauiImage Include="Resources\AppIcon\logo.png" />
+		<!-- Images -->
+		<MauiImage Include="Resources\Images\*" />
+		<MauiFont Include="Resources\Fonts\Lexend.ttf">
+		  <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</MauiFont>
+		<!-- Custom Fonts -->
+		
+		<MauiFont Include="Resources\Fonts\OpenSans-Regular.ttf" Alias="OpenSansRegular" />
+		<MauiFont Include="Resources\Fonts\fontawesome-webfont.ttf" Alias="font-awesome" />
+		<MauiFont Include="Resources\Fonts\calcite-ui-icons-24.ttf" Alias="calcite-ui-icons-24" />
+
+		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Compile Remove="XAML\Util\**" />
+	  <Content Remove="XAML\Util\**" />
+	  <EmbeddedResource Remove="XAML\Util\**" />
+	  <MauiXaml Remove="XAML\Util\**" />
+	  <None Remove="XAML\Util\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Compile Remove="ViewModels\DynamicEntityViewModel.cs" />
+		<Compile Remove="XAML\ExportTemplateData.xaml.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Remove="appsettings.json" />
+		<Content Remove="Pages\LCMSData\ExportData.razor" />
+		<Content Remove="Pages\LCMSData\ExportTemplateData.razor" />
+		<Content Remove="Pages\ManualCrackClasificationOld.razor" />
+		<Content Remove="Pages\ManualCrackClassification.razor" />
+		<Content Remove="Pages\Tables_Org.razor" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<MauiImage Remove="Resources\Images\arrow_down.png" />
+		<MauiImage Remove="Resources\Images\arrow_left.png" />
+		<MauiImage Remove="Resources\Images\arrow_right.png" />
+		<MauiImage Remove="Resources\Images\arrow_up.png" />
+		<MauiImage Remove="Resources\Images\car.png" />
+		<MauiImage Remove="Resources\Images\check.png" />
+		<MauiImage Remove="Resources\Images\circle_arrow.png" />
+		<MauiImage Remove="Resources\Images\dotnet_bot.svg" />
+		<MauiImage Remove="Resources\Images\heart.png" />
+		<MauiImage Remove="Resources\Images\more_info.svg" />
+		<MauiImage Remove="Resources\Images\pin.png" />
+		<MauiImage Remove="Resources\Images\pin_black.png" />
+		<MauiImage Remove="Resources\Images\question.png" />
+		<MauiImage Remove="Resources\Images\star.png" />
+		<MauiImage Remove="Resources\Images\warning.png" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<MauiXaml Remove="XAML\ExportTemplateData.xaml" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Remove="DataView2Services.zip" />
+	  <None Remove="publishDataView2Services.zip" />
+	  <None Remove="Resources\Fonts\font-awesome.ttf" />
+	  <None Remove="Resources\Fonts\Lexend.ttf" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	<None Include="iniPs1.txt">
+		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	</None>
+	</ItemGroup>
+
+
+	<ItemGroup>
+	  <Content Include="DataView2Services.zip">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	</ItemGroup>
+
+	
+
+	<ItemGroup>
+		<EmbeddedResource Include="appsettings.json">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</EmbeddedResource>
+		<EmbeddedResource Include="Resources\Images\arrow_down.png" />
+		<EmbeddedResource Include="Resources\Images\arrow_left.png" />
+		<EmbeddedResource Include="Resources\Images\arrow_right.png" />
+		<EmbeddedResource Include="Resources\Images\arrow_up.png" />
+		<EmbeddedResource Include="Resources\Images\car.png" />
+		<EmbeddedResource Include="Resources\Images\check.png" />
+		<EmbeddedResource Include="Resources\Images\circle_arrow.png" />
+		<EmbeddedResource Include="Resources\Images\dotnet_bot.svg" BaseSize="168,208" />
+		<EmbeddedResource Include="Resources\Images\heart.png" />
+		<EmbeddedResource Include="Resources\Images\pin.png" />
+		<EmbeddedResource Include="Resources\Images\pin_black.png" />
+		<EmbeddedResource Include="Resources\Images\question.png" />
+		<EmbeddedResource Include="Resources\Images\star.png" />
+		<EmbeddedResource Include="Resources\Images\warning.png" />
+	</ItemGroup>
+	
+		
+<ItemGroup>
+	<PackageReference Include="ClosedXML" Version="0.105.0" />
+	<PackageReference Include="LiveChartsCore.SkiaSharpView.Maui" Version="2.0.0-rc4.5" />
+	<PackageReference Include="MIConvexHull" Version="1.1.19.1019" />
+	<PackageReference Include="Microcharts.Maui" Version="1.0.0" />
+
+	<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.30" />
+	<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.30" />
+	<PackageReference Include="Microsoft.Maui.Essentials" Version="9.0.30" />
+	<PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="9.0.30" />
+</ItemGroup>
+<ItemGroup>
+	<PackageReference Include="CommunityToolkit.Maui" Version="11.1.0" />
+	<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+	<PackageReference Include="CsvHelper" Version="33.0.1" />
+	<PackageReference Include="Esri.ArcGISRuntime.Maui" Version="200.6.0" />
+	<PackageReference Include="Esri.ArcGISRuntime.Toolkit" Version="100.15.0" />
+	<PackageReference Include="Esri.ArcGISRuntime.Toolkit.Maui" Version="200.6.0" />
+	<PackageReference Include="Google.Protobuf" Version="3.29.2" />
+	<PackageReference Include="Grpc.Net.Client" Version="2.67.0" />
+	<PackageReference Include="Grpc.Net.Client.Web" Version="2.67.0" />
+	<PackageReference Include="Grpc.Tools" Version="2.68.1">
+		<PrivateAssets>all</PrivateAssets>
+		<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	</PackageReference>
+	<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+		<PrivateAssets>all</PrivateAssets>
+		<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	</PackageReference>
+	<PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
+
+	<PackageReference Include="MudBlazor" Version="7.15.0" />
+
+	<PackageReference Include="NetTopologySuite" Version="2.6.0" />
+
+	<PackageReference Include="NetTopologySuite.IO.ShapeFile" Version="2.1.0" />
+	<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+	<PackageReference Include="ProjNet" Version="2.0.0" />
+	<PackageReference Include="protobuf-net.Grpc" Version="1.2.2" />
+	<PackageReference Include="Serilog" Version="4.2.0" />
+	<PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
+	<PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+	<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+	<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+	<PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.10" />
+	<PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+	<PackageReference Include="System.Text.Json" Version="9.0.0" />
+	<PackageReference Include="Xamarin.CommunityToolkit.Markup.MauiCompat" Version="1.3.2" />
+	<PackageReference Include="System.Management" Version="8.0.0" />
+</ItemGroup>
+
+
+	<ItemGroup>
+		<Compile Update="XAML\ManualSegmentation.xaml.cs">
+		  <DependentUpon>ManualSegmentation.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\RecreateOverlayImage.xaml.cs">
+		  <DependentUpon>RecreateOverlayImage.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\SegmentationPage.xaml.cs">
+		  <DependentUpon>SegmentationPage.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\RecalculateChainage.xaml.cs">
+		  <DependentUpon>RecalculateChainage.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\ImportSegmentationSurveys.xaml.cs">
+		  <DependentUpon>ImportSegmentationSurveys.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\SummariesPopup.xaml.cs">
+		  <DependentUpon>SummariesPopup.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\ImportLayerPopup.xaml.cs">
+		  <DependentUpon>ImportLayerPopup.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\InitializationPopup.xaml.cs">
+			<DependentUpon>InitializationPopup.xaml</DependentUpon>
+		</Compile>		
+		<Compile Update="XAML\QCMode.xaml.cs">
+		  <DependentUpon>QCMode.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\DeleteLayersPopup.xaml.cs">
+		  <DependentUpon>DeleteLayersPopup.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="XAML\SurveySetPopup.xaml.cs">
+			<DependentUpon>SurveySetPopup.xaml</DependentUpon>
+		</Compile>
+		<Compile Update="Properties\Resources.Designer.cs">
+			<DesignTime>True</DesignTime>
+			<AutoGen>True</AutoGen>
+			<DependentUpon>Resources.resx</DependentUpon>
+		</Compile>
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Update="Properties\Resources.resx">
+			<Generator>ResXFileCodeGenerator</Generator>
+			<LastGenOutput>Resources.Designer.cs</LastGenOutput>
+		</EmbeddedResource>
+	</ItemGroup>
+
+	<ItemGroup>
+		<MauiAsset Update="Resources\Raw\LcmsAnalyserParam.cfg">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</MauiAsset>
+		<MauiAsset Update="Resources\Raw\License.txt">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</MauiAsset>
+		<MauiAsset Update="Resources\Raw\Model_MMO_MRs_V001.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</MauiAsset>
+		<MauiAsset Update="Resources\Raw\Model_Patch_FR_V002.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</MauiAsset>
+		<MauiAsset Update="Resources\Raw\Model_Pumping_FR_V001.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</MauiAsset>
+	</ItemGroup>
+	<!--Download CSV files from Database-->
+	<ItemGroup>
+		<MauiRequestPermission Include="ReadWrite" />
+	</ItemGroup>
+	
+	<ItemGroup>
+		<MauiXaml Update="XAML\RecreateOverlayImage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\SegmentationPage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\EditCracksContainer.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\ManualSegmentation.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\RecalculateChainage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\ImportSegmentationSurveys.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\SummariesPopup.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\AddNewTablePopup.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\ChartPage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\ImageComponent.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\ImportLayerPopup.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\InitializationPopup.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\LayerEditorPopup.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\MapView.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\Offset.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\QCMode.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\RecalculateDefect.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\RemoveGraphics.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\DeleteLayersPopup.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\SurveySetPopup.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\ProjectPopup.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\TopNavBar.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="XAML\VideoPopupPage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+	</ItemGroup>
+	<ItemGroup>
+		<None Update="Resources\AppIcon\logo.png">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Resources\Raw\logo.png">
+		  <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="VersionChanges.md">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+	<ItemGroup>
+		<Folder Include="Data\" />
+		<Folder Include="Pages\Reports\" />
+		<Folder Include="Platforms\Windows\Images\" />
+	</ItemGroup>
+	<ItemGroup>
+	  <PRIResource Remove="XAML\Util\**" />
+	</ItemGroup>
+	<ItemGroup>
+	  <MauiFont Include="Resources\Fonts\font-awesome.ttf">
+	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+	  </MauiFont>
+	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\DataView2.Core\DataView2.Core.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Reference Include="FolderPickerWF">
+	    <HintPath>Resources\libs\FolderPickerWF.dll</HintPath>
+	  </Reference>
+	</ItemGroup>
+	<ItemGroup>
+  <None Update="Resources\libs\FolderPickerWF.dll">
+    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+  </None>
+</ItemGroup>
+	
+</Project>

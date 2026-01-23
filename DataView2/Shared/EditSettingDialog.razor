@@ -1,0 +1,100 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models;
+@inject IJSRuntime JSRuntime
+
+<MudDialog Style="height: 80vh; max-height: 55vh;">
+    <DialogContent>
+        <MudText Style="font-size: 22px; color: rgb(26, 64, 118) !important;" Color="Color.Primary" Align="Align.Center">@Title</MudText>
+        <MudTextField Label="Name" @bind-Value="_setting.Name" Immediate="true" Style="font-size: 14px;" ReadOnly="true" />
+        <MudTextField Label="Description" @bind-Value="_setting.Description" Immediate="true" Style="font-size: 14px;" ReadOnly="true" />
+        <MudTextField Label="Value" @bind-Value="selectedValue" Immediate="true" Style="font-size: 14px;" />
+        <MudTextField Label="Category" @bind-Value="_setting.Category" Immediate="true" Style="font-size: 14px;" ReadOnly="true" />
+        <div style="margin-top: 8px;"></div>
+
+        <MudCheckBox Label="Apply Coordinate System Transformation" Value="@(!disableCSTFormat)" ValueChanged="ChangeCoordinateSystemCheck" Color="Color.Primary" Dense T="bool" Style="font-size: 14px;margin-left: -10;" />
+        @if (showCoordinateSystemError)
+        {
+            <MudText Style="color: red; font-size: 12px;">Select a coordinate system.</MudText>
+        }
+        <MudSelect T="string" @bind-Value="selectedCoordinateSystemType" Disabled="disableCSTFormat" Style="width: 50vw; max-width: 50%; font-size: 14px; margin-top:-2px;">
+            @foreach (var format in cstFormatsList)
+            {
+                <MudSelectItem Value="@format" Style="font-size: 14px;">@format</MudSelectItem>
+            }
+        </MudSelect>
+        
+
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Save">Save</MudButton>
+        <MudButton Color="Color.Secondary" OnClick="Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Inject] private IDialogService DialogService { get; set; }
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [Parameter] public GeneralSetting Setting { get; set; }
+    [Parameter] public string Title { get; set; }
+    public List<string> cstFormatsList;
+    public bool disableCSTFormat { get; set; } = true;
+    private GeneralSetting _setting { get; set; }
+    private string selectedValue = "";
+    private string selectedCoordinateSystemType = "";
+    private bool showCoordinateSystemError = false;
+
+    private void Cancel() => MudDialog.Close(DialogResult.Cancel());
+    private async Task Save()
+    {
+        bool? result = await DialogService.ShowMessageBox(
+           "Confirm",
+           "Are you sure you want to save changes?",
+           yesText: "Save",
+           cancelText: "Cancel");
+
+        if (result == true)
+        {
+            if (!disableCSTFormat && selectedCoordinateSystemType == "")
+            {
+                showCoordinateSystemError = true;
+                return;
+            }
+            _setting.Value = selectedValue;
+            _setting.CoordinateSystemType = disableCSTFormat ? "" : selectedCoordinateSystemType;
+            MudDialog.Close(DialogResult.Ok(_setting));
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _setting = Setting;
+        selectedValue = Setting.Value;
+        selectedCoordinateSystemType = Setting.CoordinateSystemType;
+        cstFormatsList = LoadCoordinateInfo();
+        disableCSTFormat = string.IsNullOrEmpty(Setting.CoordinateSystemType);
+        StateHasChanged();
+    }
+
+    public List<string> LoadCoordinateInfo()
+    {
+
+        //Set Coordinates Systems available
+        cstFormatsList = new List<string>();
+        foreach (Tools.cstFormats format in Enum.GetValues(typeof(Tools.cstFormats)))
+        {
+            string description = format.GetDescription();
+
+            if (!description.Equals("WGS84", StringComparison.OrdinalIgnoreCase))
+            {
+                cstFormatsList.Add(description);
+            }
+        }
+        return cstFormatsList;
+    }
+
+    private void ChangeCoordinateSystemCheck(bool newValue)
+    {
+        disableCSTFormat = !newValue;
+    }
+
+}

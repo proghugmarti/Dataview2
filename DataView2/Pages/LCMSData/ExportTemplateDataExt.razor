@@ -1,0 +1,1004 @@
+﻿@page "/ExportTemplateDataExt"
+
+@using CommunityToolkit.Maui.Storage
+@using CsvHelper
+@using DataView2.Core.Helper
+@using DataView2.Core.Models.Other
+@using DataView2.Core.Models.DataHub
+@using DataView2.Core.Models.QC
+@using DataView2.Core.Protos
+@using DataView2.Engines
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Core.Models;
+@using DataView2.Core.Records.Contracts;
+@using DataView2.States;
+@using Google.Protobuf.WellKnownTypes;
+@using System.Data
+@using Microsoft.Data.Sqlite
+@using Serilog
+@using System.ComponentModel
+@using System.Reflection
+@using System.Globalization
+@using System.Dynamic
+@using System.Diagnostics
+@using static DataView2.Core.Models.LCMS_Data_Tables.LCMS_PickOuts_Raw;
+@using DataView2.ViewModels
+
+@inject ExportDataService.ExportDataServiceClient ExportDataService;
+@inject ApplicationState appState ;
+@inject ApplicationEngine appEngine;
+@inject ISnackbar Snackbar;
+@inject LayerViewModel viewModel;
+
+<MudPaper Class="pa-5 m-1 d-flex justify-content-center align-items-center" Elevation="0">
+    <MudStack Style="width:97.5%;">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-4">Export Data</MudText>
+
+        <MudStack Row Style="height:20vh;">
+            <MudPaper Style="display:flex; flex-direction:column; flex:1;" Outlined="true">
+                <!-- Select Surveys -->
+                    <MudText Color="Color.Primary" Style="font-weight:500;margin:10px;">Select Surveys</MudText>
+                <MudStack Spacing="0" Style="height:100%; overflow-y:auto;">
+                        @foreach(var survey in surveys)
+                        {
+                            <MudCheckBox T="bool" Style="margin:3px" Label="@survey.SurveyName" Color="Color.Secondary" ValueChanged="(e => SurveySelected(e, survey))" />
+                        }
+                   </MudStack>
+                </MudPaper>
+
+            <!-- Select Defects-->
+            <MudPaper Style="flex: 1; display:flex; flex-direction:column;" Outlined="true">
+                    <MudText Color="Color.Primary" Style="font-weight:500;margin:10px;">Select Defects</MudText>
+                    <!-- Displays available defect layers from selected survey -->
+                    @if (selectedSurveys.Count > 0)
+                    {
+                        <MudPaper Style="flex:1; overflow-y:auto;">
+                        @foreach (var group in new[] { LCMSGroup, INSGeometryGroup, MetaGroup, SummaryGroup, PCIGroup, KeycodesGroup, LasRutGroup})
+                            {
+                                if(group.AllLayers.Count > 0)
+                                {
+                                    <!-- Displays each defect layer with a popout button that allows for specific defect filtering.-->
+                                <MudStack Row AlignItems="AlignItems.Center">
+                                    <MudCheckBox T="bool" Color="Color.Secondary" Value="group.SelectedLayers.Count > 0" ValueChanged="@(val => ToggleSelectAll(group, val))" Label="@group.Name" />
+                                    @if (group != INSGeometryGroup || group != LasRutGroup)
+                                    {
+                                        <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="@($"{group.Name} Filter")">
+                                            <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowRight"
+                                                           Style="background-color: transparent;"
+                                                           Ripple="false"
+                                                           OnClick="@(() => TogglePopover(group))" />
+                                        </MudTooltip>
+                                    }
+                                    
+                                </MudStack>
+
+                                }
+                            }
+                        </MudPaper>
+                    }
+                    else
+                    {
+                        <!-- Default defect layers when no surveys are selected -->
+                        <MudStack Style="height:100%;">
+                        <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="@($"Please select a survey")">
+                                <MudCheckBox T="bool" Disabled="true" Style="color: gray;" Label="LCMS" />
+                        </MudTooltip>
+
+                        </MudStack>
+                    }
+                </MudPaper>
+            </MudStack>
+
+        <!--Mudpopover that displays the selected defect group's defect list. Used to filter specific defects for exporting. -->
+        <MudPopover Open="@(_activePopover != null)" Fixed="true" Class="px-4 pt-4" Style="flex: 1; display:flex; flex-direction:column;">
+            <div style="position: relative; text-align: center;"> 
+                <MudText Typo="Typo.subtitle1" Class="mb-2"> @_activePopover.Name Filter </MudText> 
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => TogglePopover())" Style="position: absolute; top: -4px; right: 0; padding: 4px;" /> 
+            </div>
+            @if(_activePopover.AllLayers.Count > 1)
+            {
+                <MudButton Style="width:100%; justify-content: flex-start; height:40px;">
+                    <MudCheckBox T="bool" Class="select-all-checkbox" Style="width:100%;" Label="Select All" Color="Color.Secondary" Value="_activePopover.SelectAll" ValueChanged="(e => ToggleSelectAll(_activePopover, e))" />
+                </MudButton>
+            }
+            <!-- Displays defects in popout -->
+            <MudPaper Class="p-0" Style="flex:1; overflow-y:auto; min-width:300px; max-height:60vh;">
+                <MudList T="string" Dense="true" CheckBoxColor="Color.Secondary" SelectionMode="SelectionMode.MultiSelection"
+                         SelectedValues="_tempSelectedLayers" SelectedValuesChanged="@(values => _tempSelectedLayers = values.ToHashSet())" @key="_activePopover">
+                    @foreach (var layer in _activePopover.AllLayers)
+                    {
+                            <MudListItem T="string" Value="@layer" Text="@layer" Dense="true" />
+                    }
+                </MudList>
+            </MudPaper>
+            <MudButton Style="align-self: center; padding: 10px; margin:15px; width:30vh;" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@ApplySelection">APPLY</MudButton>
+        </MudPopover>
+     
+        <!-- Export File Formats -->
+        <MudPaper Outlined=true>
+            <MudText Color="Color.Primary" Style="font-weight:500;margin:10px">Export File Formats</MudText>
+
+            <!-- General dropdown -->
+            <MudStack Row AlignItems="AlignItems.Center">
+                <MudText Color="Color.Secondary" Style="margin-left:10px;">General</MudText>
+                <MudIconButton Icon="@(showGeneral? Icons.Material.Filled.KeyboardArrowDown : Icons.Material.Filled.KeyboardArrowRight)" Style="background-color: transparent;" Ripple="false" OnClick="@ToggleGeneral" />
+            </MudStack>
+
+            @if(showGeneral)
+            {
+                <!-- Data File Types -->
+                <MudStack Row Class="m-1" Style="height:30vh">
+                    <MudCard Style="width:20%;">
+                        <MudCardHeader>
+                            <MudText Typo="Typo.button" Color="Color.Secondary" Style="font-weight:400;margin:5px">Data File Types</MudText>
+                        </MudCardHeader>
+                        <MudCardContent Style="flex:1; overflow-y:auto;">
+                            <MudForm>
+                                <MudStack Spacing="1" Class="ml-2">
+                                    <MudCheckBox Label=".csv" ValueChanged="OnCsvFileChanged" Color="Color.Secondary" Dense T="bool" Size="Size.Small"></MudCheckBox>
+                                    <MudCheckBox @bind-Value="kmzFile" Label=".kmz" Color="Color.Secondary" Dense T="bool" Size="Size.Small"></MudCheckBox>
+                                    <MudCheckBox @bind-Value="shpFile" Label=".shp" Color="Color.Secondary" Dense T="bool" Size="Size.Small"></MudCheckBox>
+                                </MudStack>
+                            </MudForm>
+                        </MudCardContent>
+                    </MudCard>
+
+                <!-- LCMS Images -->
+                    <MudCard Style="width:25%;">
+                            <MudCardHeader>
+                                <MudText Typo="Typo.button" Color="Color.Secondary" Style="font-weight:400;margin:5px">LCMS Images</MudText>
+                            </MudCardHeader>
+                        <MudCardContent Style="flex:1; overflow-y:auto;">
+                            <MudStack>
+                            <MudForm>
+                                    <MudGrid Spacing="1">
+                                        <MudItem xs="10"><MudCheckBox Color="Color.Secondary" Label="Range Images" Dense T="bool" Size="Size.Small" ValueChanged='@(e => ImageSelected(e, "Range Images"))' /></MudItem>
+                                        <MudItem xs="2">
+                                            <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="@(imageOverlayBands["Range Images"] ? $"Remove Overlay Band" : "Add Overlay Band")">
+                                                <MudIconButton style="@(ImageGroup.SelectedLayers.Contains("Range Images") ? "opacity:1;" : "opacity:0;")"
+                                                Icon="@(imageOverlayBands["Range Images"] ? Icons.Material.Rounded.RemoveCircleOutline : Icons.Material.Rounded.AddCircleOutline)" 
+                                                Size="Size.Small" 
+                                                OnClick="@(() => ToggleImgBandOverlay("Range Images"))" />
+                                            </MudTooltip>
+                                        </MudItem>
+                                        <MudItem xs="10"><MudCheckBox Color="Color.Secondary" Label="Range Images (Defect Overlay)" Dense T="bool" Size="Size.Small" ValueChanged='@(e => ImageSelected(e, "Range Images (Defect Overlay)"))' /></MudItem>
+                                        <MudItem xs="2">
+                                            <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="@(imageOverlayBands["Range Images (Defect Overlay)"] ? $"Remove Overlay Band" : "Add Overlay Band")">
+                                                <MudIconButton style="@(ImageGroup.SelectedLayers.Contains("Range Images (Defect Overlay)") ? "opacity:1;" : "opacity:0;")"
+                                                               Icon="@(imageOverlayBands["Range Images (Defect Overlay)"] ? Icons.Material.Rounded.RemoveCircleOutline : Icons.Material.Rounded.AddCircleOutline)"
+                                                               Size="Size.Small"
+                                                               OnClick="@(() => ToggleImgBandOverlay("Range Images (Defect Overlay)"))" />
+                                            </MudTooltip>            
+                                        </MudItem>
+
+                                        <MudItem xs="10"><MudCheckBox Color="Color.Secondary" Label="Intensity Images" Dense T="bool" Size="Size.Small" ValueChanged='@(e => ImageSelected(e, "Intensity Images"))' /></MudItem>
+                                        <MudItem xs="2">
+                                            <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="@(imageOverlayBands["Intensity Images"] ? $"Remove Overlay Band" : "Add Overlay Band")">
+                                                <MudIconButton style="@(ImageGroup.SelectedLayers.Contains("Intensity Images") ? "opacity:1;" : "opacity:0;")" 
+                                                Icon="@(imageOverlayBands["Intensity Images"] ? Icons.Material.Rounded.RemoveCircleOutline : Icons.Material.Rounded.AddCircleOutline)" 
+                                                Size="Size.Small"
+                                                               OnClick="@(() => ToggleImgBandOverlay("Intensity Images"))" />
+                                            </MudTooltip>
+                                        </MudItem>
+
+                                        <MudItem xs="10"><MudCheckBox Color="Color.Secondary" Label="Intensity Images (Defect Overlay)" Dense T="bool" Size="Size.Small" ValueChanged='@(e => ImageSelected(e, "Intensity Images (Defect Overlay)"))' /></MudItem>
+                                        <MudItem xs="2">
+                                            <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="@(imageOverlayBands["Intensity Images (Defect Overlay)"] ? $"Remove Overlay Band" : "Add Overlay Band")">
+                                                <MudIconButton style="@(ImageGroup.SelectedLayers.Contains("Intensity Images (Defect Overlay)") ? "opacity:1;" : "opacity:0;")"
+                                                               Icon="@(imageOverlayBands["Intensity Images (Defect Overlay)"] ? Icons.Material.Rounded.RemoveCircleOutline : Icons.Material.Rounded.AddCircleOutline)" 
+                                                    Size="Size.Small"
+                                                               OnClick="@(() => ToggleImgBandOverlay("Intensity Images (Defect Overlay)"))" />
+                                            </MudTooltip>            
+                                        </MudItem>
+
+                                    </MudGrid>
+                                </MudForm>
+                            </MudStack>
+                            </MudCardContent>
+                    </MudCard>
+
+                <!-- Camera -->
+                    <MudCard Style="width:25%;">
+                        <MudCardHeader>
+                            <MudText Typo="Typo.button" Color="Color.Secondary" Style="font-weight:400;margin:5px">Camera</MudText>
+                        </MudCardHeader>
+                        <MudCardContent Style="flex:1; overflow-y:auto;">
+                            <MudForm>
+                                <MudStack Spacing="1" Class="ml-2">
+                                    <MudCheckBox Color="Color.Secondary" Label="Pave Camera Images" Dense T="bool" Size="Size.Small" Value="paveImg" ValueChanged="@(val => { paveImg = val; VideoSelected(val, "Pave Camera Images"); })" />
+                                    <MudCheckBox Color="Color.Secondary" Label="Row Camera Images" Dense T="bool" Size="Size.Small" ValueChanged="@(val => { rowImg = val; VideoSelected(val, "Row Camera Images"); })" />
+                                    <MudStack Row AlignItems="AlignItems.Center" Spacing="0">
+                                        <MudCheckBox Color="Color.Secondary" Label="360 Camera Images" Dense T="bool" Size="Size.Small" Value="CameraGroup.SelectedLayers.Count > 0" ValueChanged="@(val => ToggleCamera(CameraGroup, val))" />
+                                        <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="360 Camera Filter">
+                                            <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowRight" Style="background-color: transparent; height: 28px;" Ripple="false" OnClick="@(() => TogglePopover(CameraGroup))" />
+                                        </MudTooltip>
+                                    </MudStack>
+                                </MudStack>
+                            </MudForm>
+                        </MudCardContent>
+                    </MudCard>
+
+                <!-- Video Settings -->
+                        <MudCard Style="width:30%;">
+                            <MudCardHeader>
+                                <MudText Typo="Typo.button" Color="Color.Secondary" Style="font-weight:400;margin:5px">Video Settings</MudText>
+                            </MudCardHeader>
+                            <MudCardContent Style="flex:1; overflow-y:auto;">
+                                <MudForm>
+                                    <!-- Enables video options if any image / camera option is selected-->
+                                    @if (VideoGroup.AllLayers.Any())
+                                    {
+                                    <MudStack Row AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudCheckBox Color="Color.Secondary" Label="Create Video" Dense T="bool" Size="Size.Small" Value="@VideoGroup.SelectedLayers.Any()" ValueChanged="@(val => ToggleSelectAll(VideoGroup, val))" />
+
+                                        <!-- Filtering available when 2 or more images selected -->
+                                        @if(VideoGroup.AllLayers.Count() >= 2)
+                                        {
+                                            <MudTooltip Arrow="true" Placement="Placement.Right" Duration="1000" Text="Video Filter">
+                                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowRight" Style="background-color: transparent; height: 20px;" Ripple="false" OnClick="@(() => TogglePopover(VideoGroup))" />
+                                            </MudTooltip>
+                                        }
+                                    </MudStack>
+
+                                         @if (VideoGroup.SelectedLayers.Any())
+                                        {
+                                            <MudStack>
+                                                <MudGrid Spacing="2">
+                                                    <!-- Time Formats Field -->
+                                                    <MudItem xs="8">
+                                                        <MudField Label="Time Formats" Variant="Variant.Outlined" InnerPadding="false">
+                                                            <MudRadioGroup T="string" Class="custom-radio-group" @bind-Value="selectedTimeFormat">
+                                                            @if (timeFormats != null && timeFormats.Any())
+                                                            {
+                                                                @foreach (var tformat in timeFormats)
+                                                                {
+                                                                    <MudRadio T="string" Value="@tformat" Size="Size.Small">
+                                                                        @tformat
+                                                                    </MudRadio>
+                                                                }
+                                                            }
+                                                            </MudRadioGroup>
+                                                        </MudField>
+                                                    </MudItem>
+                                                    <!-- Numeric Field -->
+                                                    <MudItem xs="4">
+                                                        <MudNumericField @bind-Value="delayPerFrame" Style="min-width: 65px;" Label="Time" Variant="Variant.Outlined" Min="1" Max="9999"/>
+                                                    </MudItem>
+                                                </MudGrid>
+                                                <!-- Video Formats -->
+                                                <MudField Label="Video Formats" Typo="Typo.caption" Variant="Variant.Outlined" InnerPadding="false">
+                                                    <MudRadioGroup T="string" Class="custom-radio-group" @bind-Value="selectedVideoFormat">
+                                                        @if (videoFormats != null && videoFormats.Any())
+                                                        {
+                                                            @foreach (var vformat in videoFormats)
+                                                            {
+                                                            <MudRadio T="string" Value="@vformat" Class="custom-radio" Size="Size.Small">@vformat</MudRadio>
+                                                            }
+                                                        }
+                                                    </MudRadioGroup>
+                                                </MudField>
+                                            </MudStack>
+                                    }
+                                }
+                                else 
+                                {
+                                    <!-- Disables Video settings checkbox if no lcms image / camera option is selected.-->
+                                    createVideo = false;
+                                    <MudStack>
+                                        <MudTooltip Arrow="true" Placement="Placement.Bottom" Duration="1000" Text="Please select an LCMS Image or Camera option">
+                                            <MudCheckBox Color="Color.Secondary" Disabled="true" Label="Create Video" Dense T="bool" Size="Size.Small" />
+                                        </MudTooltip>
+                                    </MudStack>
+                                }
+                                </MudForm>
+                            </MudCardContent>
+                        </MudCard>
+                </MudStack>
+            }
+
+            <!-- Coordinate System Transformation Dropdown -->
+            <MudStack Row AlignItems="AlignItems.Center">
+                <MudText Color="Color.Secondary" Style="margin-left:10px;">Coordinate Conversion</MudText>
+                <MudIconButton Icon="@(showCST? Icons.Material.Filled.KeyboardArrowDown : Icons.Material.Filled.KeyboardArrowRight)" Style="background-color: transparent;" Ripple="false" OnClick="@ToggleCST" />
+            </MudStack>
+            @if(showCST)
+            {
+                <MudCard Style="width: 50%; max-width: 100%;">
+                    <MudCardHeader>
+                        <MudText Typo="Typo.button" Color="Color.Primary" Style="font-weight:400;margin:5px">Coordinate System Transformation</MudText>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudForm>
+                            <MudGrid>
+                                    <MudSelect T="string" Label="Select system:" @bind-Value="selectedCSTFormat" Style="width: 130px; max-width: 80%; margin-left: 25px;">
+                                        @foreach (var format in cstFormats)
+                                        {
+                                            <MudSelectItem Value="@format">
+                                                @if (selectedCSTFormat == format)
+                                                {
+                                                    <MudIcon Icon="@Icons.Material.Filled.PinDrop" style="font-size:larger;" Color="Color.Error" />
+                                                }
+                                                <span style="margin-left: 10px; font-size:small;">@format</span>
+                                            </MudSelectItem>
+                                        }
+                                    </MudSelect> 
+                            </MudGrid>
+                        </MudForm>
+                    </MudCardContent>
+                </MudCard>
+            }
+        </MudPaper>
+
+        <!-- Save Directory -->
+        <MudPaper>
+            <MudStack Row="true" Style="margin:10px">
+                <MudText Color="Color.Primary" Style="font-weight:500">Save Directory</MudText>
+                <MudTextField ReadOnly="true" T="string" Style="width:60%;height:25px;" Text="@saveFilepath" Variant="Variant.Text"></MudTextField>
+                <MudButton Variant="Variant.Outlined" OnClick="PickSaveFolder" Color="Color.Primary">Select Directory</MudButton>
+            </MudStack>
+        </MudPaper>
+
+        <!-- Export buttons -->
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="width: 100%;">
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="Export_To_Datahub" Style="width: 300px;">
+                Export to Datahub
+            </MudButton>
+
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="OpenPath_Clicked" Style="width: 300px;">
+                Go to Saved Files
+            </MudButton>
+
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ExportData_Clicked" Style="width: 300px;">
+                Export Data
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Inject] private IDialogService Dialog { get; set; }
+
+    // Data file types
+    public bool csvFile { get; set; } = false;
+    public bool kmzFile { get; set; } = false;
+    public bool shpFile { get; set; } = false;
+
+    // LCMS Images
+    public bool rangeImg { get; set; } = false;
+    public bool rangeOverlay { get; set; } = false;
+    public bool intensityImg { get; set; } = false;
+    public bool intensityOverlay { get; set; } = false;
+
+    // Image bands
+    private Dictionary<string, bool> imageOverlayBands = new()
+{
+    { "Range Images", false },
+    { "Range Images (Defect Overlay)", false },
+    { "Intensity Images", false },
+    { "Intensity Images (Defect Overlay)", false }
+};
+
+    // Camera Images
+    public bool paveImg { get; set; } = false;
+    public bool rowImg { get; set; } = false;
+    public bool panoramicImg { get; set; } = false;
+    public bool sensorImg { get; set; } = false;
+
+    // Video
+    public bool createVideo { get; set; } = false;
+
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    public string connString = string.Empty;
+
+    private string projectLocation, selectedDataset, saveFilepath;
+    static private string _configAppPath = AppPaths.DocumentsFolder;
+    static private string _userFiles = "User Export Files";
+    static private string _configPath = $"{_configAppPath}\\{_userFiles}".Replace("\\", "/");
+    private string lblMessage = string.Empty;
+
+    private List<string> dbstrings = new List<string>();
+    private List<Survey> surveys = new List<Survey>();
+    List<Survey> selectedSurveys = new List<Survey>();
+
+    private List<string> videoFormats = new List<string> { "MP4", "AVI" };
+    private string selectedVideoFormat { get; set; } = "MP4";
+    private int delayPerFrame = 100;
+    private List<string> timeFormats = new List<string> { "ms", "sec" };
+    private string selectedTimeFormat { get; set; } = "ms";
+
+    //Coordinates formats:
+    public bool cSTransformation { get; set; } = false; //Coordinate Systems: WGS84,ITRF96-3
+    public List<string> cstFormats;// = new List<string> { "WGS84", "ITRF96-3" };
+    private string selectedCSTFormat { get; set; } = "";
+    public bool disableCSTFormat { get; set; } = true;
+    public string coordinatesSystem = "";
+
+    private List<string> Layers = new() { "LCMS", "Meta", "Summary", "PCI", "Video" };
+    private ExportLayerGroup? _activePopover;
+    private HashSet<string> _tempSelectedLayers = new();
+
+    public LoginResponseToken responseToken;
+    public class ExportLayerGroup
+    {
+        public string Name { get; set; }
+        public HashSet<string> AllLayers { get; set; } = new();
+        public HashSet<string> SelectedLayers { get; set; } = new();
+        public bool SelectAll
+        {
+            get => SelectedLayers.Count == AllLayers.Count && AllLayers.Count > 0;
+            set
+            {
+                if (value)
+                    SelectedLayers = AllLayers.ToHashSet();
+                else
+                    SelectedLayers = new HashSet<string>();
+            }
+        }
+    }
+
+    ExportLayerGroup LCMSGroup = new() { Name = "LCMS" };
+    ExportLayerGroup INSGeometryGroup = new() { Name = "INS Geometry" };
+    ExportLayerGroup KeycodesGroup = new() { Name = "Keycodes" };
+    ExportLayerGroup LasRutGroup = new() { Name = "LAS Rutting" };
+    ExportLayerGroup MetaGroup = new() { Name = "Custom Table" };
+    ExportLayerGroup SummaryGroup = new() { Name = "Summary" };
+    ExportLayerGroup PCIGroup = new() { Name = "PCI Rating" };
+    ExportLayerGroup VideoGroup = new() { Name = "Video" };
+    ExportLayerGroup ImageGroup = new() { Name = "Images" };
+    ExportLayerGroup CameraGroup = new() { Name = "Camera" };
+
+    public List<ExportLayerGroup> group = new List<ExportLayerGroup>();
+
+    private bool showGeneral = true;
+    private bool showCST = false;
+
+    protected override void OnInitialized()
+    {
+        saveFilepath = _configPath;
+
+        if (!Directory.Exists(saveFilepath))
+        {
+            Directory.CreateDirectory(saveFilepath);
+        }
+
+        surveys = appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty()).Result.ToList();
+        LoadCoordinateFormats();
+
+        CameraGroup.AllLayers.Add("Panoramic Images");
+        CameraGroup.AllLayers.Add("Separate Sensor Images");
+    }
+
+    private void TogglePopover(ExportLayerGroup group = null)
+    {
+        if (_activePopover == group || group == null)
+            _activePopover = null; // close if same clicked
+        else
+        {
+            _activePopover = group; // open new
+            _tempSelectedLayers = new HashSet<string>(group.SelectedLayers);
+        }
+    }
+
+    // Updates the opened popover group's selected layers
+    private void ApplySelection()
+    {
+        if (_activePopover != null)
+        {
+            _activePopover.SelectedLayers = new HashSet<string>(_tempSelectedLayers);
+
+            // Update 360 camera visibility for create video filter.
+            if(_activePopover.Name == "Camera")
+            {
+                if (_activePopover.SelectedLayers.Contains("Panoramic Images"))
+                    VideoSelected(true, "Panoramic Images");
+                else
+                    VideoSelected(false, "Panoramic Images");
+            }
+            _activePopover = null;
+
+        }
+    }
+
+    private async Task PickSaveFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+            saveFilepath = folderPath;
+
+            StateHasChanged();
+        }
+
+    }
+    private Dictionary<string, List<string>> pciDefectNames = new Dictionary<string, List<string>>();
+    private CancellationTokenSource _surveyCts;
+    private SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
+
+    private async Task SurveySelected(bool value, Survey survey)
+    {
+
+        await semaphore.WaitAsync(); // prevents method from being called too fast and causing crash
+        try
+        {
+            _surveyCts?.Cancel();
+            _surveyCts = new CancellationTokenSource();
+
+            var token = _surveyCts.Token;
+            if (value == true)
+            {
+                selectedSurveys.Add(survey);
+            }
+            else
+            {
+                selectedSurveys.Remove(survey);
+            }
+
+            if (selectedSurveys.Count > 0)
+            {
+                //resetting values in all export group
+                foreach (var exportGroup in new[] { LCMSGroup, INSGeometryGroup, MetaGroup, SummaryGroup, PCIGroup, KeycodesGroup, LasRutGroup })
+                {
+                    exportGroup.AllLayers.Clear();
+                    exportGroup.SelectedLayers.Clear();
+                }
+
+                //get existing layers of selected surveys
+                foreach (var selectedSurvey in selectedSurveys)
+                {
+                    var surveyIdRequest = new SurveyIdRequest
+                        {
+                            SurveyExternalId = selectedSurvey.SurveyIdExternal,
+                            SurveyId = selectedSurvey.Id
+                        };
+                    var surveyRequest = new SurveyRequest
+                        {
+                            SurveyId = selectedSurvey.SurveyIdExternal
+                        };
+
+                    var lcmsTables = await appEngine.SurveyService.FetchLCMSTablesBySurvey(surveyIdRequest);
+                    if (lcmsTables.Any())
+                    {
+                        foreach (var lcms in lcmsTables)
+                        {
+                            if (lcms != "LasPoints")
+                                LCMSGroup.AllLayers.Add(lcms);
+                        }
+                    }
+
+                    var geometries = await appEngine.INSGeometryService.GetBySurvey(surveyIdRequest.SurveyExternalId);
+                    if (geometries.Any())
+                    {
+                        INSGeometryGroup.AllLayers.Add("INS Geometry");
+                    }
+
+                    var keycodes = await appEngine.KeycodeService.GetKeycodeDescriptionsBySurvey(surveyIdRequest);
+                    if (keycodes.Any())
+                    {
+                        foreach (var keycode in keycodes)
+                        {
+                            KeycodesGroup.AllLayers.Add(keycode);
+                        }
+                    }
+                    var lasRutTables = await appEngine.LAS_RuttingService.GetBySurvey(surveyRequest);
+                    if (lasRutTables.Any())
+                    {
+
+                        LasRutGroup.AllLayers.Add("LAS Rutting");
+
+                    }
+
+                    var metaTables = await appEngine.MetaTableService.GetExistingMetaTableNamesBySurvey(selectedSurvey.SurveyIdExternal);
+                    if (metaTables.Any())
+                    {
+                        foreach (var metaTable in metaTables)
+                        {
+                            MetaGroup.AllLayers.Add(metaTable);
+                        }
+                    }
+
+                    var summaryTables = await appEngine.SummaryService.GetSummaryNameBySurvey(surveyIdRequest);
+                    if (summaryTables.Any())
+                    {
+                        foreach (var summary in summaryTables)
+                        {
+                            SummaryGroup.AllLayers.Add(summary);
+                        }
+                    }
+
+                    var hasPCIRatingAndDefects = await appEngine.PCIDefectsService.HasData(new Empty());
+                    if (hasPCIRatingAndDefects.Count > 0)
+                    {
+                        foreach (var pciRatingAndDefect in hasPCIRatingAndDefects)
+                        {
+                            var pciRating = pciRatingAndDefect.PCIRatingName;
+                            PCIGroup.AllLayers.Add(pciRating);
+                        }
+                    }
+                }
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error in SurveySelected: {ex.Message}");
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    private async void ImageSelected(bool value, string imageName)
+    {
+        // Update the VideoGroup.SelectedLayers set
+        if (value)
+        {
+            ImageGroup.SelectedLayers.Add(imageName);
+        }
+        else
+        {
+            ImageGroup.SelectedLayers.Remove(imageName);
+        }
+        VideoSelected(value, imageName);
+    }
+
+    private async void VideoSelected(bool value, string imageName)
+    {
+        if (value)
+        {
+            VideoGroup.AllLayers.Add(imageName);
+        }
+        else
+        {
+            VideoGroup.AllLayers.Remove(imageName);
+        }
+    }
+
+    private async void ExportData_Clicked()
+    {
+        appState.NotifyProcessing(true);
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Exporting Data..";
+        coordinatesSystem = selectedCSTFormat;
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Medium,
+            BackdropClick = false,
+            CloseButton = false,
+            CloseOnEscapeKey = false,
+        };
+
+
+        IDialogReference dialogRef = Dialog.Show<Charging>("", parameters, options);
+        await Task.Delay(500);
+        try
+        {
+            lblMessage = "Initializing..";
+            if (selectedSurveys != null && selectedSurveys.Count > 0)
+            {
+                if (LCMSGroup.SelectedLayers.Count == 0 && 
+                    INSGeometryGroup.SelectedLayers.Count == 0 && 
+                    MetaGroup.SelectedLayers.Count == 0 && 
+                    SummaryGroup.SelectedLayers.Count == 0 && 
+                    PCIGroup.SelectedLayers.Count == 0 &&
+                    KeycodesGroup.SelectedLayers.Count == 0 &&
+                    LasRutGroup.SelectedLayers.Count == 0
+                )
+                {
+                    lblMessage = "Please select a defect to export";
+                }
+                else if (!csvFile && !kmzFile && !shpFile && !paveImg && !rowImg && !ImageGroup.SelectedLayers.Any() && !CameraGroup.SelectedLayers.Any() && !PCIGroup.SelectedLayers.Any())
+                {
+                    lblMessage = "Please select a file format to export.";
+                }
+                else if (cSTransformation && !disableCSTFormat && selectedCSTFormat == "")
+                {
+                    lblMessage = "Select a coordinate system transformation.";
+
+                }
+                else
+                {
+                    List<string> selectedSurveyIds = new List<string>();
+
+                    foreach (var survey in selectedSurveys)
+                    {
+                        selectedSurveyIds.Add(survey.SurveyIdExternal);
+                    }
+                    string basefolderName = "Survey Export Data"; 
+                    string exportFolder = Path.Combine(saveFilepath, basefolderName);
+                    string folderName = $"{appState.SelectedProject.Name}_Export_{DateTime.Now:yyyyddMM_HHmmss}";
+                    exportFolder = Path.Combine(exportFolder, folderName);
+
+                    var request = new ExportDataObjRequest
+                        {
+                            SavePathDirectory = exportFolder,
+                            SelectedSurveys = string.Join(",", selectedSurveyIds),
+                            Csv = csvFile,
+                            Kmz = kmzFile,
+                            Shp = shpFile,
+                            Rangeimg = rangeImg,
+                            Overlayimg = intensityImg,
+                            PaveImg = paveImg,
+                            RowImg = rowImg,
+                            Createvideo = VideoGroup.SelectedLayers.Any(),
+                            Videoext = selectedVideoFormat,
+                            Timeunit = selectedTimeFormat,
+                            Delayperframe = delayPerFrame,
+                            CoordinatesSystem = coordinatesSystem,
+                            DatasetName = appState.SelectedDataset.Name,
+                        };
+
+                    if (LCMSGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in LCMSGroup.SelectedLayers)
+                        {
+                            var dbName = TableNameHelper.GetDBTableName(selectedLayer);
+                            if (!string.IsNullOrEmpty(dbName))
+                                request.LCMSLayers.Add(dbName);
+                        }
+                    }
+                    if (INSGeometryGroup.SelectedLayers.Count > 0)
+                    {
+                        request.INSGeometryLayer.Add("Geometry_Processed");
+                    }
+
+                    if (KeycodesGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in KeycodesGroup.SelectedLayers)
+                        {
+                            request.KeycodeLayers.Add(selectedLayer);
+                        }
+                    }
+                    if (LasRutGroup.SelectedLayers.Count > 0)
+                    {
+                        request.LasLayers.Add("LAS_Rutting");
+                    }
+
+                    if (MetaGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in MetaGroup.SelectedLayers)
+                        {
+                            request.MetaLayers.Add(selectedLayer);
+                        }
+                    }
+
+                    if (SummaryGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in SummaryGroup.SelectedLayers)
+                        {
+                            request.SummaryLayers.Add(selectedLayer);
+                        }
+                    }
+
+                    if(PCIGroup.SelectedLayers.Count > 0)
+                    {
+                        request.PCI = true;
+                        foreach (var selectedLayer in PCIGroup.SelectedLayers)
+                        {
+                            viewModel.ExportPCI(selectedLayer, exportFolder);
+                        }
+                    }
+
+                    if(VideoGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in VideoGroup.SelectedLayers)
+                        {
+                            request.VideoLayers.Add(selectedLayer);                        
+                        }
+                    }
+
+                    // Populate ImageLayers and ImgBands
+                    if (ImageGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in ImageGroup.SelectedLayers)
+                        {
+                            // Add the layer name to the repeated string list
+                            request.ImageLayers.Add(selectedLayer);
+
+                            // Determine overlay based on the layer name
+                            if (imageOverlayBands.TryGetValue(selectedLayer, out bool imgBand))
+                            {
+                                request.ImgBands[selectedLayer] = imgBand;
+                            }
+                        }
+                    }
+
+                    if(CameraGroup.SelectedLayers.Count > 0)
+                    {
+                        foreach (var selectedLayer in CameraGroup.SelectedLayers)
+                        {
+                            request.CameraLayers.Add(selectedLayer);
+                        }
+                    }
+
+                    ExportDataObjResponse exporting = ExportDataService.ExportData(request);
+                    lblMessage = exporting.Message;
+                }
+            }
+            else
+            {
+                lblMessage = "No surveys selected. Please select at least one survey to export data.";
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Information($"Error in ExportData : {ex.Message}");
+            lblMessage = string.Empty;
+        }
+        finally
+        {
+            dialogRef.Close();
+            await Task.Delay(100);
+            await Dialog.ShowMessageBox("Message", $"{lblMessage}");
+            appState.NotifyProcessing(false);
+        }
+
+        StateHasChanged();
+    }
+
+    private void OpenPath_Clicked()
+    {
+        try
+        {
+            Process.Start("explorer.exe", saveFilepath.Replace("/", "\\"));
+        }
+        catch (Exception ex)
+        {
+            Log.Warning($"Error in opening folder : {ex.Message}");
+        }
+    }
+
+    private async Task Export_To_Datahub()
+    {
+        AuthDataHub AuthRequest = new AuthDataHub
+            {
+                Username = "testuser",
+                Password = "securepassword"
+            };
+        try
+        {
+            responseToken = await appEngine.AuthDataHubService.AuthenticateAsync(AuthRequest);
+
+            Console.WriteLine("Authentication successful. Token: " + responseToken);
+            Snackbar.Add("Authentication successful.", Severity.Success);
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Authentication failed: " + ex.Message);
+            Snackbar.Add("Authentication failed.", Severity.Error);
+
+        }
+        // try
+        //  {
+        //      await appEngine.PMSDataReportService.GetAndSendWholeCracksAsync(new Empty());
+        //      Snackbar.Add("Send cracks successful.", Severity.Success);
+
+        //  }
+        //  catch (Exception ex)
+        //  {
+        //     Console.WriteLine("Send cracks failed: " + ex.Message);
+        //    Snackbar.Add("Send cracks failed.", Severity.Error);
+
+        //  }
+        //  try
+        //{
+        //    await appEngine.FOD_Data_ReportService.GetAndSendAllFODDataAsync(new Empty());
+        //    Snackbar.Add("Send FOD data succesful.", Severity.Success);
+
+        // }
+        //catch (Exception ex)
+        //{
+        //    Console.WriteLine("Send FOD data failed: " + ex.Message);
+        //    Snackbar.Add("Send FOD data failed.", Severity.Error);
+
+        //}
+
+        try
+        {
+            await appEngine.AoaDataService.GetAndSendAllAoaDataAsync(new Empty());
+            Snackbar.Add("Send Aoa data succesful.", Severity.Success);
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Send Aoa data failed: " + ex.Message);
+            Snackbar.Add("Send Aoa data failed.", Severity.Error);
+
+        }
+    }
+
+    private void OnTimeFormatChanged(string timeFormat)
+    {
+        selectedTimeFormat = timeFormat;
+    }
+
+    private void OnVideoFormatChanged(string videoFormat)
+    {
+        selectedVideoFormat = videoFormat;
+    }
+    private void OnCsvFileChanged(bool newValue)
+    {
+        csvFile = newValue;
+        disableCSTFormat = !csvFile;
+        StateHasChanged();
+    }
+
+    public List<string> LoadCoordinateFormats()
+    {
+        cstFormats = new List<string>();
+        foreach (Tools.cstFormats format in System.Enum.GetValues(typeof(Tools.cstFormats)))
+        {
+            string description = format.GetDescription();
+            if (!description.Equals("WGS84", StringComparison.OrdinalIgnoreCase))
+            {
+                cstFormats.Add(format.GetDescription());
+            }
+        }
+        return cstFormats;
+    }
+
+    private void ToggleSelectAll(ExportLayerGroup group, bool isChecked)
+    {
+        group.SelectAll = isChecked;
+
+        if (group.SelectAll)
+            group.SelectedLayers = group.AllLayers.ToHashSet();
+        else
+            group.SelectedLayers.Clear();
+
+        if (_activePopover == group)
+        {
+            _tempSelectedLayers = new HashSet<string>(group.SelectedLayers);
+            StateHasChanged();
+        }
+    }
+
+    void OnSelectionChanged(ExportLayerGroup group, List<string> values)
+    {
+        group.SelectedLayers = values.ToHashSet();
+    }
+
+    void ToggleGeneral()
+    {
+        showGeneral = !showGeneral;
+    }
+
+    void ToggleCST()
+    {
+        showCST = !showCST;
+    }
+
+    // Toggles overlay bands from LCMS Images & Camera Images
+    private void ToggleImgBandOverlay(string layerName)
+    {
+        imageOverlayBands[layerName] = !imageOverlayBands[layerName];
+    }
+
+    private void ToggleCamera(ExportLayerGroup cameraGroup, bool isChecked)
+    {
+        if (isChecked)
+        {
+            ToggleSelectAll(cameraGroup, true);
+            VideoSelected(true, "Panoramic Images");
+        }
+        else
+        {
+            VideoSelected(false, "Panoramic Images");
+            ToggleSelectAll(cameraGroup, false);
+        }
+    }
+}

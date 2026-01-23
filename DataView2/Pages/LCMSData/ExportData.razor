@@ -1,0 +1,165 @@
+﻿@page "/ExportData"
+@using DataView2.Core.Models;
+@using DataView2.Core.Protos;
+@using Google.Protobuf.WellKnownTypes;
+@using CsvHelper;
+@using System.Globalization;
+@using System.Reflection;
+@using System.IO;
+@using System.Timers;
+@using Serilog;
+@inject ISettingTablesService contextTables
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@inject SurveyProcessing.SurveyProcessingClient surveyProcessing;
+
+<style>
+    .mud-header {
+        background-color: rgba(0,0,0,0.0392156862745098);
+    }
+
+    .hide-element {
+        display: none;
+    }
+</style>
+<MudText>@error</MudText>
+
+@if (lstTablesName.Count > 0)
+{
+    <table style="border: none; width: 100%; font-family: Helvetica; text-align: center;">
+        <thead>
+            <tr>
+                <th colspan="1" style="text-align: center; padding-top:3px;"><span style="font-size: 20px">@message</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td colspan="2">
+                    <MudTable Items=@lstTablesName Hover="true" CommitEditTooltip="Commit Edit" EditTrigger="TableEditTrigger.EditButton" Class="ma-7" HeaderClass="mud-header">
+                        <HeaderContent>
+                            <MudTh style="text-align: center; color:#472ac0; font-size: 18px;">Tables</MudTh>
+                            <MudTh style="text-align: center; color:#472ac0; font-size: 18px;" class="@(ImageCSV ? "" : "hide-element")">File</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Table" style="text-align: center;">@context.Name </MudTd>
+                            <MudTd DataLabel="File" class="@(ImageCSV ? "" : "hide-element")" style="text-align: center;">
+                                @if (!string.IsNullOrEmpty(context.File))
+                                {
+                                    <MudLink Href="@($"{_configPath}\\{context.Name}.csv".Replace("\\", "/"))" Target="_blank">
+                                        <MudButton OnClick="@(() => DownloadFile($"{context.Name}"))">
+                                            <img src="/Images/csv_64.png" alt="Descripción" width="50" height="50" />
+                                        </MudButton>
+                                    </MudLink>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+
+                    <div class="d-flex justify-center align-items-center mt-5 ">
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled" Style="display:block" OnClick="CSVFilesGeneration">
+                            Generate Files
+                            <img src="/Images/file.png" alt="Icono" style="margin-left: 10px;" />
+                        </MudButton>
+                      
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+}
+
+@code {
+    [Inject] private IDialogService Dialog { get; set; }
+    public List<TablesSetting> lstTablesSetting = new List<TablesSetting>();
+    public List<TableExport> lstTablesName = new List<TableExport>();
+    public bool ImageCSV = true;
+    public static bool ImageURL = false;
+    public string error;
+    public string message;
+    static private string _configAppPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    static private string _userFiles = "User_CSV_Files";
+    static private string _configPath = $"{_configAppPath}\\{_userFiles}".Replace("\\", "/");
+
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    protected override async Task OnInitializedAsync()
+    {   
+        await CSVFilesGeneration();
+    }
+
+    void VerLink(string link)
+    {
+        Console.WriteLine(link);
+    }
+
+    private async Task CSVFilesGeneration()
+    {
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Generating Files...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+        try
+        {
+            var lstTables = await contextTables.DBTablesAsync(_configPath);
+            message = $"{lstTables.Count()} CSV files generated from Database";
+            var dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+            await Task.Delay(2000);
+            lstTablesName.Clear();
+            foreach (var tbl in lstTables)
+            {
+                var table = new TableExport { RootPage = tbl.RootPage.ToString(), Name = tbl.Name, File = tbl.File };
+                lstTablesName.Add(table);
+            }
+            dialog.Close();
+            if (lstTables.Count()>0)
+            {
+                Snackbar.Add("Files Generated.", Severity.Normal);
+                Log.Logger.Information(message);
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Error Occured: " + ex.Message;
+            Log.Logger.Error(ex,"Error charging CSV data from database.");
+        }
+    }
+
+    private async Task DownloadFile(string filename)
+    {
+        string sourcePath = $"{_configPath}\\{filename}.csv".Replace("\\", "/");
+        string downloadsPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + $"\\Downloads\\{filename}.csv".Replace("\\", "/");
+        string loadFileImage = "/images/downloadfull.gif";
+        string loadFileText = "Downloading File...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", loadFileImage },
+                { "DialogText", loadFileText }
+            };
+        try
+        {
+            var dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+            await Task.Delay(2000);
+
+            if (System.IO.File.Exists(sourcePath))
+            {
+
+                System.IO.File.Copy(sourcePath, downloadsPath, true);
+            }
+            else
+            {
+                //File not exits
+            }
+            dialog.Close();
+            Snackbar.Add("File downloaded.", Severity.Normal);
+        }
+        catch (Exception ex)
+        {
+            // Utils.RegError($"Error when execute query: {ex.Message}");
+            Log.Logger.Error(ex, "Error when execute query - ExportData.");
+        }
+    }
+
+    
+}

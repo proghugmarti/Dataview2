@@ -1,0 +1,186 @@
+﻿@using DataView2.Core.Models
+@using DataView2.Core.Protos
+@using DataView2.Engines
+@using DataView2.States
+@using static DataView2.Core.Helper.TableNameHelper
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:7px;" OnClick="Close"></MudIconButton>
+</div>
+
+<MudContainer>
+    <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="mb-3">Recreate overlay images</MudText>
+
+    <MudAutocomplete T="Survey" Label="Please select a Survey" SearchFunc="@SearchSurveys"
+    CoerceText="true" SelectValueOnTab="@true" Variant="Variant.Outlined"
+    AdornmentIcon="@Icons.Material.Filled.Search" AdornmentColor="Color.Primary"
+    ToStringFunc="@(survey => survey != null ? survey.SurveyName : string.Empty)" 
+    Value="selectedSurvey" ValueChanged="OnSurveySelected" />
+
+    <MudSelect MultiSelection="true" SelectAll=true Variant="Variant.Outlined" Label="Please select overlays" MaxHeight=150 LockScroll="false" Class="my-2" @bind-SelectedValues="selectedOverlays">
+        @if (overlays.Count > 0)
+        {
+            @foreach (var tableName in overlays)
+            {
+                <MudSelectItem T="string" Value="@tableName">@tableName</MudSelectItem>
+            }
+        }
+    </MudSelect>
+
+    <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center">
+        <MudCheckBox T="bool" Label="Intensity" @bind-value="intensityOverlay" />
+        <MudCheckBox T="bool" Label="Range" @bind-Value="rangeOverlay" />
+    </MudStack>
+
+    <div class="d-flex justify-content-center align-items-center mt-3">
+        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" OnClick="RecreateOverlayImages">Recreate</MudButton>
+    </div>
+</MudContainer>
+
+@if (isProcessing)
+{
+    <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+            <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+            <MudText Typo="Typo.caption" Align="Align.Center" Style="background-color:white">Recreating images...</MudText>
+        </MudStack>
+    </MudOverlay>
+}
+
+@code {
+    List<Survey> surveys = new List<Survey>();
+    Survey selectedSurvey;
+    List<string> overlays = new List<string>();
+    private IEnumerable<string> selectedOverlays = new List<string>();
+    private List<string> overlayImageModules = new List<string>
+    {
+        LayerNames.MarkingContour,
+        LayerNames.Cracking,
+        LayerNames.Potholes,
+        LayerNames.Ravelling,
+        LayerNames.ConcreteJoint,
+        LayerNames.CurbDropOff,
+        LayerNames.SealedCrack,
+        LayerNames.Patch,
+        LayerNames.Pumping,
+        LayerNames.Pickout,
+        LayerNames.Bleeding,
+        LayerNames.MMO,
+        LayerNames.Spalling,
+        LayerNames.MacroTexture
+    };
+    private bool rangeOverlay = false;
+    private bool intensityOverlay = true;
+    private bool isProcessing = false;
+
+    private void Close()
+    {
+        RefreshVariables();
+        appState.ClosePopupInMap();
+    }
+
+    private void RefreshVariables()
+    {
+        surveys.Clear();
+        selectedSurvey = null;
+        overlays.Clear();
+        selectedOverlays = new List<string>();
+    }
+
+    private async Task<IEnumerable<Survey>> SearchSurveys(string value, CancellationToken cancellationToken)
+    {
+        surveys = appState.ExistingSurveys.ToList();
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrEmpty(value))
+            return surveys;
+        return surveys.Where(x => x.SurveyName.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+    private async void OnSurveySelected(Survey survey)
+    {
+        selectedSurvey = survey;
+        var request = new SurveyIdRequest
+            {
+                SurveyId = survey.Id,
+                SurveyExternalId = survey.SurveyIdExternal
+            };
+
+        //LCMS tables
+        var tablesToAdd = await appEngine.SurveyService.FetchLCMSTablesBySurvey(request);
+        if (tablesToAdd != null && tablesToAdd.Count > 0)
+        {
+            foreach (var table in tablesToAdd)
+            {
+                if (overlayImageModules.Contains(table) && !overlays.Contains(table))
+                {
+                    overlays.Add(table);
+                }
+            }
+        }
+    }
+
+    private async Task RecreateOverlayImages()
+    {
+        if (selectedSurvey == null)
+        {
+            Snackbar.Add("Please select a survey.", Severity.Error);
+        }
+        else if (!intensityOverlay && !rangeOverlay)
+        {
+            Snackbar.Add("Please select at least one image type.", Severity.Error);
+        }
+        else if (selectedOverlays.Count() == 0)
+        {
+            Snackbar.Add("Please select at least one defect overlay to display on the image.", Severity.Error);
+        }
+
+        var request = new RecreateOverlayRequest
+        {
+            SurveyId = selectedSurvey.SurveyIdExternal
+        };
+
+        if (intensityOverlay)
+            request.ImageTypes.Add("Intensity");
+
+        if (rangeOverlay)
+            request.ImageTypes.Add("Range");
+
+        foreach (var overlay in selectedOverlays)
+            request.Overlays.Add(overlay);
+
+        //show progress bar
+        isProcessing = true;
+        StateHasChanged();
+
+        await Task.Delay(100);
+
+        var response = appEngine.ExportDataService.RecreateOverlay(request);
+        if (response != null)
+        {
+            if (response.ErrorMessages.Count > 0 && response.FailedFiles > 0)
+            {
+                var headline = response.TotalFiles == response.FailedFiles
+                  ? $"Overlay creation failed for all files."
+                  : $"Overlay creation completed with {response.FailedFiles} failures out of {response.TotalFiles} files.";
+
+                var combinedErrors = string.Join(" ", response.ErrorMessages.Select(m => $"• {m}"));
+                Snackbar.Add($"{headline} {combinedErrors}",
+                response.TotalFiles == response.FailedFiles ? Severity.Error : Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Overlay images are successfully created.", Severity.Success);
+            }
+        }
+
+        isProcessing = false;
+        StateHasChanged();
+    }
+}

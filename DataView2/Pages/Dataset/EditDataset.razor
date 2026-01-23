@@ -1,0 +1,461 @@
+﻿@page "/EditDataset"
+
+@using CommunityToolkit.Maui.Storage
+@using CsvHelper
+@using DataView2.Core.Helper
+@using DataView2.Core.Models.Database_Tables
+@using DataView2.Core.Models.QC
+@using DataView2.Engines
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Core.Models;
+@using DataView2.Core.Records.Contracts
+@using DataView2.States
+@using Google.Protobuf.WellKnownTypes;
+@using System.Data
+@using Newtonsoft.Json
+@using Serilog
+
+@inject ApplicationEngine appEngine
+@inject ApplicationState AppState
+@inject ISnackbar Snackbar
+@inject NavigationManager NavManager
+
+<div class="page-background">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+        <MudPaper Elevation="1" Class="pa-8" Style="width: 100%; max-height: 600px;">
+        <MudText Typo="Typo.h4" Style="  font-size: 35px;">  Edit Dataset  </MudText>
+            <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+                Edit your dataset
+            </MudText>
+        @* <MudStack Row=true>
+                    <MudText Color="Color.Primary" ReadOnly="true" style="font-weight:500">Dataset : </MudText>
+                    <MudSelect T="string" Label="Name" Variant="Variant.Outlined" ValueChanged="OnDatasetChanged">
+                        @if (datasetList.Count > 0)
+                        {
+                            foreach (DatabaseRegistry ds in datasetList)
+                            {
+                                <MudSelectItem T="string" Value="@ds.Name">@ds.Name</MudSelectItem>
+                            }
+                        }
+                     </MudSelect>
+                </MudStack> *@
+
+        @if (!string.IsNullOrEmpty(enteredDatasetName))
+        {
+            <MudGrid Spacing="3">
+                <MudItem xs="10">
+                        <MudText Typo="Typo.subtitle1" Class="font-weight-bold">Dataset</MudText>
+                            <MudTextField T="string" @bind-Value="enteredDatasetName" ReadOnly="@(!isEditing)" Variant="Variant.Outlined"></MudTextField>
+                </MudItem>
+                    <MudItem xs="1" Class="d-flex align-end">
+                @if (isEditing)
+                {
+                    <MudTooltip Text="Done" Placement="Placement.Right" Arrow="true">
+                                <MudButton Variant="Variant.Outlined" Class="folder-button d-flex align-center justify-center" Color="Color.Primary" OnClick="@EditedDatasetName">
+                            <MudIcon Icon="@Icons.Material.Outlined.Done" />
+                        </MudButton>
+                    </MudTooltip>
+                }
+                else
+                {
+                    <MudTooltip Text="Edit" Placement="Placement.Right" Arrow="true">
+                        <MudButton Variant="Variant.Outlined" Class="folder-button d-flex align-center justify-center" OnClick="@EditDatasetName">
+                        <MudIcon Icon="@Icons.Material.Outlined.Edit" />
+                        </MudButton>
+                    </MudTooltip>
+                } 
+                </MudItem>
+                <MudItem xs="1" Class="d-flex align-end">
+                    <MudTooltip Text="Delete" Placement="Placement.Right" Arrow="true">
+                            <MudButton Variant="Variant.Outlined" Class="folder-button d-flex align-center justify-center" OnClick="@DeleteDataset">
+                            <MudIcon Icon="@Icons.Material.Outlined.Delete"></MudIcon>
+                        </MudButton>
+                    </MudTooltip>
+                </MudItem>
+
+                @if (surveys.Count > 0)
+                {
+                    
+                            
+                    <MudItem xs="12">
+                            <MudText Typo="Typo.subtitle1" Class="font-weight-bold" Color="Color.Secondary">Select Surveys</MudText>
+                        <MudList T="string" Class="mud-cards">
+                            @foreach (Survey survey in surveys)
+                            {
+                                <MudCard Outlined="true">
+                                    <MudItem xs="12">
+                                        <MudCheckBox T="bool" style="margin:3px" Label="@survey.SurveyName" Color="Color.Primary" Dense=false ValueChanged="(e => SurveySelected(e, survey))" />
+                                    </MudItem>
+                                </MudCard>
+
+                            }
+                                <MudStack Row Justify="Justify.FlexEnd" Class="mt-2">
+                                    <MudButton Color="Color.Primary"
+                                               Variant="Variant.Outlined"
+                                               OnClick="DeleteSelectedSurveys"
+                                               style="Height: 40px;">
+                                        Delete Selected Surveys
+                                    </MudButton>
+                                </MudStack>
+                            </MudList>
+                        </MudItem>
+                        
+
+
+                }
+            </MudGrid>
+        }
+        </MudPaper>
+    </MudContainer>
+</div>
+
+@code {
+    [Inject] private IDialogService DialogService { get; set; }
+
+    private string enteredDatasetName = string.Empty;
+    private List<Survey> surveys = new List<Survey>();
+    private List<Survey> selectedSurveys = new List<Survey>();
+    DatabaseRegistryLocal selectedDatabaseRegistry;
+    List<string> lcmsTables = new List<string>();
+    IDialogReference dialog = null;
+    bool isEditing = false;
+
+    //NewDatabaseRequest projectDbInfo = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Metadata) };
+    NewDatabaseRequest datasetDbInfo = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Dataset) };
+
+    protected override async Task OnInitializedAsync()
+    {
+        appEngine = MauiProgram.AppEngine;
+        //datasetList = appEngine.DatabaseRegistryService.GetAll(new Empty()).Result;
+        //projectDbInfo.NewDatabasePath = AppState.SelectedBaseProject?.DBPath;
+        //projectDbInfo.DbType = nameof(Tools.dbContextType.Metadata);
+        await GetDataAsync();
+    }
+
+    private async Task GetDataAsync()
+    {
+        //await appEngine.DatabaseRegistryService.ChangeDatabase(projectDbInfo);
+        if (AppState.SelectedDataset != null)
+        {
+            IdRequest idRequest = new IdRequest { Id = AppState.SelectedDataset.Id };
+            selectedDatabaseRegistry = await appEngine.DatabaseRegistryService.GetActualDatasetRegistry(idRequest);
+            datasetDbInfo.NewDatabasePath = AppState.SelectedDataset.Path;
+            datasetDbInfo.DbType = nameof(Tools.dbContextType.Dataset);
+            //await appEngine.DatabaseRegistryService.ChangeDatabase(datasetDbInfo);
+            surveys = (await appEngine.SurveyService.GetAll(new Empty())).ToList();
+            enteredDatasetName = selectedDatabaseRegistry.Name;
+        }
+        StateHasChanged();
+
+        //getting table names with surveyId column
+        if (lcmsTables.Count == 0)
+        {
+            var sqlCommand = @"SELECT rootpage, name, '' as file
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND sql LIKE '%SurveyId%'"; 
+            //var lstTables = appEngine.SettingTablesService.QueryAsync("SELECT rootpage,name, '' as file FROM sqlite_master WHERE type='table' AND name NOT LIKE '%Migration%' AND name NOT LIKE '%sequence%';").Result;
+            var lstTables = await appEngine.SettingTablesService.QueryAsync(sqlCommand);
+            lcmsTables.AddRange(lstTables.Select(t => t.Name).ToList());
+        }
+    }
+
+    // private void OnDatasetChanged(string datasetName)
+    // {
+    //     enteredDatasetName = datasetName;
+    //     selectedDatabaseRegistry = appEngine.DatabaseRegistryService.GetByName(datasetName).Result;
+    //     appEngine.DatabaseRegistryService.ChangeDatabase(selectedDatabaseRegistry.Path);
+    //     surveyIds = appEngine.SegmentService.GetDistinctSurveysAsync(new Empty()).Result.ToList();
+    // }
+
+    private void SurveySelected(bool value, Survey survey)
+    {
+        if (value == true)
+        {
+            selectedSurveys.Add(survey);
+        }
+        else
+        {
+            selectedSurveys.Remove(survey);
+        }
+    }
+
+    private async void DeleteDataset()
+    {
+        bool result = await App.Current.MainPage.DisplayAlert(
+                            "DataView",
+                            $"Are you sure you want to delete {selectedDatabaseRegistry.Name} dataset?",
+                            "Yes",
+                            "Cancel");
+
+        if (!result) return;
+
+        try
+        {
+            DatabaseRegistryLocal prevDb = selectedDatabaseRegistry;
+            //string tempDsName = "Ds" + DateTime.Now.Day + DateTime.Now.Month + DateTime.Now.Hour + DateTime.Now.Minute + DateTime.Now.Second;
+            surveys.Clear();
+
+            var backupService = appEngine.DatasetBackupService;
+            var relatedBackups = await backupService.GetBackupsByDatasetId(new DatasetIdRequest { DatasetId = prevDb.Id });
+
+            foreach (var backup in relatedBackups)
+            {
+                // if (File.Exists(backup.Path))
+                // {
+                //     try
+                //     {
+                //         File.Delete(backup.Path); 
+                //     }
+                //     catch (Exception ex)
+                //     {
+                //         Log.Warning($"Failed to delete backup file {backup.Path}: {ex.Message}");
+                //     }
+                // }
+
+                await backupService.DeleteBackup(new BackupActionRequest { BackupId = backup.Id });
+            }
+
+            IdReply response = await appEngine.DatabaseRegistryService.DeleteDataset(prevDb);
+            if (response != null && response.Id == 0)
+            {
+                await App.Current.MainPage.DisplayAlert("DataView", $"{response.Message}", "Ok");
+
+                //Get new db
+                DatabaseRegistryLocal newDb = appEngine.DatabaseRegistryService.GetAll(new Empty()).Result
+                .FirstOrDefault(ds => ds.Name != prevDb.Name && ds.ProjectId == prevDb.ProjectId);
+                //AppState.DatasetSelectedChange(newDb);
+                DatasetUpdated(newDb);
+
+                if (newDb == null)
+                {
+                    enteredDatasetName = string.Empty;
+                    NavManager.NavigateTo("/NewDataset");
+                }
+                else
+                {
+                    enteredDatasetName = newDb.Name;
+                }
+
+                await GetDataAsync();
+            }
+            else
+            {
+                //deletion failed -> show error message no need to update dataset
+                Snackbar.Add(response.Message, Severity.Error);
+                //DatasetUpdated(prevDb);
+
+                if (prevDb == null)
+                {
+                    enteredDatasetName = string.Empty;
+                    NavManager.NavigateTo("/NewDataset");
+                }
+                else
+                {
+                    enteredDatasetName = prevDb.Name;
+                }
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error in Deleting dataset: {ex.Message}");
+        }
+    }
+
+
+    private async void DeleteSelectedSurveys()
+    {
+        try
+        {
+            if (selectedSurveys.Count > 0 && lcmsTables.Count > 0)
+            {
+                bool result = await App.Current.MainPage.DisplayAlert(
+                                  "DataView",
+                                  $"Are you sure you want to delete selected survey data?",
+                                  "Yes",
+                                  "Cancel");
+
+                if (result)
+                {
+                    string genFileImage = "/images/downloadfull.gif";
+                    string genFileText = "Deleting Survey Data...";
+                    var parameters = new DialogParameters<Charging>();
+                    parameters.Add(x => x.DialogImage, genFileImage);
+                    parameters.Add(x => x.DialogText, genFileText);
+                    var maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium, Position = DialogPosition.Center };
+
+                    dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+                    await Task.Delay(2000);
+
+                    var surveys = selectedSurveys
+                        .Select(s => new SurveyIdRequest
+                            {
+                                SurveyExternalId = s.SurveyIdExternal,
+                                SurveyId = s.Id
+                            })
+                        .ToList();
+                    var request = new DeleteSurveysRequest { SelectedSurveys = surveys, LcmsTables = lcmsTables, DatabasePath = selectedDatabaseRegistry.Path };
+                    await appEngine.DatabaseRegistryService.DeleteSurveysAsync(request);
+                    AppState.InitializeSurveyAndLayers();
+                    dialog.Close();
+                    await GetDataAsync();
+                    await App.Current.MainPage.DisplayAlert(
+                                  "DataView",
+                                  $"Selected survey data is cleared.",
+                                  "Ok");
+                }
+            }
+            else
+            {
+                await App.Current.MainPage.DisplayAlert(
+                                  "DataView",
+                                  $"No data found to clear.",
+                                  "Ok");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error in deleting selected survey {ex.Message}");
+        }
+    }
+
+    private async void EditDatasetName()
+    {
+        isEditing = true;
+    }
+
+    private async void EditedDatasetName()
+    {
+        if (selectedDatabaseRegistry == null)
+        {
+            return;
+        }
+
+        isEditing = false;
+
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        if (string.IsNullOrWhiteSpace(enteredDatasetName) || enteredDatasetName.Any(c => invalidChars.Contains(c)))
+        {
+            Snackbar.Add("Dataset name is invalid. Please avoid using special characters like \\ / : * ? \" < > |", Severity.Warning);
+            enteredDatasetName = selectedDatabaseRegistry.Name;
+            return;
+        }
+
+        if (selectedDatabaseRegistry.Name == enteredDatasetName.Trim())
+        {
+            Snackbar.Add($"Can not use the same Dataset name.", Severity.Warning);
+            return;
+        }
+
+        var existingDatasets = await appEngine.DatabaseRegistryService.GetAll(new Empty());
+
+        bool nameExists = existingDatasets.Any(ds => ds.Name == enteredDatasetName.Trim());
+
+        if (nameExists)
+        {
+            Snackbar.Add($"A dataset with the name '{enteredDatasetName.Trim()}' already exists.", Severity.Warning);
+
+            enteredDatasetName = selectedDatabaseRegistry.Name;
+
+            StateHasChanged(); 
+
+            return; 
+        }
+
+        bool result = await App.Current.MainPage.DisplayAlert(
+                                "DataView",
+                                $"Are you sure you want to rename the dataset '{selectedDatabaseRegistry.Name}'?",
+                                "Yes",
+                                "Cancel");
+
+        if (result)
+        {
+            try
+            {
+                DatabaseRegistryLocal prevDs = selectedDatabaseRegistry;
+                string pathToChange = selectedDatabaseRegistry.Path;
+
+                int projectId = selectedDatabaseRegistry.ProjectId;
+                surveys.Clear();
+
+                string filePath = Path.GetDirectoryName(pathToChange), ext = Path.GetExtension(pathToChange),
+                targetPath = Path.Combine(filePath, enteredDatasetName + ext);
+
+                prevDs.Name = enteredDatasetName;
+                prevDs.Path = targetPath;
+                IdReply response = await appEngine.DatabaseRegistryService.RenameDataset(prevDs);
+
+                if (response.Id >= 0 && File.Exists(pathToChange))
+                {
+                    try
+                    {
+                        if (File.Exists(targetPath))
+                            File.Delete(targetPath);
+
+                        File.Copy(pathToChange, targetPath);
+                        File.Delete(pathToChange);
+
+                        DatasetUpdated(prevDs);
+                        datasetDbInfo.NewDatabasePath = targetPath;
+                        await appEngine.DatabaseRegistryService.ChangeDatabase(datasetDbInfo);
+                        //List<Survey> surveys = appEngine.SurveyService.GetAll(new Empty()).Result.ToList();
+                        //List<string> surveyIds = surveys.Select(s => s.SurveyIdExternal).ToList();
+                    }
+                    catch (Exception ex)
+                    {
+                        prevDs.Name = Path.GetFileNameWithoutExtension(pathToChange);
+                        prevDs.Path = pathToChange;
+                        response = await appEngine.DatabaseRegistryService.RenameDataset(prevDs);
+                        //No need to update dataset
+                        //DatasetUpdated(prevDs);
+
+                        Log.Error($"Error in renaming database file {ex.Message}");
+                        response.Id = -1;
+                        response.Message = $"Error in renaming database file {ex.Message}";
+                        enteredDatasetName = selectedDatabaseRegistry.Name;
+                    }
+                }
+
+                if (response != null)
+                {
+                    if (response.Id >= 0)
+                    {
+                        Snackbar.Add(response.Message, Severity.Success);
+                        await GetDataAsync();
+                    }
+                    else
+                    {
+                        Snackbar.Add(response.Message, Severity.Error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                enteredDatasetName = selectedDatabaseRegistry.Name;
+                Log.Error($"Error in renaming dataset {ex.Message}");
+                await App.Current.MainPage.DisplayAlert(
+                                 "DataView",
+                                 $"Error in renaming dataset {ex.Message}",
+                                 "Ok");
+            }
+        }
+        else
+        {
+            enteredDatasetName = selectedDatabaseRegistry.Name;
+        }
+
+        StateHasChanged();
+    }
+
+
+
+    private void DatasetUpdated(DatabaseRegistryLocal newDb)
+    {
+        selectedDatabaseRegistry = newDb;
+        AppState.UpdateDataset(newDb);
+    }
+
+
+}

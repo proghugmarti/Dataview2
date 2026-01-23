@@ -1,0 +1,502 @@
+﻿@page "/NewDataset"
+
+@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Helper;
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Database_Tables;
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Engines
+@using DataView2.States;
+@using DataView2.ViewModels;
+@using Google.Protobuf.WellKnownTypes;
+@using CommunityToolkit.Mvvm.Messaging
+
+@inject ApplicationEngine appEngine
+@inject IProjectRegistryService projectRegistryService
+@inject ISettingsService settingSerivce
+@inject NewProjectViewModel NewProjectViewModel
+@inject NavigationManager Navigation
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+@inject NavigationManager NavManager
+@inject IDialogService DialogService
+
+
+<MudSnackbarProvider />
+<div class="page-background">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+        <MudPaper Elevation="1" Class="pa-8" Style="width: 100%;">
+
+            <MudText Typo="Typo.h4" Style="font-size: 35px;">Create a New Dataset</MudText>
+            <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+                Set up your dataset details
+            </MudText>
+
+            <MudGrid Spacing="3">
+
+                <!-- Step 1 Project -->
+                <MudItem xs="1" Class="d-flex flex-column align-center">
+                    <div class="circle">1</div>
+                    <div class="line"></div>
+                </MudItem>
+
+                <MudItem xs="11">
+                    <MudText Typo="Typo.subtitle2">Dataset Name</MudText>
+                    <MudTextField @bind-Value="datasetName" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" />
+                </MudItem>
+
+                @if (scenario == "2")
+                {
+                    <!-- Step 2 Folder path -->
+                    <MudItem xs="1" Class="d-flex flex-column align-center">
+                        <div class="circle">2</div>
+                        <div class="line"></div>
+                    </MudItem>
+                    <MudItem xs="11">
+                        <MudText Typo="Typo.subtitle2">Project Path </MudText>
+                        <MudSelect T="ProjectRegistry" Label="" Variant="Variant.Outlined" Value="@defaultProject" ValueChanged="@((ProjectRegistry newValue) => UpdateSelectedObjects(newValue))" Required Style="width:230px">
+                            @if (existingProjects != null && existingProjects.Any())
+                            {
+                                @foreach (var project in existingProjects)
+                                {
+                                    <MudSelectItem Value="project">@(project.Name)</MudSelectItem>
+                                }
+
+                            }
+                        </MudSelect>
+                    </MudItem>
+                }
+
+                <!-- Step 3 Project -->
+                @if (scenario == "1")
+                {
+                    <MudItem xs="1" Class="d-flex flex-column align-center">
+                        <div class="circle">
+                            <span style="font-weight: bold;">2</span>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="11">
+                        <MudText Typo="Typo.subtitle2">Folder Path</MudText>
+                        <MudStack Row>
+                            <MudTextField @bind-Value="defaultProjectsFolderPath" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" ReadOnly="true" />
+                            <div style="@(isPickFolderVisible ? "" : "display: none;")">
+                                <MudButton Variant="Variant.Outlined" OnClick="PickFolder" Class="folder-button d-flex align-center justify-center">
+                                    <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                                </MudButton>
+                            </div>
+                            </MudStack>
+                    </MudItem>
+                }
+                @if (scenario == "3")
+                {
+                    <MudItem xs="1" Class="d-flex flex-column align-center">
+                        <div class="circle">2</div>
+                        <div class="line"></div>
+                    </MudItem>
+                    <MudItem xs="11">
+                        <MudText Typo="Typo.subtitle2">Select Folder Path</MudText>
+                        <MudStack Row>
+                            <MudTextField @bind-Value="defaultProjectsFolderPath" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" ReadOnly="true" />
+                            <MudButton Variant="Variant.Outlined" OnClick="PickFolder" Class="folder-button d-flex align-center justify-center">
+                                <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                            </MudButton>
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="1" Class="d-flex flex-column align-center">
+                        <div class="circle">
+                            <span style="font-weight: bold;">3</span>
+                        </div>
+                    </MudItem>
+
+                    <MudItem xs="11">
+                        <MudText Typo="Typo.subtitle2">Project Name </MudText>
+                        <MudTextField @bind-Value="projectName" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" />
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <div class="action-section">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateProjectandDataset" Style="padding: 15px;">Create </MudButton>
+                    </div>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    </MudContainer>
+</div>
+@* <div class="title-section" style="margin-left: 50px; margin-top: 30px;">
+    <MudText Typo="Typo.h4 " Style="  font-size: 35px;">Create a New Dataset</MudText>
+</div>
+
+<div class="body-section">
+    <MudGrid>
+
+        <!-- Step 1 Dataset -->
+
+        <MudItem xs="1">
+            <div class="circle">
+                <span style="font-weight: bold;">1</span>
+            </div>
+        </MudItem>
+        <MudItem xs="11">
+            <MudText Typo="Typo.subtitle2">Dataset Name </MudText>
+            <MudTextField @bind-Value="datasetName" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" />
+        </MudItem>
+
+
+        @if (scenario == "2")
+        {
+            <!-- Step 2 Folder path -->
+            <MudItem xs="1">
+                <div class="circle">
+                    <span style="font-weight: bold;">2</span>
+                </div>
+            </MudItem>
+            <MudItem xs="11">
+                <MudText Typo="Typo.subtitle2">Project Path </MudText>
+                <MudSelect T="ProjectRegistry" Label="" Variant="Variant.Outlined" Value="@defaultProject" ValueChanged="@((ProjectRegistry newValue) => UpdateSelectedObjects(newValue))" Required Style="width:230px">
+                    @if (existingProjects != null && existingProjects.Any())
+                    {
+                        @foreach (var project in existingProjects)
+                        {
+                            <MudSelectItem Value="project">@(project.Name)</MudSelectItem>
+                        }
+
+                    }
+                </MudSelect>
+            </MudItem>
+        }
+        <!-- Step 3 Project -->
+        @if (scenario == "1")
+        {
+            <MudItem xs="1">
+                <div class="circle">
+                    <span style="font-weight: bold;">2</span>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <MudText Typo="Typo.subtitle2">Select Folder Path</MudText>
+                <MudTextField @bind-Value="defaultProjectsFolderPath" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" ReadOnly="true" />
+            </MudItem>
+            <MudItem xs="3" Style="@(isPickFolderVisible ? "" : "display: none;")">
+                <div class="vertical-center">
+                    <MudButton Variant="Variant.Outlined" OnClick="PickFolder" Style="padding: 15px;">   Pick Folder   </MudButton>
+                </div>
+            </MudItem>
+        }
+        @if (scenario == "3")
+        {
+            <MudItem xs="1">
+                <div class="circle">
+                    <span style="font-weight: bold;">2</span>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <MudText Typo="Typo.subtitle2">Select Folder Path</MudText>
+                <MudTextField @bind-Value="defaultProjectsFolderPath" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" ReadOnly="true" />
+            </MudItem>
+            <MudItem xs="3" Style="@(isPickFolderVisible ? "" : "display: none;")">
+                <div class="vertical-center">
+                    <MudButton Variant="Variant.Outlined" OnClick="PickFolder" Style="padding: 15px;">   Pick Folder   </MudButton>
+                </div>
+            </MudItem>
+            <MudItem xs="1">
+                <div class="circle">
+                    <span style="font-weight: bold;">3</span>
+                </div>zzzzzzzzzzzzzzzzzzzzIUUUUUUUUUUUUX
+            </MudItem>
+
+            <MudItem xs="11">
+                <MudText Typo="Typo.subtitle2">Project Name </MudText>
+                <MudTextField @bind-Value="projectName" Required="true" Variant="Variant.Outlined" Small="true" FocusTrap="true" />
+            </MudItem>
+        }
+
+        <MudItem xs="12">
+            <div class="action-section">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateProjectandDataset" Style="padding: 15px">Create </MudButton>
+            </div>
+        </MudItem>
+
+    </MudGrid>
+
+</div> *@
+@* <NavigationLock OnBeforeInternalNavigation="HandleNavigation">
+</NavigationLock> *@
+
+@code {
+    private string projectName;
+    private string datasetName;
+    private string datasetLocation;
+    private string defaultProjectsFolderPath;
+    private ProjectRegistry defaultProject;
+    private Project localProject;
+    private List<ProjectRegistry> existingProjects = new List<ProjectRegistry>();
+    private string newProjectName;
+    GeneralSetting generalSetting = null;
+    string pathDbProject = "";
+    string scenario = "";
+    private bool isPickFolderVisible = true;
+    private List<string> cfgFiles = new();
+    NewDatabaseRequest requestDataBase = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Metadata) };
+    private bool datasetExist = false;
+    private IDisposable? navigationLock;
+
+
+    // private async Task HandleNavigation(LocationChangingContext context)
+    // {
+    //     // check if the dataset has been created
+    //     if (!datasetExist && !context.TargetLocation.Contains("NewDataset"))
+    //     {
+    //         // only if it is not created, show the alert message
+    //         bool confirm = await ShowUnsavedChangesConfirmation();
+    //         if (!confirm)
+    //         {
+    //             context.PreventNavigation();
+    //         }
+    //     }
+    // }
+
+    // private async Task<bool> ShowUnsavedChangesConfirmation()
+    // {
+    //     var result = await DialogService.ShowMessageBox(
+    //         "Alert",
+    //         "You haven't created a dataset yet. Are you sure you want to leave?",
+    //         yesText: "Yes", noText: "No");
+
+    //     return result ?? false;
+    // }
+
+    protected override async Task OnInitializedAsync()
+    {
+        appEngine = MauiProgram.AppEngine;
+
+        var response = settingSerivce.GetByName(new SettingName { name = "Dataset Path" }).Result;
+        if (response != null && response.Count > 0)
+        {
+            generalSetting = response.FirstOrDefault();
+            defaultProjectsFolderPath = generalSetting.Value;
+        }
+        else
+            defaultProjectsFolderPath = AppPaths.DefaultProjectFolder;
+
+        try
+        {
+
+            if (appState.SelectedBaseProject != null) //Selected project
+            {
+                existingProjects = existingProjects.Where(x => x.Id == appState.SelectedBaseProject.Id).ToList();
+                scenario = "1";
+                pathDbProject = appState.SelectedBaseProject.DBPath;
+                defaultProjectsFolderPath = appState.SelectedBaseProject.FolderPath;
+                defaultProject = appState.SelectedBaseProject;
+                IdRequestGUID idRequest = new IdRequestGUID { Id = appState.SelectedBaseProject.IdProject };
+                //requestDataBase.NewDatabasePath = pathDbProject;
+                //await appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+                localProject = await appEngine.LocalProjectService.GetByIdProject(idRequest);
+                isPickFolderVisible = false;
+            }
+            else
+            {
+                existingProjects = await projectRegistryService.GetAll(new Empty());
+                if (existingProjects.Count() > 0) //Several projects , none chosen
+                {
+                    scenario = "2";
+                    pathDbProject = existingProjects[0].DBPath;
+                    defaultProjectsFolderPath = existingProjects[0].FolderPath;
+                    defaultProject = existingProjects[0];
+                    IdRequestGUID idRequest = new IdRequestGUID { Id = existingProjects[0].IdProject };
+                    localProject = await appEngine.LocalProjectService.GetByIdProject(idRequest);
+                }
+                else// No projects
+                    scenario = "3";
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task CreateProjectandDataset()
+    {
+        try
+        {
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            if (string.IsNullOrWhiteSpace(datasetName) || datasetName.Any(c => invalidChars.Contains(c)))
+            {
+                await App.Current.MainPage.DisplayAlert(
+                    "DataView",
+                    "Dataset name is invalid. Please avoid using special characters like \\ / : * ? \" < > |",
+                    "Ok");
+                return;
+            }
+
+            if(scenario == "3") // Only check if in initial project dataset creation
+            {
+                if (string.IsNullOrWhiteSpace(projectName) || projectName.Any(c => invalidChars.Contains(c)))
+                {
+                    await App.Current.MainPage.DisplayAlert(
+                        "DataView",
+                        "Project name is invalid. Please avoid using special characters like \\ / : * ? \" < > |",
+                        "Ok");
+                    return;
+                }
+            }
+
+            string pathProject = "", pathDataSet = "";
+            NewDatabaseRequest requestDataBase = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Metadata) };
+
+            // Use the selected project to create the dataset
+            if (scenario == "1" || (existingProjects != null && existingProjects.Any()))
+            {
+                pathProject = defaultProjectsFolderPath;
+                pathDataSet = Path.Combine(pathProject, "Datasets");
+
+                if (!Directory.Exists(pathDataSet))
+                {
+                    Directory.CreateDirectory(pathDataSet);
+                }
+
+                var idReply = await NewProjectViewModel.CreateNewDatasetAsync(datasetName, pathDataSet, localProject.Id);
+                if (idReply.Id != -1)
+                {
+                    // Send "ClosePopup" only on success
+                    WeakReferenceMessenger.Default.Send(this, "ClosePopup");
+
+                    IdRequest idrequest = new IdRequest { Id = idReply.Id };
+                    DatabaseRegistryLocal datasetCreated = await appEngine.DatabaseRegistryService.GetById(idrequest);
+                    appState.UpdateDataset(datasetCreated);
+                    Snackbar.Add("Dataset created successfully.", Severity.Success);
+                    datasetExist = true;
+
+                }
+                else
+                {
+                    Snackbar.Add(idReply.Message, Severity.Error);
+                }
+
+                await DatasetCreated(idReply.Message);
+                //appState.DatasetCreated(idReply.Message, idReply.Id != -1);
+            }
+            else // create a new project and dataset
+            {
+                string prjctName = string.IsNullOrEmpty(newProjectName) ? projectName : newProjectName;
+                var projectRply = await NewProjectViewModel.CreateNewProjectAsync(prjctName, defaultProjectsFolderPath, "");
+                requestDataBase.NewDatabasePath = Path.Combine(defaultProjectsFolderPath, prjctName, $"{prjctName}.db");
+                await appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+                var localProjectRply = await NewProjectViewModel.CreateNewLocalProjectAsync(prjctName, defaultProjectsFolderPath);
+                if (localProjectRply.Id > 0)
+                {
+                    IdRequest idrequest = new IdRequest
+                        {
+                            Id = localProjectRply.Id
+                        };
+                    localProject = await NewProjectViewModel.localProjectRegistryGetById(idrequest, "");
+
+                    if (projectRply.Id != -1)
+                    {
+                        pathProject = Path.Combine(defaultProjectsFolderPath, prjctName);
+                        pathDataSet = Path.Combine(pathProject, "Datasets");
+                        var idReply = await NewProjectViewModel.CreateNewDatasetAsync(datasetName, pathDataSet, localProjectRply.Id);
+                        if (idReply.Id != -1)
+                        {
+                            // Send "ClosePopup" only on success
+                            WeakReferenceMessenger.Default.Send(this, "ClosePopup");
+
+                            idrequest = new IdRequest 
+                                { 
+                                    Id = localProjectRply.Id 
+                                };
+                            string projectDbPath = Path.Combine(defaultProjectsFolderPath, projectName, $"{projectName}.db");
+                            localProject = await NewProjectViewModel.localProjectRegistryGetById(idrequest, projectDbPath);
+
+                            idrequest = new IdRequest
+                                {
+                                    Id = projectRply.Id
+                                };
+                            defaultProject = await NewProjectViewModel.ProjectRegistryGetById(idrequest);
+                            defaultProject.IdProject = localProject.IdProject.ToString().ToUpper();
+                            await NewProjectViewModel.UpdateProjectAsync(defaultProject);
+
+                            Snackbar.Add("Project and dataset created successfully.", Severity.Success);
+                        }
+                        else
+                        {
+                            Snackbar.Add($"Failed to create dataset: {idReply.Message}", Severity.Error);
+                        }
+
+                        //appState.DatasetCreated(idReply.Message, idReply.Id != -1);
+                        await DatasetCreated(idReply.Message);
+                    }
+                    else
+                    {
+                        await appEngine.LocalProjectService.DeleteProject(new IdRequest() { Id = localProjectRply.Id });
+                        Snackbar.Add($"Failed to create project: {projectRply.Message}", Severity.Error);
+                        //appState.DatasetCreated(projectRply.Message, false);
+                        await DatasetCreated(projectRply.Message);
+                    }
+
+                    appState.UpdateBaseProject(defaultProject);
+                    appState.UpdateProject(localProject);
+                }
+                else
+                {
+                    Snackbar.Add($"Failed to create local project: {localProjectRply.Message}", Severity.Error);
+                    await DatasetCreated(localProjectRply.Message);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error in creation of dataset: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DatasetCreated(string creationStatus)
+    {
+        await App.Current.MainPage.DisplayAlert(
+            "DataView",
+            $"Status : {creationStatus} ",
+            "OK", FlowDirection.MatchParent);
+    }
+
+    private async Task PickFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+            defaultProjectsFolderPath = folderPath;
+            datasetLocation = folderPath;
+            if (generalSetting == null)
+            {
+                generalSetting = new GeneralSetting
+                    {
+                        Name = "Dataset Path",
+                        Description = "Dataset Path",
+                        Type = SettingType.String,
+                        Value = defaultProjectsFolderPath,
+                        Category = "Path",
+                    };
+                var createResponse = await settingSerivce.Create(generalSetting);
+            }
+            else
+            {
+                generalSetting.Value = defaultProjectsFolderPath;
+                var createResponse = await settingSerivce.EditValue(generalSetting);
+            }
+            StateHasChanged();
+        }
+
+    }
+    
+    private async void UpdateSelectedObjects(ProjectRegistry projectRegistry)
+    {
+        this.defaultProjectsFolderPath = projectRegistry.FolderPath;
+        this.defaultProject = projectRegistry;
+        await Task.CompletedTask;
+    }
+}

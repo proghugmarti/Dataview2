@@ -1,0 +1,108 @@
+﻿@page "/NetworkSetting"
+@using DataView2.Core.Models;
+@using Google.Protobuf.WellKnownTypes;
+
+@inject ISettingsService setting
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+
+<MudContainer>
+    <div class="text-center my-5">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-2">Network Setting</MudText>
+    </div>
+
+    <MudTable Items=@outputs Hover="true" CommitEditTooltip="Commit Edit" EditTrigger="TableEditTrigger.EditButton" Class="ma-6" HeaderClass="mud-header">
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Description</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Value</MudTh>
+            <MudTh>Category</MudTh>
+        </HeaderContent>
+
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Description">@context.Description</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="Value">@context.Value</MudTd>
+            <MudTd DataLabel="Category">@context.Category</MudTd>
+        </RowTemplate>
+
+        <RowEditingTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Description">@context.Description</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="Value">
+                <MudTextField @bind-Value="@context.Value" Required />
+            </MudTd>
+            <MudTd DataLabel="Category">@context.Category</MudTd>
+        </RowEditingTemplate>
+    </MudTable>
+
+    <div class="d-flex justify-center align-items-center mt-5">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveButtonClicked">Save Changes</MudButton>
+    </div>
+</MudContainer>
+
+
+
+@code {
+    public List<GeneralSetting> outputs = new List<GeneralSetting>();
+    public string error;
+    [Inject] private IDialogService DialogService { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetOutputs();
+    }
+
+    private async Task GetOutputs()
+    {
+        try
+        {
+            var response = await setting.GetByName(new SettingName { name = "IP Address" });
+            outputs = response.ToList();
+
+        }
+        catch (Exception e)
+        {
+            error = "Error Occured: " + e.Message;
+        }
+    }
+
+    // Save the changes all together at once
+    private async void SaveButtonClicked()
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Confirm",
+            "Are you sure you want to save changes?",
+            yesText: "Save",
+            cancelText: "Cancel");
+
+
+        if (result == true)
+        {
+            try
+            {
+                foreach (var output in outputs)
+                {
+                    var updatedSetting = await setting.EditValue(output);
+                }
+                Snackbar.Add("Changes saved successfully.", Severity.Normal);
+                await Task.Delay(3000);
+
+                await JSRuntime.InvokeVoidAsync("location.reload");
+            }
+            catch (Exception e)
+            {
+                error = "Error Occured: " + e.Message;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+}

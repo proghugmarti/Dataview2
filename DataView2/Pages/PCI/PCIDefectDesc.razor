@@ -1,0 +1,53 @@
+﻿@page "/PCIDefectDescription"
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@inject ApplicationEngine appEngine
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+
+<MudContainer>
+    <MudText Typo="Typo.h6" Align="Align.Center" Class="m-2 mb-5">PCI Defect Description</MudText>
+        <MudTable @ref="table" T="PCIDefectDescription" Items="pciDefectDescriptions" CanCancelEdit="true" Hover HeaderClass="mud-header" Class="ma-6" FixedHeader="true" Height="80vh">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>PCI Rating Type</MudTh>
+                    <MudTh>Surface</MudTh>
+                    <MudTh>Unit Of Measure</MudTh>
+                    <MudTh>Low Severity Definition</MudTh>
+                    <MudTh>Medium Severity Definition</MudTh>
+                    <MudTh>High Severity Definition</MudTh>
+                    <MudTh>Potential Effect On PCI Deduct</MudTh>
+                    <MudTh>Automatic/Manual</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="PCI Rating Type">@context.PCIRatingType</MudTd>
+                    <MudTd DataLabel="Surface">@context.Surface</MudTd>
+                    <MudTd DataLabel="Unit Of Measure">@context.UnitOfMeasure</MudTd>
+                    <MudTd DataLabel="Low Severity Definition">@((MarkupString)context.LowSeverityDefinition)</MudTd>
+                    <MudTd DataLabel="Medium Severity Definition">@((MarkupString)context.MediumSeverityDefinition)</MudTd>
+                    <MudTd DataLabel="High Severity Definition">@((MarkupString)context.HighSeverityDefinition)</MudTd>
+                    <MudTd DataLabel="Potential Effect On PCI Deduct">@context.PotentialEffectOnPCIDeduct</MudTd>
+                    <MudTd DataLabel="Automatic/Manual">@context.AutomaticOrManual</MudTd>
+                </RowTemplate>
+        </MudTable>
+</MudContainer>
+@code
+{
+    private MudTable<PCIDefectDescription> table;
+    private List<PCIDefectDescription> pciDefectDescriptions = new List<PCIDefectDescription>();
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        GetPCIDefectDescriptions();
+    }
+
+    private void GetPCIDefectDescriptions()
+    {
+        pciDefectDescriptions = Core.Helper.PCIDefectJSON.ConvertJsonToPCIDefectDescription();
+        
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,2351 @@
+﻿@page "/ImportData"
+
+@using System.Runtime.InteropServices;
+@using CommunityToolkit.Maui.Storage;
+@using CsvHelper
+@using DataView2.Core
+@using DataView2.Core.Communication;
+@using DataView2.Core.Helper
+@using DataView2.Core.Models.CrackClassification;
+@using DataView2.Core.Models.Database_Tables
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Other
+@using DataView2.Core.Protos;
+@using DataView2.Engines;
+@using System.Text;
+@using System.Xml;
+@using DataView2.States;
+@using Google.Protobuf.WellKnownTypes;
+@using System.Text.Json;
+@using Grpc.Core;
+@using System.Diagnostics
+@using Serilog
+@using System.Reflection
+@using System.Globalization
+@using Microsoft.Extensions.Configuration;
+@using static DataView2.Core.Helper.TableNameHelper
+@using System.Text.RegularExpressions;
+
+@inject ApplicationState appState ;
+@inject IRoadInspectService roadInspectGrpc;
+@inject ICrackingRawService crackGrpc;
+@inject ISnackbar Snackbar
+@inject ICrackClassification crackClassificationGrpc;
+@inject IConfiguration Configuration;
+@inject ApplicationEngine appEngine;
+@inject SurveyProcessing.SurveyProcessingClient surveyProcessing;
+@inject NavigationManager NavigationManager;
+@inject IJSRuntime JSRuntime
+@implements IDisposable;
+
+<style>
+    .mud-table-head .header-centered th {
+    text-align: end;
+    color: white;
+    }
+
+    .mud-table-foot {
+    display: none;
+    }
+
+    .data-grid-header {
+        background-color: #905D5D;
+    }
+
+    .data-grid-header .mud-table-cell .column-header {
+    color: white;
+    }
+
+    .data-grid-header .mud-icon-button {
+    color: white;
+    }
+
+    .data-grid-even {
+    background-color: #FAFAFA;
+    }
+
+    .data-grid-odd {
+        background-color: #FFF5EE;
+    }
+</style>
+
+<MudContainer Class="d-flex flex-column justify-content-center align-content-center">
+    <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto">Import Data</MudText>
+    <div class="d-flex align-items-center m-4 mx-auto" style="width:500px">
+        <MudTextField @bind-Value="folderPath" Variant="Variant.Outlined" ReadOnly="true" Class="mr-0" Style="font-size:14px; height: 45px;" />
+        <MudButton Variant="Variant.Filled"
+        Color="Color.Primary"
+        Style="margin:10px;"
+        Disabled="@_busy"
+        OnClick="@OpenFolder">
+            Open
+        </MudButton>
+    </div>
+
+
+    @if (surveyElements.Count > 0)
+    {
+        //Apply all setting for multi survey processing
+        if (surveyElements.Any(x => x.ExistingExtensions.Contains(".fis")))
+        {
+            <div class="d-flex justify-content-end">
+                <MudText Typo="Typo.overline" Class="mt-2">Apply to all</MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Settings" Size="Size.Medium" OnClick="@ToggleOpen"></MudIconButton>
+            </div>
+
+            <MudPopover Open="@_isOpen" AnchorOrigin="Origin.TopRight" TransformOrigin="Origin.TopRight" Class="p-4" >
+                <div class="d-flex justify-content-between">
+                    <MudText Typo="Typo.h6" Class="p-2 mb-2">Base Settings</MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@ToggleOpen" Class="mb-2"></MudIconButton>
+                </div>
+                <div class="d-flex flex-column justify-content-center align-items-center">
+                    <MudStack>
+                        @if (cfgFolderPath != null)
+                        {
+                            <MudSelect T="string" Label="Cfg file" Variant="Variant.Outlined" Value="@selectedCfg" ValueChanged="@((string newValue) => UpdateSelectedObjects(newValue, null))" Required Style="width:230px">
+                                @if (cfgFiles != null && cfgFiles.Any())
+                                {
+                                    @foreach (var cfgFile in cfgFiles)
+                                    {
+                                        <MudSelectItem Value="@cfgFile">@cfgFile</MudSelectItem>
+                                    }
+                                }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <MudSelect T="string" Label="No cfg file path found" Variant="Variant.Outlined" Disabled></MudSelect>
+                        }
+                        <MudPaper Outlined="true" Class="d-flex flex-column p-2 m-2" Style="max-height: 400px; overflow-y:auto;">
+                            @foreach(var lcms in LcmsObjects)
+                            {
+                                <MudCheckBox Dense T="bool" Size="Size.Small" Label="@lcms.Key" @bind-Value="@LcmsObjects[lcms.Key]" />
+                            }
+                        </MudPaper>
+
+                        <MudSwitch Color="Color.Primary" T="bool" Label="Import processed XMLs" @bind-Value="importXmlAll" />
+
+                    </MudStack>
+                    <MudButton Color="@Color.Primary" Variant="Variant.Outlined" Style="width:150px" Class="mt-3" OnClick="ApplyBaseSetting">Apply to All</MudButton>
+                </div>
+            </MudPopover>
+        }
+
+        <MudTable T="SurveyElement" Items="@surveyElements" HeaderClass="data-grid-header" RowClassFunc="@RowStyleFunc">
+            <ColGroup>
+                <col />
+                <col />
+                <col />
+                <col />
+                <col />
+            </ColGroup>
+            <HeaderContent>
+                <MudTh></MudTh>
+                <MudTh>Folder</MudTh>
+                <MudTh>Configuration</MudTh>
+                <MudTh>Processing Options</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><MudIconButton Size="Size.Small" OnClick="@(() => ShowBtnPress(context))" Icon="@((context.ShowDetails) ? @Icons.Material.Filled.KeyboardArrowDown : @Icons.Material.Filled.KeyboardArrowRight)"></MudIconButton></MudTd>
+                <MudTd DataLabel="Survey Id">@context.Id</MudTd>
+                @if (context.ExistingExtensions.Contains(".fis"))
+                {
+                    <MudTd DataLabel="Configuration">
+                        @if (cfgFolderPath != null)
+                        {
+                            <MudSelect T="string" Placeholder="Cfg file" Variant="Variant.Outlined" Value="@context.SelectedCfg" ValueChanged="@((string newValue) => UpdateSelectedObjects(newValue, context))" Class="mr-5" Style="width:200px;" Disabled=@context.XmlOnly>
+                                @if (cfgFiles != null && cfgFiles.Any())
+                                {
+                                    @foreach (var cfgFile in cfgFiles)
+                                    {
+                                        <MudSelectItem Value="@cfgFile">@cfgFile</MudSelectItem>
+                                    }
+                                }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="NavigateToSetting">Set Cfg file path</MudButton>
+                        }
+                        <MudSwitch Value="@context.XmlOnly" Color="Color.Primary" T="bool" Label="Import processed XMLs" LabelPosition="LabelPosition.End" Class="m-2 mt-5" Disabled="@isSegmtSelectedToProcessDisabled" ValueChanged="@((value) => ChangedXmlSelection(value, context))" />
+                    </MudTd>
+
+                    <MudTd DataLabel="Processing Options">
+                        <div>
+                            <MudCheckBox T="bool" Size="Size.Small" Label="Select All" Class="m-1" Value="context.SelectedObjectsAll" ValueChanged="@((bool newValue) => OnCheckedChanged(newValue, context))" Disabled="@context.XmlOnly" />
+                            <MudPaper Elevation="0" Outlined Class="d-flex flex-column p-2 m-2" Style="background-color:inherit; max-height: 300px; overflow-y: auto;">
+
+                                @foreach (var lcms in LcmsObjects.Keys)
+                                {
+                                    var css = hardDependencies.Any(h => h.Value.Contains(lcms)) ? "m-1 ml-4" : "m-1";
+                                    <div class="d-flex justify-content-between align-content-center">
+                                        @if (hardDependencies.ContainsKey(lcms))
+                                        {
+                                            <MudCheckBox T="bool" Size="Size.Small" Class="m-1" Disabled="@(context.XmlOnly && !context.ExistingXmlObjects.Contains(lcms))"
+                                                         Value="context.SelectedObjects[lcms]" ValueChanged="@((bool isChecked) => ToggleHardDependencies(lcms, isChecked, context))">
+                                                @lcms
+                                            </MudCheckBox>
+                                        }
+                                        else if (softDependencies.ContainsKey(lcms))
+                                        {
+                                            <MudCheckBox T="bool" Size="Size.Small" Class="m-1" Disabled="@(context.XmlOnly && !context.ExistingXmlObjects.Contains(lcms))"
+                                                         Value="context.SelectedObjects[lcms]" ValueChanged="@((bool isChecked) => ToggleSoftDependencies(lcms, isChecked, context))">
+                                                @lcms
+                                            </MudCheckBox>
+                                        }
+                                        else
+                                        {
+                                            <MudCheckBox T="bool" Size="Size.Small" Class="@css" Disabled="@(context.XmlOnly && !context.ExistingXmlObjects.Contains(lcms))"
+                                                         Value="@context.SelectedObjects[lcms]" ValueChanged="@((bool isChecked) => EnsureParentChecked(lcms, isChecked, context))">
+                                                @lcms
+                                            </MudCheckBox>
+                                        }
+
+                                        @* --- OVERLAY IMAGE ICON --- *@
+                                        @if (context.Files.Any(x => x.Extension == ".fis") && overlayImageModules.Contains(lcms))
+                                        {
+                                            <MudTooltip Text="@(context.SelectedOverlayModules.Contains(lcms) ? "Hide this defect from overlay images" : "Show this defect on overlay images")">
+                                                <MudToggleIconButton Icon="@Icons.Material.Filled.AddCircle" ToggledIcon="@Icons.Material.Filled.RemoveCircle" Size="Size.Small" Color="Color.Primary" 
+                                                                    Toggled="@context.SelectedOverlayModules.Contains(lcms)" ToggledChanged="@(toggled => ToggleImageOverlay(lcms, context, toggled))"/>
+                                            </MudTooltip>
+                                        }
+                                    </div>
+                                }
+                            </MudPaper>
+                        </div>
+                    </MudTd>
+
+                    @if (context.Files.Any(x => x.Extension == ".fis"))
+                    {
+                        <MudTd>
+                                <MudTooltip Text="Range, Intensity, and Intensity Overlay images are always generated by default. You can optionally generate a Range Overlay image.">
+                                    <MudCheckBox @bind-Value="@context.GenerateRangeOverlay" Label="Range Overlay" />
+                                </MudTooltip>
+                        </MudTd>
+                    }
+                }
+                else if (context.ExistingExtensions.Contains(".pgr"))
+                {
+                    //pgr processing params
+                    <MudTd DataLabel="Configuration">
+                        <MudSelect T="string" Variant="Variant.Outlined" Label="Output Size" Class="m-2" @bind-Value="context.pgrOutputSize">
+                            @foreach (var outputSize in pgrOutputSizes)
+                            {
+                                <MudSelectItem T="string" Value="@outputSize">@outputSize</MudSelectItem>
+                            } 
+                        </MudSelect>
+                    </MudTd>
+                    <MudTd DataLabel="Processing Options">
+                        <MudSelect T="string" Variant="Variant.Outlined" Label="Color Processing Method" Class="m-2" @bind-Value="context.pgrColorProcessingMethod">
+                            @foreach (var colorProcessing in pgrColorProcessingMethods)
+                            {
+                                <MudSelectItem T="string" Value="@colorProcessing">@colorProcessing</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudTd>
+                    <MudTd>
+                        <MudTooltip Text="By default, only a panoramic image is generated. Enable this option if you specifically need 6 individual images. Note: Expect longer processing time">
+                            <MudCheckBox T="bool" Size="Size.Small" Class="m-1" @bind-Value="context.pgrAdd6Images">Include 6 individual images</MudCheckBox>
+                        </MudTooltip>
+                    </MudTd>
+                }
+                else
+                {
+                    //no need these information if it is not fis file
+                    <MudTd DataLabel="Configuration">N/A</MudTd>
+                    <MudTd DataLabel="Processing Objects">N/A</MudTd>
+                    <MudTd></MudTd>
+                }
+            </RowTemplate>
+            <ChildRowContent>
+                @if (context.ShowDetails)
+                {
+                    <MudTr>
+                        <td colspan="5">
+                            <MudTable @ref="@_table" T="FileElement" Items="@FilteredFiles(context)" MultiSelection="true" Hover="true" Class="my-3" SelectedItems="@selectedFiles"
+                            SelectedItemsChanged="HandleSelectedItemsChanged" CustomHeader="true" HeaderClass="mud-header" CustomFooter="true" Context="fileElement">
+                                <HeaderContent>
+                                    <MudTHeadRow IgnoreCheckbox=true>
+                                        <MudTh />
+                                        <MudTh />
+                                        <MudTh />
+                                        <MudTh Class="d-flex text-end">
+                                            <MudTh Class="d-flex justify-content-end">
+                                                @* Just show the file formats that exist in the folder *@
+                                                @foreach (var ext in context.ExistingExtensions)
+                                                {
+                                                    var disabled = ext is ".db" or ".json" or ".pgr" or "GPS_Raw*.txt" ? isSegmtSelectedToProcessDisabled : false;
+
+                                                    <MudCheckBox T="bool" Size="Size.Small" Label="@ext"
+                                                    Disabled="@disabled"
+                                                    Class="mx-5"
+                                                    Value="@IsExtensionSelected(ext, context)"
+                                                    ValueChanged="@((bool isChecked) => HandleExtensions(ext, isChecked, context))" />
+                                                }
+                                            </MudTh>
+
+                                        </MudTh>
+                                    </MudTHeadRow>
+                                    <MudTHeadRow Checkable="true">
+                                        <MudTh><MudTableSortLabel SortBy="new Func<FileElement, object>(x=>x.Name)" SortDirectionChanged="@(e =>ListSorted("File", e))">File Name</MudTableSortLabel></MudTh>
+                                        <MudTh><MudTableSortLabel SortBy="new Func<FileElement, object>(x=>x.Extension)" SortDirectionChanged="@(e =>ListSorted("Extension", e))">Extension</MudTableSortLabel></MudTh>
+                                        <MudTh>Date</MudTh>
+                                    </MudTHeadRow>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    @if (fileElement.Extension != ".json")
+                                    {
+                                        <MudTd DataLabel="File Name">@Path.GetFileNameWithoutExtension(@fileElement.Name)</MudTd>
+                                        <MudTd DataLabel="Extension">@fileElement.Extension</MudTd>
+                                    }
+                                    else
+                                    {
+                                        <MudTd DataLabel="File Name">@(Path.GetFileName(Path.GetDirectoryName(@fileElement.Name)) + "/" + Path.GetFileNameWithoutExtension(@fileElement.Name))</MudTd>
+                                        <MudTd DataLabel="Extension">@($"{fileElement.Extension} (video)")</MudTd>
+                                    }
+                                    <MudTd DataLabel="Date">@fileElement.Date</MudTd>
+                                </RowTemplate>
+                                <PagerContent>
+                                    <MudTablePager PageSizeOptions="new int[]{10, 20, 50}" />
+                                </PagerContent>
+                            </MudTable>
+                            <div class="d-flex justify-content-center align-content-center m-3">
+                                <MudStack Row=true>
+                                    <MudNumericField Variant="Variant.Outlined" @bind-Value="@context.FromValue" Required Style="height:30px; width:65px"
+                                    Min="1" Max="@context.Files.Count" Class="pt-2"></MudNumericField>
+                                    <MudText Style="height:25px;" Class="pt-4">To</MudText>
+                                    <MudNumericField Variant="Variant.Outlined" @bind-Value="@context.ToValue" Required Style="height:30px; width:70px" Class="pt-2"
+                                    Min="1" Max="@context.Files.Count"></MudNumericField>
+                                    <MudButton Variant="Variant.Filled"
+                                    Color="Color.Primary"
+                                    Style="margin:10px"
+                                    Disabled="_busy"
+                                    OnClick="@(() => ProcessRangeSelected(context))">
+                                        Process Range
+                                    </MudButton>
+                                </MudStack>
+                            </div>
+                        </td>
+                    </MudTr>
+                }
+            </ChildRowContent>
+        </MudTable>
+
+        <div class="d-flex flex-row justify-content-center align-items-center m-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+            Style="margin-right: 10px;" Disabled="_busy"
+            OnClick="@ProcessAll">
+                Process All
+            </MudButton>
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+            Style="margin-right: 10px;"  Disabled="_busy"
+            OnClick="@ProcessSelected">
+                Process Selected
+            </MudButton>
+        </div>
+    }
+</MudContainer>
+
+
+<MudDialog @ref="processLogsDialog" Style="height:fit-content; width:stretch; overflow:hidden" @bind-Visible="dialogLogVisibility">
+    <TitleContent>
+        <MudText Typo="Typo.h6" Class="m-1" Color="Color.Primary">Process Logs</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudStack Row="true" Class="m-1">
+            <MudText>Processing Time: @processingTime</MudText>
+        </MudStack>
+        <MudStack>
+            <MudTable Items="detailLogs" Height="400px" Breakpoint="Breakpoint.Sm" RowsPerPage="@rowsPerPage" @ref="_tableDetailLogs" Hover="true" CanCancelEdit="true" class="mud-table-col" FixedHeader="true" FixedFooter="true">
+                <HeaderContent>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold; min-width:200px;">File Name</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">File Type</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">Status</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">Log Details</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">XML Path</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">Image Path</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">Lcms Objects</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">Erd Path</MudTh>
+                    <MudTh style="text-align: left; color: #CB1C01; font-weight: Bold;">Ppf Path</MudTh>
+                </HeaderContent>
+
+                <RowTemplate>
+                    <MudTd DataLabel="FileName"
+                    Style="overflow-wrap: anywhere;">
+                        @context.FileName
+                    </MudTd>
+                    <MudTd DataLabel="FileType">@context.FileType</MudTd>
+                    <MudTd DataLabel="Status">
+                        @if (context.Status == "FAIL")
+                        {
+                            <MudText Color="Color.Error">@context.Status</MudText>
+                        }
+                        else if (context.Status == "PASS")
+                        {
+                            <MudText Color="Color.Success">@context.Status</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="LogDetails">@context.LogDetails</MudTd>
+                    <MudTd DataLabel="XMLPath">
+                        <MudTooltip Text="@context.XMLPath">
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Style="font-size:0.8rem;">XML Path</MudButton>
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="ImagePath">
+                        <MudTooltip Text="@context.ImagePath">
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Style="font-size:0.8rem;">IMG Path</MudButton>
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="SelectedLcmsObjects">
+                        <MudTooltip Text="@context.SelectedLcmsObjects" >
+                            <MudButton Variant = "Variant.Text" Color = "Color.Primary" Style = "font-size:0.8rem;">LCMS Objects</MudButton >
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="ErdPath">
+                        <MudTooltip Text="@context.ErdPath">
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Style="font-size:0.8rem;">Erd Path</MudButton>
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="PpfPath">
+                        <MudTooltip Text="@context.PpfPath">
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Style="font-size:0.8rem;">Ppf Path</MudButton>
+                        </MudTooltip>
+                    </MudTd>
+                </RowTemplate>
+
+                <PagerContent>
+                    <MudTablePager PageSizeOptions="@_pageSizeOption" RowsPerPageString="Rows per page" />
+                    @if (detailLogs.Any(x => x.Status == "FAIL"))
+                    {
+                        <MudText Class="m-1" Color="Color.Error" Typo="Typo.body2">One or more files failed to process. Please check the logs for details.</MudText>
+                    }
+                    <MudStack Row="true" Class="m-1">
+                        <MudText>Log Filename :</MudText>
+                        <MudTextField @bind-Value="logFileName" Variant="Variant.Text"></MudTextField>
+                    </MudStack>
+                    <MudStack Row="true" Class="m-1">
+                        <MudText>Save Directory :</MudText>
+                        <MudTextField ReadOnly="true" T="string" Text="@exportPath" Variant="Variant.Text"></MudTextField>
+                    </MudStack>
+                    <MudStack Row="true" Justify="Justify.FlexEnd" Class="m-3">
+                        <MudButton Variant="Variant.Outlined" OnClick="PickSaveFolder" Color="Color.Primary" Size="Size.Small">Select Directory</MudButton>
+                    </MudStack>
+                </PagerContent>
+            </MudTable>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveLogs" Class="m-1 mx-auto">Save Logs</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GoToMap" Class="m-1 mx-auto">Go to Map</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CloseLogs" Class="m-1 mx-auto">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Inject] private IDialogService DialogService { get; set; }
+    private DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    private bool dialogLogVisibility;
+    private CancellationTokenSource cancellationTokenSource;
+    private DialogOptions dialogOptions = new() { FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
+    private SortDirection FilesSortOrder, ExtensionSortOrder;
+    private IDialogReference processingDialogRef;
+
+    string exportPath = Path.Combine(AppPaths.DocumentsFolder, "User Export Files", "Processed Logs");
+    string folderPath = "Please Select a Path";
+    string withoutBoudaries = "Process without boundaries";
+    private MudTable<FileElement> _table;
+    private HashSet<FileElement> selectedFiles = new HashSet<FileElement>();
+    private HashSet<SurveyElement> selectedSurveys = new HashSet<SurveyElement>();
+    private List<SurveyElement> surveyElements = new List<SurveyElement>();
+    private Dictionary<MudTable<FileElement>, HashSet<string>> selectedExtensionsMap = new Dictionary<MudTable<FileElement>, HashSet<string>>();
+    NewDatabaseRequest requestDataBase = new NewDatabaseRequest { NewDatabasePath = "", DbType = "" };
+
+    private string cfgFolderPath;
+    private List<string> cfgFiles = new();
+    private string selectedCfg;
+    private bool importXmlAll = false;
+    public bool _isOpen;
+    private DatabaseRegistryLocal selectedDataset;
+    private bool _busy = false;
+
+    private List<string> detailLogViewHelpers = new List<string>();
+    private List<Core.Helper.DetailLogViewHelper> detailLogs = new List<Core.Helper.DetailLogViewHelper>();
+    private PagingParameters _pagingParameters = new PagingParameters();
+    private readonly int[] _pageSizeOption = { 5, 10, 25, 50, 100 };
+    private int rowsPerPage = 5;
+    private MudTable<DetailLogViewHelper> _tableDetailLogs = null;
+    private MudDialog processLogsDialog { get; set; }
+    private string logFileName = string.Empty;
+    private MudMessageBox mbox { get; set; }
+
+    private List<FileElement> gpsFiles = new();
+
+    private int createdBackupId = 0;
+    //Reprocess Segments selected
+    bool isSegmtSelectedToProcessDisabled = false;
+
+    int progress = 0;
+    string currentMessage;
+    string currentStage;
+    Dictionary<string, string> errorMessages = new Dictionary<string, string>(); //key - surveyId, value - error message
+    string processingTime;
+
+    //pgr processing method
+    private List<string> pgrColorProcessingMethods = new List<string> 
+    { 
+        "Nearest Neighbour (Fast)", 
+        "Edge Sensing", 
+        "High Quality Linear", 
+        "High Quality Linear on GPU", 
+        "Directional Filter", 
+        "Rigorous (Very Slow)",
+        "Downsample64 (Fastest)", 
+        "Downsample16 (Faster)", 
+        "Downsample4 (Fast)", 
+        "Downsample4 Mono (Fast)", 
+        "Disable" 
+    };
+    private List<string> pgrOutputSizes = new List<string>
+    {
+        "512 x 256",
+        "1024 x 512",
+        "2048 x 1024",
+        "3500 x 1750",
+        "4096 x 2048",
+        "5400 x 2700"
+    };
+
+    private List<string> overlayImageModules = new List<string>
+    {
+        LayerNames.MarkingContour,
+        LayerNames.Cracking,
+        LayerNames.Potholes,
+        LayerNames.Ravelling,
+        LayerNames.ConcreteJoint,
+        LayerNames.CurbDropOff,
+        LayerNames.SealedCrack,
+        LayerNames.Patch,
+        LayerNames.Pumping,
+        LayerNames.Pickout,
+        LayerNames.Bleeding,
+        LayerNames.MMO,
+        LayerNames.Spalling,
+        LayerNames.MacroTexture
+    };
+
+    ///  <summary>   ///
+    ///Note: To keep showing the Icons next to the LCMObjects, If it's modified this Dictionary: LcmsObject,  don't forget to update these objects on this same page:
+    ///-ProcesedObjectsKeys
+    ///-ItemIcons
+    ///-MudCheckBox(In: <MudTd DataLabel = Processing Objects >)
+    /// </summary>
+    private Dictionary<string, bool> LcmsObjects = new Dictionary<string, bool>
+    {
+        { LayerNames.Pickout, true },
+        { LayerNames.Ravelling, true },
+        { LayerNames.Cracking, true }, //shouldn't change its order
+        { LayerNames.CrackClassification, true }, //crack dependencies
+        { LayerNames.CrackFaulting, true }, //crack dependencies
+        { LayerNames.Potholes, true },
+        { LayerNames.Patch, true },
+        { LayerNames.ConcreteJoint, true },
+        { LayerNames.Geometry, true },
+        { LayerNames.Bleeding, true },
+        { LayerNames.Rutting, true },
+        { LayerNames.LaneMarking, true },
+        { LayerNames.MarkingContour, true },
+        { LayerNames.SealedCrack, true },
+        { LayerNames.MMO, true },
+        { LayerNames.Roughness, true }, //shouldn't change its order
+        { LayerNames.SagsBumps, true }, //roughness dependencies
+        { LayerNames.PpfErd, true }, //roughness dependencies
+        { LayerNames.Pumping, true },
+        { LayerNames.MacroTexture, true },
+        { LayerNames.RumbleStrip, true },
+        { LayerNames.Shove, true },
+        { LayerNames.CurbDropOff, true },
+        { LayerNames.Grooves, true},
+        { LayerNames.PASER, true},
+        { LayerNames.PCI , true},
+        //{ "Water Entrapment", true }
+    };
+
+    private readonly Dictionary<string, List<string>> hardDependencies = new()
+    {
+        { LayerNames.Cracking, new List<string> { LayerNames.CrackClassification, LayerNames.CrackFaulting } },
+        { LayerNames.Roughness, new List<string> { LayerNames.SagsBumps, LayerNames.PpfErd } },
+    };
+
+    private readonly Dictionary<string, List<string>> softDependencies = new()
+    {
+        { LayerNames.PASER, new List<string> {  LayerNames.LaneMarking, LayerNames.Cracking, LayerNames.Rutting, LayerNames.Potholes, LayerNames.Ravelling, LayerNames.CurbDropOff, LayerNames.SealedCrack, LayerNames.Patch } },
+        { LayerNames.PCI, new List<string> { LayerNames.Cracking, LayerNames.Rutting, LayerNames.Roughness, LayerNames.Potholes, LayerNames.CurbDropOff, LayerNames.Patch, LayerNames.Ravelling, LayerNames.Bleeding} }
+    };
+
+    private DatabaseRegistryLocal currentDataset;
+
+    public class FileElement
+    {
+        public string Name { get; set; }
+        public string Extension { get; set; }
+        public DateTime Date { get; set; }
+        public bool IsSelected { get; set; }
+    }
+
+    public class SurveyElement
+    {
+        public string Id { get; set; }
+        public string FolderPath { get; set; }
+        public List<FileElement> Files { get; set; }
+        public string? SelectedCfg { get; set; }
+        public Dictionary<string, bool>? SelectedObjects { get; set; }
+        public HashSet<string>? ExistingXmlObjects { get; set; }
+        public List<string> SelectedOverlayModules { get; set; }
+        public bool GenerateRangeOverlay { get; set; }
+        public bool SelectedObjectsAll { get; set; }
+        public List<string> SelectedExtensions { get; set; }
+        public List<string> ExistingExtensions { get; set; }
+        public string VideoPath { get; set; }
+        public bool XmlOnly { get; set; }
+
+        //boundary
+        public string? SelectedBoundaries { get; set; }
+        public List<string>? BoundariesFiles { get; set; }
+
+        //pgr video file processing
+        public string pgrOutputSize { get; set; }
+        public string pgrColorProcessingMethod { get; set; }
+        public bool pgrAdd6Images { get; set; } = false;
+
+        //MudTable
+        public int FromValue { get; set; } = 1;
+        public int ToValue { get; set; } = 1;
+        public bool ShowDetails { get; set; } = false;
+
+        //cfg pave
+        public bool isAsphalt { get; set; } = false;
+        public bool isConcrete { get; set; } = false;
+        public bool isGroovedConcrete { get; set; } = false;
+    }
+
+    public class Folder
+    {
+        public string Name { get; set; }
+        public string Path { get; set; }
+        public HashSet<Folder> SubFolders { get; set; } = new HashSet<Folder>();
+        public bool IsExpanded { get; set; } = true;
+        public bool IsSelected { get; set; }
+        public bool IsRelevant { get; set; }
+        public bool HasChild => SubFolders != null && SubFolders.Count > 0;
+
+        public Folder(string name, string path)
+        {
+            Name = name;
+            Path = path;
+        }
+    }
+
+
+    public void OnCheckedChanged(bool selectedAll, SurveyElement se)
+    {
+        if (se != null)
+        {
+            se.SelectedObjectsAll = selectedAll;
+            if (se.SelectedObjects != null && se.SelectedObjects.Count > 0)
+            {
+                //update all in LcmsObjects of selected survey
+                foreach (KeyValuePair<string, bool> kvp in se.SelectedObjects)
+                {
+                    se.SelectedObjects[kvp.Key] = se.SelectedObjectsAll;
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+
+    protected override async void OnInitialized()
+    {
+        GetConfigFiles();
+        try
+        {
+            // Subscribe to the OnDatasetsUpdated event
+            currentDataset = appState.SelectedDataset;
+
+            if (appState.isReprocessingSegments)
+            {
+                isSegmtSelectedToProcessDisabled = true;
+                await SetFolderEnvironmentSegmFiles();
+            }
+        }
+        catch (Exception ex)
+        {
+            bool? result = await DialogService.ShowMessageBox("Error", "Problem Found: " + ex.Message, yesText: "Yes", cancelText: "No");
+        }
+    }
+
+    private void OpenProcessingDialog()
+    {
+        var parameters = new DialogParameters
+        {
+            { "StopClicked", EventCallback.Factory.Create(this, Stop) },
+            { "CancelClicked", EventCallback.Factory.Create(this, Cancel) },
+        };
+
+        processingDialogRef = DialogService.Show<ProcessingDialog>("Processing...", parameters, dialogOptions);
+    }
+
+    private void CloseProcessingDialog()
+    {
+        processingDialogRef.Close();
+        processingDialogRef = null;
+    }
+
+    private async Task<bool> StopCancelConfirmation(bool isStop = false)
+    {
+        string operationStr = isStop ? "stop" : "cancel";
+        string operationMsg = isStop ? "Stop operation will not restore dataset backup." : "Cancel operation will restore dataset backup.";
+        bool? result = await DialogService.ShowMessageBox("Confirmation", $"Are you sure you want to {operationStr} the survey processing? This action cannot be undone. {Environment.NewLine + operationMsg}", yesText: "Yes", noText: "No");
+
+        return result == null ? false : result == true ? true : false;
+    }
+
+    //confusing term cancel and stop. I thought it would stop and save the data processed until then but actually it was talking about backup. -- can improve this later
+    public async void Cancel()
+    {
+        if (await StopCancelConfirmation())
+        {
+            //Cancel restores dataset
+            if (await RestoreBackup())
+                Log.Information("Process is cancelled and dataset restored");
+            else
+                Log.Information("Process is cancelled without restoring dataset backup");
+
+            cancellationTokenSource?.Cancel();
+            StateHasChanged();
+        }
+    }
+
+    public async void Stop()
+    {
+        //Stop doesn't restore dataset
+        if (await StopCancelConfirmation(true))
+        {
+            cancellationTokenSource?.Cancel();
+            Log.Information("Process is stopped without restoring dataset backup");
+            StateHasChanged();
+        }
+    }
+
+    public async void CloseLogs()
+    {
+        dialogLogVisibility = false;
+        StateHasChanged();
+    }
+
+    private async void SaveLogs()
+    {
+        if (string.IsNullOrEmpty(logFileName))
+        {
+            await DialogService.ShowMessageBox("Alert", "Log Filename must be entred prior to save logs.", yesText: "OK");
+            return;
+        }
+
+        appState.NotifyProcessing(true);
+
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        string savelogfilepath = exportPath + $"\\{logFileName}.csv".Replace("\\", "/");
+
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Saving Logs...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+        var dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+        try
+        {
+            await Task.Delay(2000);
+
+            //check directory
+            if (!Directory.Exists(exportPath))
+                Directory.CreateDirectory(exportPath);
+
+
+            //save file
+            using (var writer = new StreamWriter(savelogfilepath))
+            using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+            {
+                List<DetailLogViewHelper> sortedLogs = detailLogs.OrderBy(l => l.FileName).ToList();
+                csv.WriteRecords(sortedLogs);
+            }
+
+            //Check new CSV is downloaded
+            if (File.Exists(savelogfilepath))
+            {
+                Snackbar.Add($"Process Log file saved at {Path.GetDirectoryName(savelogfilepath)}", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add($"Failed to save Process Log file", Severity.Error);
+            }
+
+            dialog.Close();
+            logFileName = string.Empty;
+            dialogLogVisibility = false;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to save Process Log file", Severity.Error);
+            Log.Error($"Error in saving detail log files : {ex.Message}"); 
+        }
+        finally { dialog.Close(); appState.NotifyProcessing(false); }
+    }
+
+    private async void GoToMap()
+    {
+        NavigationManager.NavigateTo("/Home");
+        appState.SetMenuPage("/Home");
+    }
+
+    public async void GetConfigFiles()
+    {
+        var response = await appEngine.SettingsService.GetByName(new SettingName { name = "Cfg Folder Path" });
+        GeneralSetting generalSetting = response.FirstOrDefault();
+        if (generalSetting != null && Path.Exists(generalSetting.Value))
+        {
+            cfgFolderPath = generalSetting.Value;
+            var files = Directory.GetFiles(cfgFolderPath, "*.cfg");
+            foreach (var file in files)
+            {
+                var fileName = Path.GetFileName(file);
+                cfgFiles.Add(fileName);
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void NavigateToSetting()
+    {
+        NavigationManager.NavigateTo("/ParametersSetting");
+        appState.SetMenuPage("/ParametersSetting");
+        StateHasChanged();
+    }
+
+    public void ToggleOpen()
+    {
+        if (_isOpen)
+        {
+            _isOpen = false;
+            selectedCfg = null;
+            LcmsObjects = new Dictionary<string, bool>(LcmsObjects);
+            importXmlAll = false;
+        }
+        else
+        {
+            _isOpen = true;
+        }
+    }
+
+    private Func<SurveyElement, int, string> RowStyleFunc => (x, i) =>
+    {
+        string style = "";
+        if (i % 2 == 1)
+            style += "data-grid-odd";
+
+        else if (i % 2 == 0)
+            style += "data-grid-even";
+
+        return style;
+    };
+
+    private void ToggleImageOverlay(string layer, SurveyElement context, bool toggled)
+    {
+        if (toggled)
+        {
+            if (!context.SelectedOverlayModules.Contains(layer))
+                context.SelectedOverlayModules.Add(layer);
+        }
+        else
+        {
+            context.SelectedOverlayModules.Remove(layer);
+        }
+    }
+
+    private void ToggleHardDependencies(string layer, bool isChecked, SurveyElement context)
+    {
+        context.SelectedObjects[layer] = isChecked;
+
+        if (!hardDependencies.ContainsKey(layer))
+            return;
+
+        foreach (var child in hardDependencies[layer])
+        {
+            context.SelectedObjects[child] = isChecked;
+        }
+    }
+
+    private void ToggleSoftDependencies(string layer, bool isChecked, SurveyElement context)
+    {
+        context.SelectedObjects[layer] = isChecked;
+
+        if (!softDependencies.ContainsKey(layer)) 
+            return;
+
+        foreach (var child in softDependencies[layer])
+        {
+            if (isChecked)
+                context.SelectedObjects[child] = true;
+        }
+    }
+
+    private void EnsureParentChecked(string child, bool isChecked, SurveyElement context)
+    {
+        context.SelectedObjects[child] = isChecked;
+        foreach (var parent in hardDependencies.Keys)
+        {
+            if (hardDependencies[parent].Contains(child) && isChecked)
+            {
+                context.SelectedObjects[parent] = true;
+            }
+        }
+    }
+    private async Task OpenFolder()
+    {
+        try
+        {
+            if (appState.isReprocessingSegments && !appState.incorrectReprocessFolder) return;
+            if (_busy) return;
+            _busy = true;
+            CancellationTokenSource source = new CancellationTokenSource();
+            CancellationToken token = source.Token;
+
+            //if (activeTabIndex == 0)
+            {
+                var folder = await FolderPicker.Default.PickAsync(token);
+                if (folder.IsSuccessful)
+                {
+                    //if previous data still stored, clear
+                    if (selectedFiles.Count > 0)
+                    {
+                        selectedFiles.Clear();
+                    }
+                    if (surveyElements.Count > 0)
+                    {
+                        surveyElements.Clear();
+                    }
+
+                    string genFileImage = "/images/download.gif";
+                    string genFileText = "Loading files...";
+                    DialogParameters parameters = new DialogParameters
+                    {
+                        { "DialogImage", genFileImage },
+                        { "DialogText", genFileText }
+                    };
+
+                    var dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+                    await Task.Delay(500);
+
+                    folderPath = folder.Folder.Path;
+                    // Get folder structure and relevant folders
+
+                    var folders = GetFolderStructure(folderPath);
+                    var relevantSubFolders = GetAllRelevantSubFolders(folders.First());
+                    dialog.Close();
+
+                    if (appState.isReprocessingSegments && !IsCorrectReprocessFolder(folderPath))
+                        return;
+
+                    if (folders.First().IsRelevant)
+                    {
+                        relevantSubFolders.Insert(0, folderPath); // Ensure the root folder is checked first if it's relevant
+                    }
+
+                    if (relevantSubFolders.Any())
+                    {
+                        if (relevantSubFolders.Count == 1)
+                        {
+                            GetAllProcessFiles(relevantSubFolders.First());
+                            folderPath = relevantSubFolders.First();
+                            surveyElements.First().ShowDetails = true;
+                        }
+                        else
+                        {
+                            OpenDialog(folders);
+                        }
+                    }
+                    else
+                    {
+                        FileAccessMessage();
+                    }
+
+                }
+
+            }
+            //else
+            {
+                // //select CSV for survey segmentation
+                // string sSFilepath = string.Empty;
+                // var customFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".csv" } } });
+                // var result = await FilePicker.PickAsync(new PickOptions
+                //     {
+                //         PickerTitle = "Please select a CSV file",
+                //         FileTypes = customFileType,
+                //     });
+
+                // if (result != null)
+                // {
+                //     sSFilepath = result.FullPath;
+                // }
+
+                // if (File.Exists(sSFilepath))
+                // {
+                //     csvData.Clear();
+                //     ReadCsvFile(sSFilepath);
+                //     if (csvData.Count > 0)
+                //     {
+                //         //List<string> surveynames = await appEngine.SurveyService.GetAllSurveyNames(new Empty());
+                //         foreach (var csv in csvData)
+                //         {
+                //             if (string.IsNullOrEmpty(csv.SurveyName))
+                //             {
+                //                 csv.SurveyName = String.Concat("SurveySegmented_", DateTime.Now.ToString("hhmmss"));
+                //             }
+
+                //             IdReply response = await appEngine.SurveySegmentationService.Create(new SurveySegmentation
+                //                 {
+                //                     Name = csv.SurveyName,
+                //                     Description = csv.SurveyName,
+                //                     EndPoint = string.Concat("[", csv.EndLatitude, ",", csv.EndLongitude, "]"),
+                //                     StartPoint = string.Concat("[", csv.StartLatitude, ",", csv.StartLongitude, "]")
+                //                 });
+                //         }
+
+                //         Snackbar.Add("Survey segmentation details are saved.", Severity.Success);
+
+                //         surveySegmentations = await appEngine.SurveySegmentationService.GetAll(new Empty());
+                //     }
+                // }
+                // else
+                // {
+                //     FileAccessMessage();
+                // }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Survey segmentation details are failed to save.", Severity.Error);
+            Console.WriteLine($"Error in loading files to process {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private List<string> GetAllRelevantSubFolders(Folder folder)
+    {
+        var relevantSubFolderPaths = new List<string>();
+
+        foreach (var subFolder in folder.SubFolders)
+        {
+            if (subFolder.IsRelevant)
+            {
+                relevantSubFolderPaths.Add(subFolder.Path);
+            }
+            relevantSubFolderPaths.AddRange(GetAllRelevantSubFolders(subFolder));
+        }
+
+        return relevantSubFolderPaths;
+    }
+
+    private bool IsCorrectReprocessFolder(string pickedFolder)
+    {
+        appState.reprocessFolder = pickedFolder;
+        appState.FindFisFiles(); // Checks if selected folder contains the fis files.
+
+        if (appState.incorrectReprocessFolder) // return error if doesn't contain fis files
+        {
+            Snackbar.Add("The folder for reprocessing the selected segments was not found. Please select the current survey's folder.", Severity.Error);
+            return false;
+        }
+
+        appState.newReprocessFolder = pickedFolder; // Set selected folder as the new reprocess folder for future reprocessing
+        Snackbar.Add("Success! Survey folder was found.", Severity.Success);
+        return true;
+    }
+
+    private IReadOnlyCollection<TreeItemData<Folder>> ConvertToTreeItemData(IEnumerable<Folder> folders)
+    {
+        return folders.Select(folder => new TreeItemData<Folder>
+            {
+                Text = folder.Name,
+                Value = folder,
+                Expanded = folder.IsExpanded,
+                Children = ConvertToTreeItemData(folder.SubFolders).ToList(),
+                Selected = folder.IsSelected
+            }).ToList().AsReadOnly();
+    }
+
+    private async void OpenDialog(HashSet<Folder> folders)
+    {
+        var treeItemData = ConvertToTreeItemData(folders);
+
+        var options = new DialogOptions { FullWidth = true };
+        var parameters = new DialogParameters { ["Folders"] = treeItemData };
+        var dialog = DialogService.Show<ImportDataDialog>("Pick folders to process", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            var returnedPaths = await dialog.GetReturnValueAsync<List<string>>();
+
+            foreach (var path in returnedPaths)
+            {
+                GetAllProcessFiles(path);
+            }
+
+            if (surveyElements.Count == 0)
+            {
+                FileAccessMessage();
+            }
+            else if (surveyElements.Count == 1)
+            {
+                surveyElements.First().ShowDetails = true;
+                folderPath = returnedPaths.FirstOrDefault();
+            }
+        }
+        else
+        {
+            folderPath = string.Empty;
+        }
+
+        StateHasChanged();
+    }
+
+    private HashSet<Folder> GetFolderStructure(string path)
+    {
+        var rootFolder = new Folder(Path.GetFileName(path), path)
+            {
+                SubFolders = new HashSet<Folder>(),
+                IsRelevant = IsRelevantFolder(path)
+            };
+
+        AddSubFolders(rootFolder);
+        return new HashSet<Folder> { rootFolder };
+    }
+
+    private void AddSubFolders(Folder parentFolder)
+    {
+        foreach (var directory in Directory.GetDirectories(parentFolder.Path))
+        {
+            var subFolder = new Folder(Path.GetFileName(directory), directory)
+                {
+                    SubFolders = new HashSet<Folder>(),
+                    IsRelevant = IsRelevantFolder(directory)
+                };
+            AddSubFolders(subFolder);
+
+            if (IsRelevantFolder(directory) || subFolder.SubFolders.Any())
+            {
+                parentFolder.SubFolders.Add(subFolder);
+            }
+        }
+    }
+
+    private bool IsRelevantFolder(string folderPath)
+    {
+        string[] fisFiles = Directory.GetFiles(folderPath, "*.fis");
+        string[] dbFiles = Directory.GetFiles(folderPath, "*.db");
+
+        var subfolders = Directory.GetDirectories(folderPath);
+        bool videoFolder = false;
+        if (subfolders != null && subfolders.Length > 0)
+        {
+            foreach (var subfolder in subfolders)
+            {                
+                if (IsCameraFolder(subfolder))
+                {
+                    videoFolder = true;
+                    break;
+                }
+                var pgrFiles = Directory.GetFiles(subfolder, "*.pgr");
+                if (pgrFiles != null && pgrFiles.Length > 0)
+                {
+                    videoFolder = true;
+                    break;
+                }
+            }
+        }
+        return fisFiles.Length > 0 || dbFiles.Length > 0   || videoFolder;
+    }
+
+    private bool IsCameraFolder(string folderPath)
+    {
+        string[] jsonFile = Directory.GetFiles(folderPath, "*.json");
+        string[] jpgFiles = Directory.GetFiles(folderPath, "*.jpg");
+
+        //Check if it is using right json format
+        if (jsonFile.Length == 1 && jpgFiles.Length > 0)
+        {
+            try
+            {
+                var jsonContent = File.ReadAllText(jsonFile[0]);
+                var jsonData = System.Text.Json.JsonSerializer.Deserialize<VideoJson>(jsonContent);
+
+                return jsonData != null;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error deserializing JSON: {ex.Message}");
+            }
+        }
+        return false;
+    }
+
+    private void ShowBtnPress(SurveyElement surveySelected)
+    {
+        var survey = surveyElements.First(f => f.Id == surveySelected.Id && f.FolderPath == surveySelected.FolderPath);
+        survey.ShowDetails = !survey.ShowDetails;
+    }
+
+    //Validate Geojson file
+    private bool IsValidGeoJson(GeoJsonObject geoJsonObject)
+    {
+        return geoJsonObject.type != null
+            && geoJsonObject.properties != null
+            && geoJsonObject.geometry != null
+            && geoJsonObject.geometry.coordinates != null;
+    }
+
+    private void GetAllProcessFiles(string folderPath)
+    {
+        try
+        {
+            var fisFiles = Directory.GetFiles(folderPath, "*.fis");
+            var dbFiles = Directory.GetFiles(folderPath, "*.db");
+
+            //Survey Boundaries
+            var surveyTemplateFolderPath = Path.Combine(folderPath, "Survey_Template");
+            List<string> boundariesFiles = new List<string>();
+            if (Directory.Exists(surveyTemplateFolderPath))
+            {
+                var jsonFiles = Directory.GetFiles(surveyTemplateFolderPath, "*.json");
+                foreach (var jsonFile in jsonFiles)
+                {
+                    string jsonContent = File.ReadAllText(jsonFile);
+                    GeoJsonObject surveyData = JsonSerializer.Deserialize<GeoJsonObject>(jsonContent);
+                    if (IsValidGeoJson(surveyData))
+                    {
+                        boundariesFiles.Add(Path.GetFileName(jsonFile));
+                    }
+                }
+            }
+
+            List<string> videoJsonFiles = new List<string>();
+            List<string> videoPgrFiles = new List<string>();
+
+            string[] subfolders = Directory.GetDirectories(folderPath);
+            foreach (var subfolder in subfolders)
+            {
+                var jsonFile = Directory.GetFiles(subfolder, "*.json").FirstOrDefault();
+                var jpgFiles = Directory.GetFiles(subfolder, "*.jpg");
+
+                if (jsonFile != null && jpgFiles.Any())
+                {
+                    videoJsonFiles.Add(jsonFile);
+                }
+
+                var pgrFiles = Directory.GetFiles(subfolder, "*.pgr");
+                if (pgrFiles != null && pgrFiles.Any())
+                {
+                    //Just show one pgr file per survey in order to process all pgr files for getting gps from time difference between images
+                    var firstPgrFile = pgrFiles.FirstOrDefault();
+                    var fileName = Path.GetFileNameWithoutExtension(firstPgrFile);
+                    var fileNameWithoutNumber = Regex.Replace(fileName, @"[-_]\d+$", "");  
+
+                    var directory = Path.GetDirectoryName(pgrFiles.FirstOrDefault());
+                    var pgrFilePath = Path.Combine(directory, fileNameWithoutNumber + ".pgr");
+                    videoPgrFiles.Add(pgrFilePath);
+                }
+            }
+
+            var folderName = Path.GetFileName(folderPath);
+
+            if (fisFiles.Length > 0 || dbFiles.Length > 0 || videoPgrFiles.Count > 0 || videoJsonFiles.Count > 0 )
+            {
+                var foundExtensions = new List<string>();
+                if (fisFiles.Length > 0) foundExtensions.Add(".fis");
+                if (dbFiles.Length > 0) foundExtensions.Add(".db");
+                if (videoPgrFiles.Count > 0) foundExtensions.Add(".pgr");
+                if (videoJsonFiles.Count > 0) foundExtensions.Add(".json");
+
+                var files = fisFiles
+                     .Concat(dbFiles)
+                     .Concat(videoJsonFiles)
+                     .Concat(videoPgrFiles)
+                     .Select((file) => new FileElement
+                         {
+                             Name = file,
+                             Extension = Path.GetExtension(file),
+                             Date = File.GetLastWriteTime(file),
+                         })
+                     .ToList();
+                var survey = new SurveyElement
+                    {
+                        Id = folderName,
+                        FolderPath = folderPath,
+                        Files = files,
+                        SelectedObjects = new Dictionary<string, bool>(LcmsObjects),
+                        SelectedObjectsAll = true,
+                        SelectedExtensions = new List<string>(foundExtensions),
+                        ExistingExtensions = new List<string>(foundExtensions),
+                        BoundariesFiles = new List<string>()
+                    };
+
+                if (foundExtensions.Contains(".fis"))
+                {
+                    survey.SelectedOverlayModules = new List<string>(overlayImageModules);
+                    survey.GenerateRangeOverlay = false; //default
+                }
+
+                if (boundariesFiles.Count > 0)
+                {
+                    survey.BoundariesFiles.AddRange(boundariesFiles);
+                    survey.SelectedBoundaries = boundariesFiles.FirstOrDefault();
+                }
+
+                if (videoJsonFiles.Count > 0)
+                {
+                    survey.VideoPath = folderPath;
+                }
+
+                if (videoPgrFiles.Count > 0)
+                {
+                    //default behaviour
+                    survey.pgrOutputSize = "2048 x 1024";
+                    survey.pgrColorProcessingMethod = "High Quality Linear";
+                }
+
+                //If surveyElement already exists with the same path, assign it to existing one
+                var existingSurvey = surveyElements.FirstOrDefault(x => x.FolderPath == survey.FolderPath);
+                if (existingSurvey != null)
+                {
+                    existingSurvey.Files = survey.Files;
+                    existingSurvey.ExistingExtensions = survey.ExistingExtensions;
+                    existingSurvey.SelectedExtensions = survey.SelectedExtensions;
+                }
+                else
+                {
+                    surveyElements.Add(survey);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    //Reprocess Segments selected
+    private async Task SetFolderEnvironmentSegmFiles()
+    {
+        if (appState.isReprocessingSegments && !appState.incorrectReprocessFolder)
+        {
+            try
+            {
+                string genFileImage = "/images/download.gif";
+                string genFileText = "Loading files...";
+                DialogParameters parameters = new DialogParameters
+                {
+                    { "DialogImage", genFileImage },
+                    { "DialogText", genFileText }
+                };
+
+                var dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+                await Task.Delay(500);
+
+                folderPath = appState.reprocessFolder;
+                var folderName = Path.GetFileName(folderPath);
+
+                if(appState.fisFilesForProcessing.Count > 0)
+                {
+                    var validFiles = appState.fisFilesForProcessing
+                        .Select(file => Path.Combine(folderPath, file))
+                        .Where(File.Exists)
+                        .Select(file => new FileElement
+                            {
+                                Name = file,
+                                Extension = Path.GetExtension(file),
+                                Date = File.GetLastWriteTime(file),
+                            })
+                        .ToList();
+
+                    //if path are wrong alert message
+                    if(validFiles.Count == 0)
+                    {
+                        FileAccessMessage();
+                    }
+
+                    var survey = new SurveyElement
+                    {
+                        Id = folderName,
+                        FolderPath = folderPath,
+                            Files = validFiles,
+                        SelectedObjects = new Dictionary<string, bool>(LcmsObjects),
+                        SelectedObjectsAll = true,
+                        SelectedExtensions = new List<string> {".fis"},
+                        ExistingExtensions = new List<string> {".fis"},
+                        BoundariesFiles = new List<string>(),
+                        SelectedOverlayModules = new List<string>(overlayImageModules)
+                    };
+
+                    surveyElements.Add(survey);
+
+                    selectedFiles = new HashSet<FileElement>(survey.Files);
+
+                    HandleSelectedItemsChanged(selectedFiles);
+                }
+
+                surveyElements.First().ShowDetails = true;
+                StateHasChanged();
+                dialog.Close();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error in SetFolderEnvironmentSegmFiles : {ex.Message}");
+            }
+
+        }
+        else
+        {
+            folderPath = appState.reprocessFolder;
+            StateHasChanged();
+            Snackbar.Add("The folder for reprocessing the selected segments was not found. Please select the current survey's folder.", Severity.Error);
+        }
+    }
+
+
+
+    private async void UpdateSelectedObjects(string selectedCfg, SurveyElement survey)
+    {
+        if (selectedCfg == null) return;
+        if (survey != null)
+        {
+            survey.SelectedCfg = selectedCfg;
+
+        }
+        else
+        {
+            this.selectedCfg = selectedCfg;
+        }
+        StateHasChanged();
+
+        if (survey == null) return; //no need to consider objects here
+
+        await Task.Run(async () =>
+           {
+               // Parse the selected config file to get values
+               string sFullPathSelectedCfg;
+               if(cfgFolderPath != null)
+               {
+                   sFullPathSelectedCfg = cfgFolderPath +"\\"+ selectedCfg;
+               }
+               else
+               {
+                   sFullPathSelectedCfg = selectedCfg;
+               }
+               var response = await appEngine.SettingsService.ParseSelectedCfgAsync(sFullPathSelectedCfg);
+               int autoPavementTypeDetection = response.AutoPavementTypeDetection;
+               int userDefinedPavementType = response.UserDefinedPavementType;
+
+               // CrackingModule_UserDefinedPavementType
+               // The pavement type, as defined by the user.This
+               // setting will be ignored if the automatic pavement
+               // type detection is enabled.Possible values are:
+               // 1: Asphalt Default: 1
+               // 2: Concrete
+               // 3: Grooved concrete(transversally)
+               // 4: Grooved concrete(longitudinally)
+               // 5: Highly textured(or porous)
+               // 6: Concrete CRCP(CRCP = Continuously Reinforced
+               // Concrete Pavement).
+               if (autoPavementTypeDetection == 1)  // Set auto Pave detect, so enable all modules
+               {
+                   survey.isAsphalt = false;
+                   survey.isConcrete = false;
+                   survey.isGroovedConcrete = false;
+               }
+               else if (autoPavementTypeDetection == 0 &&
+                   (userDefinedPavementType == 2 || userDefinedPavementType == 3 ||
+                   userDefinedPavementType == 4 || userDefinedPavementType == 6))
+               {
+                   survey.isAsphalt = false;
+                   survey.isConcrete = true;
+                   if (userDefinedPavementType == 3 ||
+                   userDefinedPavementType == 4)
+                       survey.isGroovedConcrete = true;
+                   else
+                       survey.isGroovedConcrete = false;
+               }
+               else if (autoPavementTypeDetection == 0 &&
+                   (userDefinedPavementType == 1 || userDefinedPavementType == 5))
+               {
+                   survey.isAsphalt = true;
+                   survey.isConcrete = false;
+                   survey.isGroovedConcrete = false;
+               }
+
+               var getResponse = await appEngine.SettingsService.GetByName(new SettingName { name = selectedCfg });
+               if (getResponse.Count != 0)
+               {
+                   var jsonString = getResponse.FirstOrDefault().Value;
+                   var selectedObjects = JsonSerializer.Deserialize<List<string>>(jsonString);
+
+                   if (survey != null)
+                   {
+                       survey.SelectedObjectsAll = false;
+                       foreach (var item in survey.SelectedObjects.Keys)
+                       {
+                           if (selectedObjects.Contains(item))
+                           {
+                               survey.SelectedObjects[item] = true;
+
+                           }
+                           else
+                           {
+                               survey.SelectedObjects[item] = false;
+                           }
+
+                       }
+                   }
+
+               }
+               // Set Object based on cfg values
+               if(survey != null)
+               {
+                   if (survey.isConcrete)
+                   {
+                       if (survey.SelectedObjects.ContainsKey(LayerNames.Bleeding))
+                           survey.SelectedObjects[LayerNames.Bleeding] = false;
+
+                       if (survey.SelectedObjects.ContainsKey(LayerNames.Rutting))
+                           survey.SelectedObjects[LayerNames.Rutting] = false;
+                   }
+
+                   if (survey.isAsphalt && survey.SelectedObjects.ContainsKey(LayerNames.ConcreteJoint))
+                       survey.SelectedObjects[LayerNames.ConcreteJoint] = false;
+                   if (!survey.isGroovedConcrete && survey.SelectedObjects.ContainsKey(LayerNames.Grooves))
+                       survey.SelectedObjects[LayerNames.Grooves] = false;
+               }
+           });
+
+        StateHasChanged();
+    }
+
+    private async void ApplyBaseSetting()
+    {
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Applying...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+        var dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
+
+        bool noXmlFound = false;
+        foreach (var survey in surveyElements)
+        {
+            if (survey.Files.Any(x => x.Extension.Contains(".fis")) || survey.Files.Any(x => x.Extension.Contains(".xml")))
+            {
+                if (survey.XmlOnly != importXmlAll)
+                    await ChangedXmlSelection(importXmlAll, survey);
+
+                if (survey.XmlOnly)
+                {
+                    // XML-only surveys don't get cfg or object settings
+                    continue;
+                }
+                else
+                {
+                    noXmlFound = true;
+                }
+
+                // Apply cfg if available
+                if (selectedCfg != null)
+                {
+                    survey.SelectedCfg = selectedCfg;
+                }
+
+                // Apply object selections
+                foreach (var key in LcmsObjects.Keys)
+                {
+                    if (survey.SelectedObjects.ContainsKey(key))
+                    {
+                        survey.SelectedObjects[key] = LcmsObjects[key];
+                    }
+                }
+                // check if all layers in LcmsObjects are selected
+                bool allSelected = LcmsObjects.Keys
+                    .All(key => survey.SelectedObjects.TryGetValue(key, out bool isSelected) && isSelected);
+
+                survey.SelectedObjectsAll = allSelected;
+
+            }
+        }
+
+        if (importXmlAll && noXmlFound)
+        {
+            Snackbar.Add("CFG and processing object settings were applied only to surveys that do not contain XML files.", Severity.Warning);
+        }
+        else
+        {
+            Snackbar.Add("Settings successfully applied to all surveys.", Severity.Success);
+        }
+
+        dialog.Close();
+        StateHasChanged();
+    }
+
+    private void HandleSelectedItemsChanged(HashSet<FileElement> selectedItems)
+    {
+        foreach (var file in surveyElements.SelectMany(survey => survey.Files))
+        {
+            // Check if the file is in the selectedItems set
+            file.IsSelected = selectedItems.Contains(file);
+        }
+    }
+
+    private IEnumerable<FileElement> FilteredFiles(SurveyElement survey)
+    {
+        var filteredFiles = survey.Files.Where(file => survey.SelectedExtensions.Contains(file.Extension));
+        var sortedFiles = filteredFiles.OrderBy(file => GetExtensionPriority(file.Extension)).ThenBy(file => file.Name).ToList();
+        return sortedFiles;
+    }
+
+    private int GetExtensionPriority(string extension)
+    {
+        return extension.ToLower() switch
+        {
+            ".json" => 1,
+            ".db" => 2,
+            ".pgr" => 3,
+            ".fis" => 4,
+            _ => 5, // Catch-all for other extensions
+        };
+    }
+    private bool IsExtensionSelected(string extension, SurveyElement survey)
+    {
+        return survey.SelectedExtensions.Contains(extension);
+    }
+
+    //Handle displayed files and extensions for multi-survey
+    private void HandleExtensions(string extension, bool isChecked, SurveyElement survey)
+    {
+        if (isChecked)
+        {
+            if (!survey.SelectedExtensions.Contains(extension))
+            {
+                survey.SelectedExtensions.Add(extension);
+
+            }
+        }
+        else
+        {
+            survey.SelectedExtensions.Remove(extension);
+        }
+        FilteredFiles(survey);
+    }
+
+    private void FileAccessMessage()
+    {
+        Snackbar.Add("No valid file was found", Severity.Error);
+    }
+
+    private void ListSorted(string objSorted, SortDirection sortDirection)
+    {
+        if (objSorted == "File")
+        {
+            FilesSortOrder = sortDirection;
+        }
+        else if (objSorted == "Extension")
+        {
+            ExtensionSortOrder = sortDirection;
+        }
+    }
+
+    private async void ProcessRangeSelected(SurveyElement survey)
+    {
+        if (survey != null)
+        {
+            var from = survey.FromValue;
+            var to = survey.ToValue;
+            List<FileElement> files = FilteredFiles(survey).ToList();
+
+            if (from != 0 && to != 0 && to >= from && to <= files.Count)
+            {
+                selectedFiles = new HashSet<FileElement>(files.Skip(from - 1).Take(to - from + 1).ToList());
+                foreach (var file in selectedFiles)
+                {
+                    file.IsSelected = true;
+                }
+                ProcessSelected();
+            }
+            else
+            {
+                Snackbar.Add("Invalid range is selcted");
+            }
+        }
+    }
+
+    private async Task ProcessAll()
+    {
+        await HandleSurveyProcessing(true);
+    }
+
+
+    private async Task ProcessSelected()
+    {
+        await HandleSurveyProcessing(false);
+    }
+
+    private async Task HandleSurveyProcessing(bool isProcessingAll)
+    {
+        //Verification other instance using same project:
+        if (appState.IsProjectPathUsedByOtherSession())
+        {
+            Application.Current.MainPage.DisplayAlert("Information", "This project is being used in another instance. Change it to proceed.", "OK");
+            return;
+        }
+        if (_busy) return; //prevent from clicking twice
+        _busy = true;
+        try
+        {
+            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            detailLogViewHelpers.Clear();
+            detailLogs.Clear();
+
+            if (AllSurveysHaveCfgFiles(surveyElements, isProcessingAll))
+            {
+                var surveysToProcess = isProcessingAll ? surveyElements : surveyElements.Where(s => s.Files.Any(f => f.IsSelected));
+
+                if (!surveysToProcess.Any())
+                {
+                    await DialogService.ShowMessageBox("Alert", "File not found. Please select a valid file", "OK");
+                    return;
+                }
+
+                //Create back up before processing
+                bool createdBackup = await CreateBackup();
+                if (!createdBackup)
+                {
+                    bool? retry = await DialogService.ShowMessageBox("Alert", "Backup wasn't created. Retry?", "Retry", "Cancel");
+                    if (retry == true)
+                    {
+                        createdBackup = await CreateBackup();
+                        if (!createdBackup)
+                        {
+                            bool? proceed = await DialogService.ShowMessageBox("Alert", "Failed to save backup. Continue anyway?", "Yes", "No");
+                            if (proceed != true)
+                            {
+                                Snackbar.Add("Process Stopped");
+                                return;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Snackbar.Add("Process Stopped");
+                        return;
+                    }
+                }
+                else
+                {
+                    Log.Information("Backup created before processing.");
+                }
+
+                OpenProcessingDialog();
+
+                if (isProcessingAll)
+                {
+                    selectedFiles.Clear();
+
+                    foreach (var survey in surveysToProcess)
+                    {
+                        if (survey.XmlOnly)
+                        {
+                            var xmlFiles = survey.Files.Where(f => f.Extension.Equals(".xml", StringComparison.OrdinalIgnoreCase)).ToList();
+                            foreach (var file in xmlFiles)
+                            {
+                                file.IsSelected = true;
+                                selectedFiles.Add(file);
+                            }
+                        }
+                        else
+                        {
+                            var filesToSelect = survey.Files.Where(f => IsExtensionSelected(f.Extension, survey)).ToList();
+                            foreach (var file in filesToSelect)
+                            {
+                                file.IsSelected = true;
+                                selectedFiles.Add(file);
+                            }
+                        }
+                    }
+                }
+
+                foreach (var survey in surveysToProcess)
+                {
+                    var request = new SurveyProcessingRequest
+                    {
+                        FolderPath = survey.FolderPath,
+                        ProcessingObjects = { survey.SelectedObjects.Where(o => o.Value).Select(o => o.Key).ToList() },
+                        DataviewVersion = version,
+                    };
+
+                    if (!string.IsNullOrEmpty(survey.VideoPath))
+                        request.VideoPath = survey.VideoPath;
+
+                    request.SelectedFiles.AddRange(survey.Files.Where(f => f.IsSelected).Select(f => f.Name));
+                    request.XmlOnly = survey.XmlOnly;
+                    request.GenerateRangeOverlay = survey.GenerateRangeOverlay;
+
+                    if (!survey.XmlOnly && !string.IsNullOrEmpty(survey.SelectedCfg))
+                    {
+                        request.CfgFolder = cfgFolderPath;
+                        request.CfgFileName = survey.SelectedCfg;
+                    }
+
+                    if (survey.SelectedOverlayModules != null && survey.SelectedOverlayModules.Count() > 0)
+                    {
+                        request.SelectedOverlayModules.AddRange(survey.SelectedOverlayModules);
+                    }
+
+                    if (!string.IsNullOrEmpty(survey.pgrColorProcessingMethod) && !string.IsNullOrEmpty(survey.pgrOutputSize))
+                    {
+                        request.PgrColorProcessing = survey.pgrColorProcessingMethod;
+                        request.PgrOutputSize = survey.pgrOutputSize;
+                        request.PgrAdd6Images = survey.pgrAdd6Images;
+                    }
+                    var surveyId = request.XmlOnly ? null : survey.Id;
+                    await ProcessSurvey(request, surveyId);
+                }
+
+                OnProcessEnded();
+            }
+            else
+            {
+                await DialogService.ShowMessageBox("Alert", "Please select a cfg file for surveys with fis files", "OK");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    //Check if all surveys with fis files have cfg file selected
+    private bool AllSurveysHaveCfgFiles(IEnumerable<SurveyElement> surveys, bool processAll)
+    {
+        if (processAll)
+        {
+            return surveys
+                .Where(survey => survey.Files.Any(file => file.Extension.Equals(".fis", StringComparison.OrdinalIgnoreCase)))
+                .All(survey => survey.SelectedCfg != null && cfgFiles.Contains(survey.SelectedCfg));
+        }
+        else
+        {
+            return surveys
+               .Where(survey => survey.Files.Any(file => file.IsSelected && file.Extension.Equals(".fis", StringComparison.OrdinalIgnoreCase)))
+               .All(survey => survey.SelectedCfg != null && cfgFiles.Contains(survey.SelectedCfg));
+        }
+    }
+
+    private async Task ProcessSurvey(SurveyProcessingRequest request, string surveyName)
+    {
+        cancellationTokenSource = new CancellationTokenSource();
+        var stopwatch = Stopwatch.StartNew();
+
+        // Save LCMS objects with cfg file
+        if (request.CfgFolder != null && request.CfgFileName != null && request.CfgFolder.Length > 0)
+        {
+            var cfgFile = request.CfgFileName;
+            var objects = request.ProcessingObjects.ToList();
+
+            var getResponse = await appEngine.SettingsService.GetByName(new SettingName { name = cfgFile });
+            if (getResponse.Count != 0)
+            {
+                var objectSetting = getResponse.FirstOrDefault();
+                if (objectSetting != null)
+                {
+                    objectSetting.Value = JsonSerializer.Serialize(objects);
+                    var editResponse = await appEngine.SettingsService.EditValue(objectSetting);
+                    if (editResponse != null)
+                    {
+                        Log.Information($"{cfgFile}: LCMS objects saved");
+                    }
+                }
+            }
+            else
+            {
+                var newObjectSetting = new GeneralSetting
+                    {
+                        Name = cfgFile,
+                        Description = "Saving the latest setting of lcms objects with a cfg file name",
+                        Type = SettingType.String,
+                        Value = JsonSerializer.Serialize(objects),
+                        Category = "Lcms Objects"
+                    };
+
+                var createResponse = await appEngine.SettingsService.Create(newObjectSetting);
+                if (createResponse != null)
+                {
+                    Log.Information($"{cfgFile}: LCMS objects saved");
+                }
+            }
+        }
+
+        // TimeSpan timerSpan = request.SelectedFiles.Any(f => Path.GetExtension(f) == ".pgr") //.pgr files can take a long time
+        //                  ? TimeSpan.FromDays(1) : TimeSpan.FromMinutes(50); //
+
+        // var timeoutTimer = new System.Threading.Timer(async _ =>
+        // {
+        //     await InvokeAsync(() =>
+        //     {
+        //         cancellationTokenSource.Cancel();
+        //         DialogService.ShowMessageBox("Timeout Alert", "The server has not responded within the expected timeframe. The task was automatically cancelled.", "OK");
+        //         dialogVisibility = false;
+        //     });
+        // }, null, timerSpan, TimeSpan.FromMilliseconds(-1));
+
+        try
+        {
+            appState.NotifyProcessing(true);
+
+            await Task.Delay(100);
+            ProcessingDialog dialog = null;
+            if (processingDialogRef != null)
+            {
+                dialog = processingDialogRef.Dialog as ProcessingDialog;
+                if (dialog != null)
+                {
+                    currentMessage = surveyName != null ? $"Loading survey '{surveyName}'..." : "Loading...";
+                    dialog.Refresh(0, null, currentMessage); //initial dialog message
+                }
+            }
+
+            // Start listening to state updates in the background
+            var stateTask = Task.Run(async () =>
+            {
+                using var stateCall = surveyProcessing.SubscribeProcessingState(new ProcessingStateRequest(), cancellationToken: cancellationTokenSource.Token);
+                try
+                {
+                    while (await stateCall.ResponseStream.MoveNext(cancellationTokenSource.Token))
+                    {
+                        var update = stateCall.ResponseStream.Current;
+                        if (update != null && !string.IsNullOrEmpty(update.LastMessage))
+                        {
+                            progress = (int)update.StagePercentage;
+                            currentStage = update.Stage.ToString();
+                            currentMessage = update.LastMessage ?? string.Empty;
+
+                            if (dialog != null)
+                            {
+                                await InvokeAsync(() =>
+                                {
+                                    dialog.Refresh(progress, currentStage, currentMessage);
+                                });
+                            }
+                        }
+                    }
+                }
+                catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+                {
+                    //expected exception -- ignore
+                }
+            });
+
+            // Begin processing
+            using var call = surveyProcessing.ProcessSurvey(request, cancellationToken: cancellationTokenSource.Token);          
+            while (await call.ResponseStream.MoveNext())
+            {
+                if (cancellationTokenSource.Token.IsCancellationRequested) return;
+
+                var currentResponse = call.ResponseStream.Current;
+
+                if (currentResponse.DetailLogs.Count > 0)
+                {
+                    detailLogViewHelpers.AddRange(currentResponse.DetailLogs);
+                }
+
+                if (!string.IsNullOrEmpty(currentResponse.Error))
+                    errorMessages[request.FolderPath] = currentResponse.Error;
+
+                if (currentResponse.Latitude != 0 && currentResponse.Longitude != 0)
+                    //update dataset coordinates
+                    HandleCoordinates(currentResponse.Latitude, currentResponse.Longitude);
+            }
+
+            cancellationTokenSource.Cancel(); //manually cancel SubscribeProcessingState
+            await stateTask;
+        }
+        catch (RpcException ex) when (ex.Status.StatusCode == StatusCode.Cancelled)
+        {
+            Snackbar.Add("Process Stopped/Cancelled");
+        }
+        finally
+        {
+            await SetProcessingTime(stopwatch);
+            stopwatch.Stop();
+        }
+    }
+
+
+    private async Task HandleFinalization()
+    {
+        //update survey and layers
+        appState.InitializeSurveyAndLayers();
+        await Task.Delay(5000);
+
+        //error message (especially license) needed for multi processing
+        if (errorMessages.Count > 0)
+        {
+            var message = new MarkupString(string.Join("<br>",
+                errorMessages.Select(e => $"• Failed to process survey {e.Key} : {e.Value}")));
+            await DialogService.ShowMessageBox("Error", message, "OK");
+            errorMessages.Clear();
+        }
+
+        if (detailLogViewHelpers.Count > 0)
+        {
+            foreach (var jsonLog in detailLogViewHelpers)
+            {
+                if (!string.IsNullOrEmpty(jsonLog))
+                {
+                    var detailLog = Newtonsoft.Json.JsonConvert.DeserializeObject<DetailLogViewHelper>(jsonLog);
+                    var existing = detailLogs.FirstOrDefault(d => d.FileName == detailLog.FileName);
+                    if (existing != null) detailLogs.Remove(existing);
+                    detailLogs.Add(detailLog);
+                }
+            }
+
+            detailLogs = detailLogs.OrderBy(l => l.FileName).ToList();
+            await processLogsDialog.ShowAsync();
+        }
+    }
+
+    private async Task SetProcessingTime(Stopwatch stopwatch)
+    {
+        TimeSpan elapsed = stopwatch.Elapsed;
+        var parts = new List<string>();
+        if (elapsed.Hours > 0)
+            parts.Add($"{elapsed.Hours} hour{(elapsed.Hours > 1 ? "s" : "")}");
+        if (elapsed.Minutes > 0)
+            parts.Add($"{elapsed.Minutes} minute{(elapsed.Minutes > 1 ? "s" : "")}");
+        if (elapsed.Seconds > 0)
+            parts.Add($"{elapsed.Seconds}s");
+        processingTime = string.Join(" ", parts);
+    }
+
+    private async Task<bool> CreateBackup()
+    {
+        currentDataset = appState.SelectedDataset;
+        try
+        {
+            createdBackupId = 0;
+
+            // Switch to Metadata DB
+            //requestDataBase.NewDatabasePath = appState.SelectedBaseProject?.DBPath;
+            //requestDataBase.DbType = nameof(Tools.dbContextType.Metadata);
+            //await appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+
+            // Delete only old auto-created backups (with "(most recent process)" in name)
+            var datasetIdRequest = new DatasetIdRequest { DatasetId = currentDataset.Id };
+            var existingBackups = await appEngine.DatasetBackupService.GetBackupsByDatasetId(datasetIdRequest);
+
+            if (existingBackups != null && existingBackups.Count > 0)
+            {
+                foreach (var backup in existingBackups.Where(b => b.Name?.EndsWith("(most recent process)") == true))
+                {
+                    await appEngine.DatasetBackupService.DeleteBackup(new BackupActionRequest { BackupId = backup.Id });
+                    Log.Information($"Deleted auto-created backup with ID {backup.Id}");
+                }
+            }
+
+            // Create new auto backup
+            var requestDsBackup = new NewBackupRequest
+                {
+                    FilePath = currentDataset.Path,
+                    Name = $"b_{DateTime.Now:dd_MM_HHmm} (most recent process)",
+                    Description = "Backup created before processing",
+                };
+
+            var idReply = await appEngine.DatasetBackupService.CreateBackup(requestDsBackup);
+            if (idReply != null && idReply.Id > 0)
+            {
+                Log.Information("Auto-created dataset backup successfully.");
+                createdBackupId = idReply.Id;
+                return true;
+            }
+            else
+            {
+                Log.Error($"Dataset backup not created: {idReply?.Message}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Failed to create dataset backup: {ex.Message}");
+            return false;
+        }
+    }
+
+
+
+
+    private async Task<bool> RestoreBackup()
+    {
+        try
+        {
+            if (createdBackupId > 0)
+            {
+                await appEngine.DatasetBackupService.RestoreBackup(new BackupActionRequest { BackupId = createdBackupId });
+            }
+
+            Log.Information("Backup restored successfully.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Failed to restore dataset backup : {ex.Message}");
+            return false;
+        }
+    }
+
+    private async void OnProcessEnded()
+    {
+        await HandleFinalization();
+        appState.NotifyProcessing(false);
+        CloseProcessingDialog();
+
+        //Reprocess Segments selected
+        if (appState.isReprocessingSegments)
+            appState.processStatus = true;
+        StateHasChanged();
+    }
+
+    //Save coordinates as Dataset coordinates
+    private void HandleCoordinates(double latitude, double longitude)
+    {
+        UpdateCoordinatesRequest request = new UpdateCoordinatesRequest()
+            {
+                Id = currentDataset.Id,
+                GPSLatitude = latitude,
+                GPSLongitude = longitude
+            };
+        appEngine.DatabaseRegistryService.UpdateGPSCoordinates(request);
+    }
+
+
+    public void Dispose()
+    {
+        //appState.BoundaryRefreshed -= UpdateBoundary;
+        //appState.OnDatasetsUpdated -= HandleDatasetsUpdated;
+    }
+
+    private async Task ChangedXmlSelection(bool xmlSelection, SurveyElement surveyElement)
+    {
+        surveyElement.XmlOnly = xmlSelection;
+        surveyElement.ShowDetails = true;
+
+        //Remove survey's selected files from selectedFiles
+        if (surveyElement.Files.Any(x => x.IsSelected))
+        {
+            var filesToRemove = surveyElement.Files.Where(x => x.IsSelected).ToList();
+            foreach (var fileToRemove in filesToRemove)
+            {
+                if (selectedFiles.Contains(fileToRemove))
+                {
+                    selectedFiles.Remove(fileToRemove);
+                }
+            }
+        }
+
+        if (xmlSelection)
+        {
+            var xmlPath = Directory.EnumerateDirectories(surveyElement.FolderPath, "XmlResult", SearchOption.AllDirectories)?.FirstOrDefault();
+            if (xmlPath == null || !Directory.Exists(xmlPath))
+            {
+                surveyElement.XmlOnly = false;
+                Snackbar.Add($"No xml file was found from {surveyElement.FolderPath}", Severity.Error);
+            }
+            else
+            {
+                var xmlFiles = Directory.GetFiles(xmlPath, "*.xml");
+                if (xmlFiles.Length > 0)
+                {
+                    surveyElement.Files = xmlFiles
+                            .Select((file) => new FileElement
+                                {
+                                    Name = file,
+                                    Extension = Path.GetExtension(file),
+                                    Date = File.GetLastWriteTime(file),
+                                })
+                            .ToList();
+                    surveyElement.SelectedExtensions.Clear();
+                    surveyElement.SelectedExtensions.Add(".xml");
+                }
+                else
+                {
+                    surveyElement.XmlOnly = false;
+                    Snackbar.Add("No xml file was found", Severity.Error);
+                }
+            }
+
+            // Indicator for XML Processing Objects
+            if (surveyElement.XmlOnly)
+                await SetXML_Indicators(surveyElement);
+        }
+        else
+        {
+            //clear previously stored files
+            surveyElement.Files.Clear();
+            GetAllProcessFiles(surveyElement.FolderPath);
+        }
+        StateHasChanged();
+    }
+
+
+    //Prefix of the XML file to include to the LCMS objects review:
+    private async Task SetXML_Indicators(SurveyElement survey)
+    {
+        try
+        {
+
+            cancellationTokenSource = new CancellationTokenSource();
+
+            string xmlFilesPath = Path.Combine(survey.FolderPath, "XmlResult");
+            var processedObjectsFile = Path.Combine(xmlFilesPath, "Processedobjects.csv");
+
+            Dictionary<string, bool> dictionary = ReadCsvAndCreateDictionary(processedObjectsFile);
+
+            var enabledItems = new HashSet<string>();
+
+            foreach (var item in dictionary)
+            {
+                enabledItems.Add(item.Key);
+            }
+
+            foreach (var item in survey.SelectedObjects)
+            {
+                survey.SelectedObjects[item.Key] = enabledItems.Contains(item.Key);
+            }
+
+            survey.ExistingXmlObjects = enabledItems;
+        }
+        catch (Exception ex)
+        {
+            Log.Information($"Error getting  XML Objects for Icons: {ex.Message}");
+
+        }
+        await Task.CompletedTask;
+    }
+
+    public static Dictionary<string, bool> ReadCsvAndCreateDictionary(string filePath)
+    {
+        var dictionary = new Dictionary<string, bool>();
+
+        // Check if the file exists
+        if (!File.Exists(filePath))
+        {
+            Console.WriteLine("File does not exist: " + filePath);
+            return dictionary;
+        }
+
+        // Read all lines from the file
+        string[] lines = File.ReadAllLines(filePath);
+
+        foreach (string line in lines)
+        {
+            // Trim whitespace from the beginning and end of the line
+            string key = line.Trim();
+
+            // Skip empty lines
+            if (!string.IsNullOrEmpty(key))
+            {
+                dictionary[key] = true;
+            }
+        }
+
+        return dictionary;
+    }
+
+    public void SyncChkBoxesWithFoundObjects(Dictionary<string, bool> foundObjs, Dictionary<string, bool> selectedObjects)
+    {
+        foreach (var item in foundObjs)
+        {
+            if (selectedObjects.ContainsKey(item.Key))
+            {
+                selectedObjects[item.Key] = item.Value;
+            }
+        }
+        StateHasChanged();
+    }
+
+    private DotNetObjectReference<ImportData>? _dotNetRef;
+    private int _currentPage = 0;
+    private int _pageSize = 0;
+    private int _totalFiles = 0;
+
+    protected async Task SetFuncProperties()
+    {
+        _pageSize = _table.RowsPerPage;
+        _totalFiles = _table.Items.Count();
+        await JSRuntime.InvokeVoidAsync("assignNextPageClickEvent", _pageSize, _totalFiles);
+        _dotNetRef = DotNetObjectReference.Create(this);
+        await JSRuntime.InvokeVoidAsync("registerDotNetObject", _dotNetRef);
+    }
+
+    [JSInvokable]
+    public async Task UpdateProcessingObjectsChk(int nextPage)
+    {
+        _currentPage = nextPage;
+        // SetXML_Indicators().GetAwaiter().GetResult(); //Enable it only to filter by pagination
+        await Task.CompletedTask;
+    }
+
+    private async Task PickSaveFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+            exportPath = folderPath;
+
+            StateHasChanged();
+        }
+
+    }
+}

@@ -1,0 +1,152 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:DataView2"
+             xmlns:shared="clr-namespace:DataView2.Shared"
+             xmlns:state="clr-namespace:DataView2.States"
+             xmlns:pages="clr-namespace:DataView2.Pages.Map"
+             xmlns:XAML ="clr-namespace:DataView2.XAML"
+             xmlns:viewmodel="clr-namespace:DataView2.ViewModels"
+             x:DataType="local:MainPage"
+             x:Class="DataView2.MainPage"
+             BackgroundColor="Black">
+
+    <!-- BASIC NAV MENU IF CUSTOM DOESN'T WORK -->
+    
+    <!--<ContentPage.MenuBarItems>
+        <MenuBarItem Text="Home" />
+                
+        --><!-- Projects --><!--
+        <MenuBarItem Text="Projects">
+            <MenuFlyoutItem Text="Load Project" />
+            <MenuFlyoutItem Text="Edit Project" />
+            <MenuFlyoutItem Text="New Project" />
+            <MenuFlyoutItem Text="Import Project" />
+        </MenuBarItem>
+
+        --><!-- Datasets --><!--
+        <MenuBarItem Text="Datasets">
+            <MenuFlyoutItem Text="New Dataset" />
+            <MenuFlyoutItem Text="Edit Dataset" />
+            <MenuFlyoutItem Text="Import Dataset" />
+        </MenuBarItem>
+
+        --><!-- Data Management --><!--
+        <MenuBarItem Text="Data Management">
+            <MenuFlyoutItem Text="Import Data" />
+            <MenuFlyoutItem Text="View Data" />
+        </MenuBarItem>
+
+        --><!-- Export --><!--
+        <MenuBarItem Text="Export">
+            <MenuFlyoutItem Text="Export Data" />
+            <MenuFlyoutItem Text="Reports" />
+        </MenuBarItem>
+
+        --><!-- Survey Tools --><!--
+        <MenuBarItem Text="Survey Tools">
+            <MenuFlyoutItem Text="Survey Templates" />
+            <MenuFlyoutItem Text="PCI Modules" />
+        </MenuBarItem>
+
+        --><!-- Settings --><!--
+        <MenuBarItem Text="Settings">
+            <MenuFlyoutItem Text="Network Settings" />
+            <MenuFlyoutItem Text="Export Settings" />
+            <MenuFlyoutItem Text="Crack Classification Settings" />
+            <MenuFlyoutItem Text="Processing Parameters" />
+            <MenuFlyoutSubItem Text="Offline Map Settings">
+                <MenuFlyoutItem Text="Offline Map" />
+                <MenuFlyoutItem Text="Create New Offline Map" />
+            </MenuFlyoutSubItem>
+        </MenuBarItem>
+    </ContentPage.MenuBarItems>-->
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="LeftColumn" Width="300"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <!--<Grid.RowDefinitions>
+            <RowDefinition Height="60"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>-->
+
+        <!--<XAML:TopNavBar Grid.Row="0" Grid.Column="1" Grid.RowSpan="2"/>-->
+
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="60"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" x:Name="Logo" BackgroundColor="#202123">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="45"/>
+                    <RowDefinition Height="15"/>
+                </Grid.RowDefinitions>
+
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <Image Grid.Row="0" Source="romdas.png" Margin="10,0,0,0" HorizontalOptions="Start"></Image>
+                <Label Grid.Row="1" Grid.Column="1" Text="DataView 2" Margin="0,-10,0,0" TextColor="#AF2A3E" HorizontalOptions="Start" FontSize="20"/>
+            </Grid>
+            <Grid Grid.Row="1" x:Name="blazorMenu">
+            <BlazorWebView x:Name="blazorNavbar" HostPage="wwwroot/index.html">
+                <BlazorWebView.RootComponents>
+                    <RootComponent Selector="#app" ComponentType="{x:Type shared:NavMenu}"/>
+                </BlazorWebView.RootComponents>
+            </BlazorWebView>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Column="1" IsVisible="true">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition x:Name="OverlayRow" Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition x:Name="OverlayColumn" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <XAML:MapView x:Name="myMap" />
+            </Grid>
+
+            <Grid x:Name="BottomPanel" Grid.Row ="1" IsVisible="{Binding IsBottomPanelVisible, Mode=TwoWay}" >
+                <BlazorWebView x:Name="NewDefect" HostPage="wwwroot/index.html" IsVisible="False">
+                    <BlazorWebView.RootComponents>
+                        <RootComponent x:Name="NewDefectRootComponent" Selector="#app" ComponentType="{x:Type pages:NewDefectProperties}"/>
+                    </BlazorWebView.RootComponents>
+                </BlazorWebView>
+            </Grid>
+
+            <Grid x:Name="SummaryTableMenu" Grid.Row ="1" IsVisible="{Binding IsTableVisible, Mode=TwoWay}" >
+                <BlazorWebView x:Name="SummaryTableView" HostPage="wwwroot/index.html">
+                    <BlazorWebView.RootComponents>
+                        <RootComponent x:Name="SummaryTableRootComponent" Selector="#app" ComponentType="{x:Type pages:SegmentSummary}"/>
+                    </BlazorWebView.RootComponents>
+                </BlazorWebView>
+            </Grid>
+
+            <Grid x:Name="RightPopup" Grid.Column="1" Grid.RowSpan="2" IsVisible="{Binding IsImageVisible, Mode=TwoWay}">
+                <!--Components will be dynamically added here-->
+            </Grid>
+
+            <BlazorWebView x:Name="blazorWebView" 
+                   HostPage="wwwroot/index.html" IsVisible= "{Binding DisplayWebview}">
+                <BlazorWebView.RootComponents>
+                    <RootComponent Selector="#app" ComponentType="{x:Type local:Main}" />
+                </BlazorWebView.RootComponents>
+            </BlazorWebView>
+            
+            <XAML:TopNavBar />
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

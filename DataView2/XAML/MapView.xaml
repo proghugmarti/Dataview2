@@ -1,0 +1,495 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
+             xmlns:viewmodel="clr-namespace:DataView2.ViewModels"
+             xmlns:XAML ="clr-namespace:DataView2.XAML"
+             xmlns:toolkit="clr-namespace:Esri.ArcGISRuntime.Toolkit.Maui;assembly=Esri.ArcGISRuntime.Toolkit.Maui"
+             x:DataType="XAML:MapView"
+             x:Class="DataView2.XAML.MapView">
+    <ContentView.Resources>
+        <viewmodel:MapViewModel x:Key="MapViewModel"/>
+
+        <Style x:Key="ExtendedCalciteStyle" TargetType="Button" BasedOn="{StaticResource CalciteStyle}">
+            <Setter Property="BackgroundColor" Value="#512bdf" />
+            <Setter Property="TextColor" Value="White" />
+            <Style.Triggers>
+                <Trigger TargetType="Button" Property="IsEnabled" Value="False">
+                    <Setter Property="BackgroundColor" Value="LightGray" />
+                    <Setter Property="TextColor" Value="Gray" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </ContentView.Resources>
+
+    <Grid x:Name="mainGrid" Margin="0,60,0,0">
+        <!--map-->
+        <esri:MapView x:Name="MyMapView" 
+                          Map="{Binding Map, Source={StaticResource MapViewModel}}" 
+                          GraphicsOverlays="{Binding GraphicsOverlays, Source={StaticResource MapViewModel}}">
+            <esri:MapView.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnMapViewRightTapped" Buttons="Secondary" />
+                <PointerGestureRecognizer PointerMoved="OnPointerMoved" />
+            </esri:MapView.GestureRecognizers>
+        </esri:MapView>
+
+        <Grid VerticalOptions="Start" HorizontalOptions="Center" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                   RowDefinitions="Auto,Auto">
+          
+            <Button Grid.Column="1" Grid.Row="0" x:Name="PolylineMeasurementButton" Style="{StaticResource CalciteStyle}" Text="&#xe1c6;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                        ToolTipProperties.Text="Distance Ruler" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="MeasurementButton_Clicked" />
+
+            <Button Grid.Column="2" Grid.Row="0" x:Name="PolygonMeasurementButton" Style="{StaticResource CalciteStyle}" Text="&#xE1C2;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                    ToolTipProperties.Text="Area Ruler" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="MeasurementButton_Clicked" />
+
+            <Button Grid.Column="3" Grid.Row="0" x:Name="offsetButton" Style="{StaticResource CalciteStyle}" Text="&#xe149;" TextColor="Black" FontSize="18" Padding="10" CornerRadius="10"
+                        ToolTipProperties.Text="Offset" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="OffsetButton_Clicked"/>
+
+            <Button Grid.Column="4" Grid.Row="0" x:Name="MoveSegmentsButton" Style="{StaticResource CalciteStyle}" Text="&#xe001;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                        ToolTipProperties.Text="Manage Segments" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="MoveSegmentButton_Clicked"/>
+
+            <Button Grid.Column="5" Grid.Row="0" x:Name="ManageCrackButton" Style="{StaticResource CalciteStyle}" Text="&#xe04e;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                        ToolTipProperties.Text="Manage Cracks" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" >
+                <Button.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OpenMenuFlyout" />
+                </Button.GestureRecognizers>
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem x:Name="ManageCrackSummaryButton" Text="Manage Crack Summary" Clicked="ManageCrackSummaryButton_Clicked"/>
+                        <MenuFlyoutItem x:Name="ManageCrackGridButton" Text="Manage Crack Classification" Clicked="ManageCrackGridButton_Clicked"/>
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+            </Button>
+
+            <Button Grid.Column="6" Grid.Row="0" x:Name="RemoveGraphicButton" Style="{StaticResource CalciteStyle}" Text="&#xe14b;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                        ToolTipProperties.Text="Remove Double Ups or Apply Boundaries" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="RemoveDoubleUp_Clicked"/>
+
+            <Button Grid.Column="7" Grid.Row="0" x:Name="LasFileButton" Style="{StaticResource CalciteStyle}" Text="&#xe010;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                         ToolTipProperties.Text="Calculate Rut with Las files" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="LasFileButton_Clicked"/>
+
+            <Button Grid.Column="7" Grid.Row="1" x:Name="AutoRepeatLasButton" Style="{StaticResource CalciteStyle}" Text="&#xE2ED;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                        IsVisible="False" ToolTipProperties.Text="Auto Generate Rut" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="AutoRepeatLasButton_Clicked"/>
+
+            <Button Grid.Column="8" Grid.Row="0" x:Name="RecalculateButton" Style="{StaticResource CalciteStyle}" Text="&#xe245;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                        ToolTipProperties.Text="Recalculate" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3">
+                <Button.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OpenMenuFlyout" />
+                </Button.GestureRecognizers>
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem x:Name="IRIButton" Text="Recalculate IRI Sections" Clicked="RecalculateIRI_Clicked"/>
+                        <MenuFlyoutItem x:Name="RecalculateChainageButton" Text="Recalculate Start Chainage" Clicked="RecalculateChainage_Clicked"/>
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+            </Button>
+            <Button Grid.Column="9" x:Name="QcButton" Text="QC" TextColor="Black" FontFamily="Lexend" FontAttributes="Bold" FontSize="15" Padding="0" CornerRadius="10"
+                        ToolTipProperties.Text="Apply QC filter" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="QcButton_Clicked"/>
+
+            <Button Grid.Column="10" Grid.Row="0" x:Name="SegmentationButton" Style="{StaticResource CalciteStyle}" Text="&#xE26B;" TextColor="Black"  FontSize="22" Padding="5" CornerRadius="10"
+                ToolTipProperties.Text="Segmentation" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3">
+                <Button.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OpenMenuFlyout" />
+                </Button.GestureRecognizers>
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem x:Name="SurveySegmentationManual" Text="Manual Survey Segmentation" Clicked="SurveySegmentationManual_Clicked"/>
+                        <!--<MenuFlyoutItem x:Name="SurveySegmentationAuto" Text="Auto Survey Segmentation" Clicked="SurveySegmentationAuto_Clicked"/>-->
+                        <MenuFlyoutItem x:Name="SurveySegmentationImport" Text="Import Survey Segmentation" Clicked="SurveySegmentationImport_Clicked"/>
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+            </Button>
+            <Button Grid.Column="11" x:Name="RecreateOverlayButton" Style="{StaticResource CalciteStyle}" Text="&#xe084;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+             ToolTipProperties.Text="Recreate overlay images" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="RecreateOverlayButton_Clicked"/>
+
+            <Button Grid.Column="12" x:Name="PrintScreenButton"  Style="{StaticResource CalciteStyle}" Text="&#xE05C;" TextColor="Black"  FontSize="22" Padding="5" CornerRadius="10"
+                        ToolTipProperties.Text="Screenshot" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3" Clicked="PrintScreenButton_Clicked"/>
+            
+            <StackLayout Grid.Column="13" Orientation="Horizontal" >
+                <Button x:Name="BrightnessButton" Clicked="OnToggleSliderClicked" Style="{StaticResource CalciteStyle}" Text="&#xe04c;" TextColor="Black"  FontSize="20" Padding="5" CornerRadius="10" Margin="3" WidthRequest="40" HeightRequest="40" Background="#90D3D3D3"/>
+                <Grid>
+                    <Slider x:Name="OpacitySlider" Minimum="0" Maximum="1" Value="1" ValueChanged="OnSliderValueChanged" IsVisible="False" WidthRequest="70" HeightRequest="40"/>
+                </Grid>
+            </StackLayout>
+        </Grid>
+        <XAML:Offset x:Name="OffsetPage" HorizontalOptions="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false" />
+        <XAML:RemoveGraphics x:Name="RemoveGraphicsPage" HorizontalOptions ="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false"/>
+        <XAML:QCMode x:Name="QCModePage" HorizontalOptions ="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false"/>
+        <XAML:EditCracksContainer x:Name="EditCracksContainerPage" HorizontalOptions ="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false"/>
+        <XAML:RecalculateDefect x:Name="RecalculatePage" HorizontalOptions="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false" />
+        <XAML:ImportSegmentSurveys x:Name="ImportSegmentSurveysPage" HorizontalOptions="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false" />
+        <XAML:RecalculateChainage x:Name="RecalculateChainagePage" HorizontalOptions="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false" />
+        <XAML:ManualSegmentation x:Name="ManualSegmentationPage" HorizontalOptions="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false" />
+        <XAML:RecreateOverlayImage x:Name="RecreateOverlayPage" HorizontalOptions="Start" VerticalOptions="Start" Margin="7,45" IsVisible="false" />
+
+        <!--survey template editing tool-->
+        <Grid IsVisible="{Binding SurveyTemplateVisibility}"  Margin="5,65,5,5" 
+                      ColumnDefinitions="auto,auto,auto,auto" RowDefinitions="auto,auto,auto" VerticalOptions="Start" >
+            <Button x:Name="UndoButton"
+                        Grid.Row="0"
+                        Clicked="UndoButton_Click"
+                        IsEnabled="{Binding GeometryEditor.CanUndo, Source={x:Reference MyMapView}}"
+                        Style="{StaticResource ExtendedCalciteStyle}"
+                        Text="&#xE061;"
+                        ToolTipProperties.Text="Undo"
+                        Padding="10" />
+
+            <Button  x:Name="RedoButton"
+                        Grid.Row="0" Grid.Column="1"
+                        Clicked="RedoButton_Click"
+                        IsEnabled="{Binding GeometryEditor.CanRedo, Source={x:Reference MyMapView}}"
+                        Style="{StaticResource ExtendedCalciteStyle}"
+                        Text="&#xE062;"
+                        ToolTipProperties.Text="Redo"
+                        Padding="10" />
+
+            <!--<Button
+                        Grid.Row="1"
+                        Clicked="DiscardButton_Click"
+                        IsEnabled="{Binding GeometryEditor.IsStarted, Source={x:Reference MyMapView}}"
+                        Style="{StaticResource ExtendedCalciteStyle}"
+                        Text="&#xE243;"
+                        ToolTipProperties.Text="Deselect"
+                        Padding="10"/>-->
+
+            <Button x:Name="SaveSurveyGraphicButton"
+                        Grid.Row="2" Grid.Column="0"
+                        Clicked="SaveSurveyGraphic_Click"
+                        IsEnabled="{Binding GeometryEditor.CanUndo, Source={x:Reference MyMapView}}"
+                        Style="{StaticResource ExtendedCalciteStyle}"
+                        Text="&#xe262;"
+                        ToolTipProperties.Text="Save"
+                        Padding="10"/>
+
+            <!--<Button x:Name="deleteButton"
+                        Grid.Row="2"
+                        Clicked="DeleteButton_Click"
+                        IsEnabled="{Binding GeometryEditor.IsStarted, Source={x:Reference MyMapView}}"
+                        Style="{StaticResource ExtendedCalciteStyle}"
+                        Text="&#xe2d0;" 
+                        ToolTipProperties.Text="Delete a polygon"
+                        Padding="10"/>-->
+
+            <Button x:Name="PolygonButton"
+                        Grid.Row="1" Grid.Column="0"
+                        Clicked="PolygonButton_Click"
+                        IsEnabled="{Binding IsEditing}"
+                        Style="{StaticResource ExtendedCalciteStyle}"
+                        Text="&#xe21f;" 
+                        ToolTipProperties.Text="Draw a polygon"
+                        Padding="10" />
+            
+            <Button x:Name="RectangleButton"
+                   Grid.Row="1" Grid.Column="1"
+                   Clicked="RectangleButton_Click"
+                   IsEnabled="{Binding IsEditing}"
+                   Style="{StaticResource ExtendedCalciteStyle}"
+                   Text="&#xe0ae;" 
+                   ToolTipProperties.Text="Draw a rectangle"
+                   Padding="10" />
+            
+            <Button x:Name="P2PButton"
+                      Grid.Row="1" Grid.Column="2" 
+                      Clicked="P2PButton_Click"
+                      IsEnabled="{Binding IsEditing}"
+                      IsVisible="{Binding IsSurveyTemplate}"
+                      Style="{StaticResource ExtendedCalciteStyle}"
+                      Text="&#xe21c;" 
+                      ToolTipProperties.Text="Draw a point to point"
+                      Padding="10" />
+
+            <Button x:Name="PolylineButton"
+                      Grid.Row="1" Grid.Column="3"
+                      Clicked="PolylineButton_Click"
+                      IsEnabled="{Binding IsEditing}"
+                      IsVisible="{Binding IsSurveyTemplate}"
+                      Style="{StaticResource ExtendedCalciteStyle}"
+                      Text="&#xe1a8;" 
+                      ToolTipProperties.Text="Draw a polyline"
+                      Padding="10" />
+
+            <Button x:Name="OfflineButton"
+                      Grid.Row="2" Grid.Column="1"
+                      Clicked="CloseOffline_Click"
+                      IsVisible="{Binding IsOffline}"
+                      Style="{StaticResource ExtendedCalciteStyle}"
+                      Text="&#xE285;" 
+                      Background="#F32525"
+                      ToolTipProperties.Text="Exit Offline Mode"
+                      Padding="10" />
+        </Grid>
+
+
+        <!--graphic drawing tool-->
+        <Grid IsVisible="{Binding DrawingToolVisibility}"   Margin="5,65,5,5" 
+                 ColumnDefinitions="auto,auto" RowDefinitions="auto,auto" VerticalOptions="Start" HorizontalOptions="Start">
+            <Button
+                   Grid.Row="0"
+                   Clicked="UndoButton_Click"
+                   IsEnabled="{Binding GeometryEditor.CanUndo, Source={x:Reference MyMapView}}"
+                   Style="{StaticResource ExtendedCalciteStyle}"
+                   Text="&#xE061;"
+                   ToolTipProperties.Text="Undo"
+                   Padding="10" />
+
+            <Button
+                   Grid.Row="0" Grid.Column="1"
+                   Clicked="RedoButton_Click"
+                   IsEnabled="{Binding GeometryEditor.CanRedo, Source={x:Reference MyMapView}}"
+                   Style="{StaticResource ExtendedCalciteStyle}"
+                   Text="&#xE062;"
+                   ToolTipProperties.Text="Redo"
+                   Padding="10" />
+
+            <Button 
+                   x:Name="SaveAddedDefectButton"
+                   Grid.Row="1" Grid.Column="1"
+                   IsEnabled="{Binding GeometryEditor.CanUndo, Source={x:Reference MyMapView}}"
+                   Style="{StaticResource ExtendedCalciteStyle}"
+                   Text="&#xe262;"
+                   ToolTipProperties.Text="Save"
+                   Clicked="SaveAddedDefect_Click"
+                   Padding="10">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding PCIDrawingToolVisibility}" Value="True">
+                        <Setter Property="IsVisible" Value="False" />
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+
+            <Button 
+                   x:Name="SavePCIDefectButton"
+                   Grid.Row="1" Grid.Column="1"
+                   IsEnabled="{Binding GeometryEditor.CanUndo, Source={x:Reference MyMapView}}"
+                   Style="{StaticResource ExtendedCalciteStyle}"
+                   Text="&#xe262;"
+                   ToolTipProperties.Text="Save"
+                   Clicked="SavePCIDefect_Click"
+                   Padding="10">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding PCIDrawingToolVisibility}" Value="False">
+                        <Setter Property="IsVisible" Value="False" />
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+
+            <Button
+                   x:Name="AddDefectGraphicButton"
+                   Grid.Row="1" Grid.Column="0"
+                   Style="{StaticResource ExtendedCalciteStyle}"
+                   ToolTipProperties.Text="Draw a graphic"
+                   Clicked="AddDefectGraphic_Click"
+                   Padding="10" >
+            </Button>
+        </Grid>
+
+        <!-- Keycode drawing tool-->
+        <Grid IsVisible="{Binding IsDrawingKeycodePoint}"   Margin="5,65,5,5" 
+         ColumnDefinitions="auto,auto" RowDefinitions="auto,auto" VerticalOptions="Start" HorizontalOptions="Start">
+           
+            <Button
+               x:Name="SaveKeycodePointButton"
+               Grid.Row="1" Grid.Column="0"
+               Style="{StaticResource ExtendedCalciteStyle}"
+               Text="&#xe262;"
+               ToolTipProperties.Text="Save Keycodes"
+               Clicked="SaveKeycode_Click"
+               Padding="10" >
+            </Button>
+        </Grid>
+
+        <Grid IsVisible="{Binding IsDrawingKeycodeLine}"   Margin="5,65,5,5" 
+         ColumnDefinitions="auto,auto" RowDefinitions="auto,auto" VerticalOptions="Start" HorizontalOptions="Start">
+
+                <Button
+               x:Name="SaveKeycodeLineButton"
+               Grid.Row="1" Grid.Column="0"
+               Style="{StaticResource ExtendedCalciteStyle}"
+               Text="&#xe262;"
+               ToolTipProperties.Text="Save Keycodes"
+               Clicked="SaveKeycode_Click"
+               Padding="10" >
+                </Button>
+        </Grid>
+
+
+
+        <Grid IsVisible="{Binding IsEditingDatabase}" BackgroundColor="Transparent" HorizontalOptions="FillAndExpand" VerticalOptions="FillAndExpand">
+            <BoxView Color="Transparent"/>
+            <!-- Semi-transparent black overlay to block user interaction -->
+        </Grid>       
+        <!--small messsage box-->
+        <Frame x:Name="messageBoxUpdateProgress" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Database update in progress. Do not navigate away from this page until it is complete."/>
+        </Frame>
+        <Frame x:Name="messageBoxPressEnter" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Press Enter to save changes or Press Delete to delete or Press P to reprocess the selected segments"/>
+        </Frame>
+        <Frame x:Name="messageBoxMultiSelect" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Please drag over the desired areas to select multiple graphics. Press ESC to cancel."/>
+        </Frame>
+        <Frame x:Name="messageBoxDelete" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Deleting..."/>
+        </Frame>
+        <Frame x:Name="messageBoxDefects" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Press Enter to save changes or Press Delete to delete the selected defects. &#x0a;Press ESC to cancel." />
+        </Frame>
+        <Frame x:Name="messageBoxSelectSegments" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Select in the map the segments to be moved or reprocessed" />
+        </Frame>
+        <Frame x:Name="messageBoxMeasurement" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Create a measurement in the map. Right click to set the distance." />
+        </Frame>
+        <Frame x:Name="messageBoxSelectCracks" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label x:Name="messageCrackLabel" TextColor="White" Text="Select the cracks to be reevaluated, select G to reevaluate" />
+        </Frame>
+        <Frame x:Name="messageBoxSegmentation" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="340" IsVisible="false">
+            <Label TextColor="White" Text="Click two segments to set the range. All segments between the two clicked segments are selected for segmentation. Press ESC to cancel." />
+        </Frame>
+        <Frame x:Name="messageBoxIRI" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="340" IsVisible="false">
+            <Label TextColor="White" Text="Click two points on the segment to set the range. All IRI data between the two points will be summarized. Press ESC to cancel." />
+        </Frame>
+        <Frame x:Name="messageBoxRut" BackgroundColor="Black"  BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Select saved rutting lines as the starting point, then move to a finish position. Press Enter to generate intermediate lines."/>
+        </Frame>
+        <Frame x:Name="messageBoxLas" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25" WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="After loading LAS points on the map, place two points to generate a LAS chart."/>
+        </Frame>
+        <Frame x:Name="messageBoxRecalculateRutting" BackgroundColor="Black" BorderColor="Gray" CornerRadius="5" Padding="8" HorizontalOptions="End" VerticalOptions="End" Margin="10,25"
+             WidthRequest="230" IsVisible="false">
+            <Label TextColor="White" Text="Recalculating LAS Rutting in progress. Do not navigate away from this page until it is complete." />
+        </Frame>
+
+        <!--compass-->
+        <!--toolkit:Compass HorizontalOptions="End" VerticalOptions="Start" Margin="10" GeoView="{x:Reference MyMapView}" WidthRequest="40" HeightRequest="40" AutoHide="False" x:Name="compass" />-->
+
+        <Button x:Name="OriginalPositionButton"
+                Style="{StaticResource CalciteStyle}"
+                Text="&#xE092;" 
+                TextColor="Black"
+                FontSize="18"
+                Padding="10"
+                CornerRadius="10"
+                ToolTipProperties.Text="Original Position"
+                WidthRequest="40"
+                HeightRequest="40"
+                Background="#90D3D3D3"
+                HorizontalOptions="End"
+                VerticalOptions="Start"
+                Margin="10,10"
+                Command="{Binding ResetRotationCommand}"/>
+
+        <VerticalStackLayout HorizontalOptions="End" VerticalOptions="Start" Margin="-100,65" >
+            <!-- Auto Rotate -->
+            <VerticalStackLayout>
+                <Label FontSize="Caption" Text="Auto Rotate" Margin="-20,-5" TextColor="White"/>
+                <Switch ToolTipProperties.Text="Auto Map Rotation" IsToggled="{Binding IsAutoRotationEnabled}" />
+            </VerticalStackLayout>
+
+            <!-- Map Synchronized -->
+            <VerticalStackLayout>
+                <Label FontSize="Caption"
+               Text="Map Sync."
+               Margin="-20,-5"
+               TextColor="White"/>
+
+                <Switch ToolTipProperties.Text="Map Synchronization" IsToggled="{Binding IsMapSynchronizedEnabled}"  />
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+
+        <!--offline map progress bar-->
+        <Grid x:Name="busyIndicator"
+                  Grid.RowSpan="2"
+                  Grid.ColumnSpan="2"
+                  BackgroundColor="#807f7f7f"
+                  IsVisible="False">
+            <Grid HorizontalOptions="Center" VerticalOptions="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="auto" />
+                    <RowDefinition Height="auto" />
+                    <RowDefinition Height="auto" />
+                </Grid.RowDefinitions>
+                <Label Margin="10"
+                           FontSize="18"
+                           HorizontalOptions="Center"
+                           TextColor="White"
+                           VerticalOptions="Center">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Generating offline map... " />
+                            <Span x:Name="Percentage" Text="" />
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+                <ProgressBar x:Name="progressBar"
+                                 ProgressColor="Red"
+                                 Grid.Row="1"
+                                 Margin="0,0,0,10"
+                                 HeightRequest="10"
+                                 HorizontalOptions="Center"
+                                 IsEnabled="True"
+                                 VerticalOptions="Center"
+                                 WidthRequest="100" />
+                <Button x:Name="CancelMapCreationJobButton"
+                        Grid.Row="2"
+                        Clicked="CancelMapCreationJobButton_Click"
+                        HorizontalOptions="Center"
+                        Text="Cancel"
+                        BackgroundColor="#80000000"
+                        WidthRequest="100" />
+            </Grid>
+        </Grid>
+
+        <!--Survey Segmentation-->
+        <Grid x:Name="LoaderOverlay" Background="#80000000" IsVisible="False">
+            <StackLayout HorizontalOptions="Center" VerticalOptions="Center">
+                <ProgressBar Width="200" Visual="Default"/>
+                <Label Text="Survey Segmentation is in process..." TextColor="White" Margin="10" HorizontalTextAlignment="Center"/>
+            </StackLayout>
+        </Grid>
+
+        <!--video Frame-->
+        <Frame x:Name="VideoPlayer" VerticalOptions="End" HorizontalOptions="Start" IsVisible="false" CornerRadius="10" Margin="10,0,0,25" Padding="10,20" BackgroundColor="#90D3D3D3" HasShadow="True">
+            <Grid RowDefinitions="Auto,*">
+                <HorizontalStackLayout HorizontalOptions="End" Grid.Row="0">
+                    <Button x:Name="ToggleMinimizeButton" Text="{Binding MinimizeButtonText}" FontSize="18" Padding="0" Style="{StaticResource IconStyle}" WidthRequest="35" HeightRequest="30"  Background="Transparent" BorderColor="Transparent"  Clicked="ToggleMinimizeButton_Clicked" />
+                    <Button x:Name="CloseVideoBtn" ToolTipProperties.Text="Close" Text="&#xF00D;" FontSize="18" Padding="0" Style="{StaticResource IconStyle}" WidthRequest="35" HeightRequest="30" Background="Transparent" BorderColor="Transparent" Clicked="CloseVideoBtn_Clicked"/>
+                </HorizontalStackLayout>
+                <StackLayout x:Name="VideoControlsPanel" Grid.Row="1" IsVisible="{Binding AreControlsVisible}">
+                    <Slider x:Name="VideoPlayerSlider" 
+                         DragStarted="OnSliderDragStarted"
+                         DragCompleted="OnSliderDragCompleted"
+                         WidthRequest="380" />
+                    <Grid>
+                        <Button HorizontalOptions="Start" Grid.Column="8" x:Name="VideoPopup" Style="{StaticResource CalciteStyle}" Text="&#xE1BF;" TextColor="Black"  FontSize="18" Padding="10" CornerRadius="10"
+                     ToolTipProperties.Text="Video Popup" Margin="3" WidthRequest="40" HeightRequest="40" Clicked="VideoPopup_Clicked" />
+                        <HorizontalStackLayout HorizontalOptions="Center">
+                            <Button x:Name="backwardBtn" Style="{StaticResource IconStyle}" Text="&#xF048;" WidthRequest="40" HeightRequest="35" Background="Transparent" BorderColor="Transparent" Margin="5" Clicked="backwardBtn_Clicked"/>
+                            <Button x:Name="playBtn" Style="{StaticResource IconStyle}" Text="{Binding ButtonText}" WidthRequest="40" HeightRequest="40" CornerRadius="50" Margin="5" Clicked="PlayButton_Clicked"/>
+                            <Button x:Name="forwardBtn" Style="{StaticResource IconStyle}" Text="&#xF051;" WidthRequest="40" HeightRequest="35" Background="Transparent" BorderColor="Transparent" Margin="5" Clicked="forwardBtn_Clicked"/>
+                        </HorizontalStackLayout>
+                        <Button x:Name="settingBtn" HorizontalOptions="End" TextColor="#555555" Style="{StaticResource IconStyle}" FontSize="25" Text="&#xF013;" Background="Transparent" BorderColor="Transparent" Margin="5">
+                            <Button.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="SettingBtn_Tapped" />
+                            </Button.GestureRecognizers>
+                            <FlyoutBase.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutSubItem Text="Speed">
+                                        <MenuFlyoutItem x:Name="Speed0ms" Clicked="OnSpeedSelected" CommandParameter="0"/>
+                                        <MenuFlyoutItem x:Name="Speed300ms" Clicked="OnSpeedSelected" CommandParameter="300"/>
+                                        <MenuFlyoutItem x:Name="Speed500ms" Clicked="OnSpeedSelected" CommandParameter="500"/>
+                                        <MenuFlyoutItem x:Name="Speed1000ms" Clicked="OnSpeedSelected" CommandParameter="1000"/>
+                                    </MenuFlyoutSubItem>
+                                    <MenuFlyoutItem Text="Chainage" Clicked="JumpToChainageClicked"/>
+                                </MenuFlyout>
+                            </FlyoutBase.ContextFlyout>
+                        </Button>
+                    </Grid>
+                </StackLayout>
+            </Grid>
+        </Frame>
+
+        <ScrollView HorizontalOptions="End" VerticalOptions="Start" Margin="5" Orientation="Horizontal" BackgroundColor="Transparent">
+            <VerticalStackLayout x:Name="VideoHorizontalStack" Spacing="10" BackgroundColor="Transparent" />
+        </ScrollView>        
+    </Grid>    
+</ContentView>

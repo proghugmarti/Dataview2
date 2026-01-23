@@ -1,0 +1,419 @@
+﻿@* 
+No longer used    
+@page "/OpenProject"
+
+@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Helper;
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Database_Tables
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using Google.Protobuf.WellKnownTypes;
+@using DataView2.ViewModels;
+@using DataView2.Engines
+@using DataView2.States;
+@using Serilog;
+@using MudBlazor;
+@using System.Text.Json;
+@using Microsoft.Win32;
+@using IFolderPicker = DataView2.Resources.Others.IFolderPicker;
+@using System.IO
+@inject IProjectRegistryService _projectRegistryService;
+@inject NewProjectViewModel NewProjectViewModel;
+@inject IDialogService DialogService;
+@inject ApplicationEngine _appEngine;
+@inject ApplicationState _appState;
+@inject ISnackbar Snackbar;
+@inject IFolderPicker _folderPicker;
+@inject NavigationManager NavigationManager
+@inject IDialogService DialogService
+
+
+<MudSnackbarProvider />
+
+<div class="title-section" style="margin-left: 50px; margin-top: 30px;">
+    <MudText Typo="Typo.h4" Style="font-size: 35px;">Open a Project</MudText>
+</div>
+
+<div class="body-section">
+    <MudGrid>
+
+        <!-- Source Project Path -->
+        <MudItem xs="9">
+            <MudText Typo="Typo.subtitle2">Select Project to Open:</MudText>
+            <MudTextField @bind-Value="sourceProjectPath" Required="true" Variant="Variant.Outlined" Small="true" />
+        </MudItem>
+        <MudItem xs="3">
+            <div class="vertical-center">
+                <MudButton Variant="Variant.Outlined" OnClick="PickSourceFolder">Pick Source</MudButton>
+            </div>
+        </MudItem>
+        <MudItem xs="12">
+            <MudNavLink Href="/ImportProject" Match="NavLinkMatch.Prefix"
+            Style="border: 1px solid #ccc; padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; color: inherit; font-size: 0.85rem; margin-top: 10px; width: fit-content;">
+                <MudIcon Icon="@Icons.Material.Filled.ContentCopy"/>
+                Copy Project
+            </MudNavLink>
+        </MudItem>
+        @if (dataSets.Count() > 0)
+        {
+            <MudItem xs="12">
+                <MudText Typo="@Typo.h6" xs="12">
+                    <MudIcon Icon="@Icons.Material.Filled.AppRegistration" Color="Color.Primary" /> <code style="color: #5622ad; font-size: 16px"> DataSet@(dataSets.Count() == 1 ? "" : "s") loaded (@dataSets.Count()) :</code>
+                </MudText>
+
+                <MudGrid xs="12">
+                    <MudItem xs="12">
+                        <MudPaper Outlined>
+                            <table style="width: 100%; table-layout: fixed;">
+                                <tbody>
+                                    @for (int i = 0; i < dataSets.Count; i += 4)
+                                    {
+                                        <tr>
+                                            @foreach (var tableName in dataSets.Skip(i).Take(4))
+                                            {
+                                                <td style="padding: 8px; word-wrap: break-word; word-break: break-word; text-align: justify; vertical-align: top;">
+                                                    <MudIcon Icon="@Icons.Material.Filled.CameraRear" Style="color: #a4e0c7;" /> @tableName
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
+
+                <MudItem xs="12">
+                    <div class="action-section">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenProjectAndDataset" Style="padding: 15px">Import </MudButton>
+                    </div>
+                </MudItem>
+            </MudItem>
+        }
+    </MudGrid>
+</div>
+
+
+@code {
+    private string sourceProjectPath;
+    private string destinationFolderPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Data View 2 Projects");
+    private string importedProjectName = "";
+    private string finalProjectFolderPath = "";
+    private List<string> backupDbFiles = new List<string>();
+    private bool backUpExist = false;
+
+    private HashSet<string> dataSets = new HashSet<string>();
+    private int projectId = 0;
+    private int selectedProjectLocalId = 0;
+    private int datasetsImported = 0;
+    private List<string> dbFiles = new List<string>(); // .db files in folder of the Current Project
+    private Project importedProject = new Project();
+    private IDialogReference dialogImport;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _appEngine = MauiProgram.AppEngine;
+
+        if (_appState.SelectedProject != null)
+        {
+            selectedProjectLocalId = _appState.SelectedProject.Id;
+        }
+    }
+
+    // private bool CheckBackupFiles(string folderPath)
+    // {
+    //     var backupsFolder = Path.Combine(folderPath, "Datasets", "Backups");
+
+    //     if (Directory.Exists(backupsFolder))
+    //     {
+    //         var backupDbFiles = Directory.GetFiles(backupsFolder, "*.db").ToList();
+    //         if (backupDbFiles.Count > 0)
+    //         {
+    //             return true;
+    //         }
+    //     }
+    //     return false;
+    // }
+
+
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    string genFileImage = "/images/download.gif";
+    string genFileText = "Reading datasets.....";
+    DialogParameters parameters;
+    string[] _files; // .db files in selected folder.
+
+    private async Task PickSourceFolder()
+    {
+        var folder = await PickFolderPath(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            Snackbar.Add("No folder selected.", Severity.Warning);
+            return;
+        }
+
+        sourceProjectPath = folder;
+        importedProjectName = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
+
+        var dbFiles = Directory.GetFiles(folder, "*.db");
+        if (dbFiles.Any())
+        {
+            importedProjectName = Path.GetFileNameWithoutExtension(dbFiles.First());
+        }
+
+        LoadDatasets(folder);
+        //backUpExist = CheckBackupFiles(folder);
+    }
+
+    private void LoadDatasets(string folderPath)
+    {
+        var datasetsFolder = Path.Combine(folderPath, "Datasets");
+
+        if (Directory.Exists(datasetsFolder))
+        {
+            var dbFiles = Directory.GetFiles(datasetsFolder, "*.db");
+            _files = dbFiles;
+            dataSets = new HashSet<string>(_files.Select(Path.GetFileName));
+        }
+        else
+        {
+            _files = Array.Empty<string>();
+        }
+
+        if (_files.Length == 0)
+        {
+            Snackbar.Add("No datasets found in the selected location.", Severity.Warning);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task<string> PickFolderPath(string initialFolderPath)
+    {
+        return await Task.FromResult(_folderPicker.PickFolder(initialFolderPath) ?? string.Empty);
+    }
+
+    private async Task OpenProjectAndDataset()
+    {
+        try
+        {
+            // Continue with your existing code if user chooses No
+            string projectNameFromSource = Path.GetFileNameWithoutExtension(sourceProjectPath);
+
+            var metadataDbPath = Tools.GetMetadataDbPath();
+            await _appEngine.DatabaseRegistryService.ChangeDatabase(new NewDatabaseRequest
+                {
+                    NewDatabasePath = metadataDbPath,
+                    DbType = nameof(Tools.dbContextType.Metadata)
+                });
+
+            var checkResult = await _appEngine.LocalProjectService.CheckExistByName(projectNameFromSource);
+            if (checkResult.Id == -1)
+            {
+                Snackbar.Add($"A project with the name '{projectNameFromSource}' already exists.", Severity.Warning);
+                return;
+            }
+
+            string[] dbFiles = Directory.GetFiles(sourceProjectPath, "*.db");
+            if (dbFiles.Length == 0)
+            {
+                Snackbar.Add("No .db file found in the source project folder.", Severity.Error);
+                return;
+            }
+
+            string projectDbPath = dbFiles.First();
+            var projectId = await _appEngine.LocalProjectService.GetProjectIdFromDb(projectDbPath);
+            if (projectId == string.Empty)
+            {
+                Snackbar.Add("Failed to read project ID from the source DB.", Severity.Error);
+                return;
+            }
+
+            var newRegistry = new ProjectRegistry
+                {
+                    IdProject = projectId.ToUpper(),
+                    Name = projectNameFromSource,
+                    CreatedAtActionResult = DateTime.UtcNow,
+                    UpdatedAtActionResult = DateTime.UtcNow,
+                    FolderPath = sourceProjectPath,
+                    DBPath = projectDbPath,
+                    GPSLatitude = 0.0,
+                    GPSLongitude = 0.0,
+                    RoundedGPSLatitude = 0.0,
+                    RoundedGPSLongitude = 0.0
+                };
+
+            var registryResult = await _appEngine.ProjectRegistryService.RegisterOnlyMetadata(newRegistry);
+            if (registryResult.Id == -1)
+            {
+                Snackbar.Add("Failed to register project in metadata DB.", Severity.Error);
+                return;
+            }
+
+            // bool includeBackup = false;
+
+            // if (backUpExist)
+            // {
+            //     ask the users if they want to import backups
+            //     var response = await DialogService.ShowMessageBox(
+            //         "Confirmation",
+            //         "Do you want to import backups as well?",
+            //         yesText: "Yes", noText: "No");
+            //     if (response == true)
+            //     {
+            //         includeBackup = true;
+            //     }
+            // }
+
+            // Show loading icon AFTER confirmation
+            genFileText = "Importing Datasets...";
+            parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+            dialogImport = Dialog.Show<Charging>("", parameters, maxWidth);
+
+            if (!await ImportDatasets(Path.Combine(sourceProjectPath, "Datasets"), importedProject.Id))
+            {
+                var deleteRequest = new IdRequest
+                    {
+                        Id = registryResult.Id
+                    };
+                await _appEngine.ProjectRegistryService.DeleteProjectUI(deleteRequest);
+                Snackbar.Add($"No datasets were imported.", Severity.Warning);
+                Snackbar.Add($"Project {importedProjectName} was not imported.", Severity.Warning);
+                Serilog.Log.Warning($"Project {importedProjectName} was not imported.");
+                dialogImport?.Close();
+                return;
+            }
+
+            await _appEngine.DatabaseRegistryService.ChangeDatabase(new NewDatabaseRequest
+                {
+                    NewDatabasePath = newRegistry.DBPath,
+                    DbType = nameof(Tools.dbContextType.Metadata)
+                });
+            _appState.UpdateBaseProject(newRegistry);
+
+            importedProject = await _appEngine.LocalProjectService.GetByIdProject(new IdRequestGUID { Id = projectId });
+
+            Snackbar.Add($"The Project '{projectNameFromSource}' was imported successfully.", Severity.Info);
+            Serilog.Log.Information($"The Project '{projectNameFromSource}' was imported successfully.");
+
+            dialogImport?.Close();
+            _appState.UpdateProject(importedProject);
+        }
+        catch (Exception ex)
+        {
+            var deleteRequest = new IdRequest
+                {
+                    Id = importedProject.Id
+                };
+            await _appEngine.ProjectRegistryService.DeleteProjectUI(deleteRequest);
+            Snackbar.Add($"Error: Project {importedProjectName} was not imported.", Severity.Warning);
+            Serilog.Log.Warning($"Error: Project {importedProjectName} was not imported.");
+            dialogImport?.Close();
+            Serilog.Log.Error($"Error importing project: {ex.Message}");
+        }
+    }
+
+    private async Task<string> ShowInputDialog(string title, string initialValue)
+    {
+        var parameters = new DialogParameters
+        {
+
+            { "UserInput", initialValue }
+        };
+
+        var options = new DialogOptions { CloseOnEscapeKey = true };
+
+        var dialog = DialogService.Show<InputDialog>(title, parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            return result.Data.ToString();
+        }
+
+        return (string.Empty);
+    }
+
+
+    private async Task<bool> ImportDatasets(string sourceProjectPath, int projectId)
+    {
+        if (!Directory.Exists(sourceProjectPath))
+        {
+            Log.Warning($"Dataset folder not found: {sourceProjectPath}");
+            return false;
+        }
+
+        try
+        {
+            foreach (var dataset in dataSets)
+                {
+                string datasetPath = Path.Combine(sourceProjectPath, dataset);
+
+                if (!File.Exists(datasetPath))
+                {
+                    Log.Warning($"Dataset not found: {datasetPath}");
+                    continue;
+                }
+
+                try
+                {
+                    await _appEngine.DatabaseRegistryService.EnsureDatabaseIsUpToDate(datasetPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Error validating dataset: {datasetPath} - {ex.Message}");
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error processing datasets: {ex.Message}");
+            return false;
+        }
+    }
+
+
+
+    //not used, bu can be implemented
+    // private async Task<bool> ImportBackups(string folderBackupsToChange, string targetBackupsDirectory, string DatabasePath)
+    // {
+    //     try
+    //     {
+    //         if (!Directory.Exists(folderBackupsToChange))
+    //         {
+
+    //             Console.WriteLine("Origin folder does not exist: " + folderBackupsToChange);
+    //             return false;
+    //         }
+    //         if (Directory.Exists(targetBackupsDirectory))
+    //         {
+    //             Directory.Delete(targetBackupsDirectory, true);
+    //             Directory.CreateDirectory(targetBackupsDirectory);
+    //         }
+    //         else
+    //         {
+    //             Directory.CreateDirectory(targetBackupsDirectory);
+    //         }
+    //         string[] files = Directory.GetFiles(folderBackupsToChange, "*.db");
+
+    //         BackupPathRequest listBackups = new BackupPathRequest { BackupPaths = files.ToList(), folderBackupToChange = folderBackupsToChange, folderBackupTarget = targetBackupsDirectory, DatabasePath = DatabasePath };
+    //         ListRequest result = await _appEngine.DatabaseRegistryService.ChangeBackups(listBackups);
+    //         if (result != null && result.ListData.Count() > 0)
+    //         {
+    //             return true;
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Log.Error("Error copying backups from the imported project : " + ex.Message);
+    //     }
+    //     return false;
+    // }
+} *@

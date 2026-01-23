@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<toolkit:Popup xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             xmlns:local="clr-namespace:DataView2.XAML"
+             xmlns:pages="clr-namespace:DataView2.Pages.Map"
+             x:Class="DataView2.XAML.ImportLayerPopup">
+    <toolkit:Popup.Resources>
+        <Style TargetType="{x:Type local:ImportLayerPopup}">
+            <Setter Property="Size" Value="550,450" />
+            <Setter Property="Color" Value="Transparent" />
+            <Setter Property="HorizontalOptions" Value="Center" />
+            <Setter Property="VerticalOptions" Value="Center" />
+            <Setter Property="CanBeDismissedByTappingOutsideOfPopup" Value="False" />
+        </Style>
+    </toolkit:Popup.Resources>
+    <Border Stroke="Gray" StrokeThickness="1" Background="White">
+        <Border.StrokeShape>
+            <RoundRectangle CornerRadius="10" />
+        </Border.StrokeShape>
+        <BlazorWebView HostPage="wwwroot/index.html" Margin="15">
+            <BlazorWebView.RootComponents>
+                <RootComponent x:Name="rootComponent" Selector="#app" ComponentType="{x:Type pages:ImportLayers}"/>
+            </BlazorWebView.RootComponents>
+        </BlazorWebView>
+    </Border>
+</toolkit:Popup>

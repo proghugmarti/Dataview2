@@ -1,0 +1,129 @@
+﻿@page "/LoadProject"
+@using DataView2.Core.Models.Database_Tables;
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Engines;
+@using DataView2.Core.Models;
+@using DataView2.Core.Helper;
+@using DataView2.ViewModels;
+@using Google.Protobuf.WellKnownTypes;
+@using DataView2.States;
+@using Serilog;
+
+@inject IProjectRegistryService projectService;
+@inject ProjectViewModel projectViewModel;
+@inject ISettingsService setting
+@inject ApplicationState _appState;
+@inject ApplicationEngine _appEngine;
+
+<style>
+    .icon-highlight {
+        color: #595ce3;
+        margin-right: 0px;  
+    }
+
+    .text-highlight {
+        color: #595ce3;
+        font-weight: bold;  
+    }
+</style>
+<div class="page-background">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+        <MudPaper Elevation="1" Class="pa-8" Style="width: 100%; max-height: 600px;">
+        <MudText Typo="Typo.h4" Style="  font-size: 35px;">  Load Project  </MudText>
+        <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+            Select to change your project
+        </MudText>
+            @if (Projects != null)
+            {
+                <MudList T="string" Class="mud-cards">
+                    @foreach (var item in Projects)
+                    {
+                        <MudCard @onclick="@((MouseEventArgs e) => SelectProject(item))" class="clickable-card" Outlined="true">
+                            <MudCardHeader>
+                                <CardHeaderAvatar>
+                                    <MudIcon Icon="@Icons.Material.Filled.BackupTable"
+                                             Color="@(item?.Name == _appState?.SelectedProject?.Name
+                                                                ? Color.Primary
+                                                                : Color.Secondary)" />
+                                </CardHeaderAvatar>
+                                <CardHeaderContent>
+                                    <MudGrid>
+                                        <MudItem xs="9">
+                                            @{
+                                                if (_appState.SelectedProject != null)
+                                                {
+                                                    <MudText Class="@((item.Name == _appState.SelectedProject.Name) ? "font-bold" : "")">
+                                                        @if (item.Name == _appState.SelectedProject.Name)
+                                                        {
+                                                            <MudStack Row AlignItems="AlignItems.Center" Spacing="1">
+                                                                <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Color="Color.Primary" />
+                                                                <MudText Color="Color.Secondary">@item.Name</MudText>
+                                                            </MudStack>
+                                                        }
+                                                        else
+                                                        {
+                                                            @item.Name
+                                                        }
+                                                    </MudText>
+                                                }
+                                                else
+                                                {
+                                                    <MudText>
+                                                        @item.Name
+                                                    </MudText>
+                                                }
+                                            }
+                                        </MudItem>
+                                    </MudGrid>
+                                </CardHeaderContent>
+                            </MudCardHeader>
+                        </MudCard>
+                    }
+                </MudList>
+            }
+            else
+            {
+                <p>Loading projects...</p>
+            }
+        </MudPaper>
+    </MudContainer>
+</div>
+        
+
+
+@code {
+    private List<ProjectRegistry> Projects;
+    ProjectRegistry _selectedProject; 
+    Project _selectedLocalProject;
+    protected override async Task OnInitializedAsync()
+    {
+        
+        // var projects = await projectService.GetAll(new Empty());
+        // Projects = projects;
+        var projects = await projectService.GetAll(new Empty());
+
+        // Filter out projects where the DB file no longer exists
+        Projects = projects
+            .Where(p => File.Exists(p.DBPath))
+            .ToList();
+    }
+
+    private async Task SelectProject(ProjectRegistry selectedProject)
+    {
+        try
+        {
+            _selectedProject = selectedProject;
+            NewDatabaseRequest requestDataBase = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Metadata) };
+
+            IdRequestGUID idRequest = new IdRequestGUID { Id = _selectedProject.IdProject.ToString() };
+            requestDataBase.NewDatabasePath = _selectedProject.DBPath;
+            await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+            _selectedLocalProject = await _appEngine.LocalProjectService.GetByIdProject(idRequest);
+            projectViewModel.ChangeProjectAsync(_selectedProject, _selectedLocalProject);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Error SelectProject in ProjectDashboard: {ex.Message}");
+        }
+    }
+}

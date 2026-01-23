@@ -1,0 +1,164 @@
+﻿@page "/NewProject"
+@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Models.Database_Tables
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.States
+@using DataView2.ViewModels;
+@using DataView2.Core.Models;
+@using DataView2.Core.Helper;
+@using Google.Protobuf.WellKnownTypes
+
+
+@inject NewProjectViewModel NewProjectViewModel
+@inject ISnackbar Snackbar
+@inject IProjectRegistryService projectBaseService
+@inject ApplicationState appState
+@inject Microsoft.AspNetCore.Components.NavigationManager NavManager
+@inject NavigationManager NavManager
+@inject IProjectRegistryService projectService;
+
+
+
+<div class="page-background">
+<MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+    <MudPaper Elevation="1" Class="pa-8" Style="width: 100%;">
+
+        <MudText Typo="Typo.h4">Create New Project</MudText>
+        <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+            Set up your project details below
+        </MudText>
+
+        <MudGrid Spacing="3">
+
+                <!-- Step 1 Project -->
+            <MudItem xs="1" Class="d-flex flex-column align-center">
+                <div class="circle">1</div>
+                <div class="line"></div>
+            </MudItem>
+
+            <MudItem xs="11">
+                <MudText Typo="Typo.subtitle2">Project Title</MudText>
+                <MudTextField @bind-Value="projectName" Variant="Variant.Outlined" FullWidth />
+            </MudItem>
+
+            <!-- Step 2 Folder -->
+            <MudItem xs="1" Class="d-flex flex-column align-center">
+                <div class="circle">2</div>
+            </MudItem>
+
+            <MudItem xs="10">
+                <MudText Typo="Typo.subtitle2">Folder Path</MudText>
+                <MudTextField @bind-Value="defaultProjectsFolderPath" Variant="Variant.Outlined" ReadOnly="true" FullWidth />
+            </MudItem>
+
+            <MudItem xs="1" Class="d-flex align-end">
+                <MudButton Variant="Variant.Outlined" Class="folder-button d-flex align-center justify-center" OnClick="PickFolder">
+                    <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                </MudButton>
+            </MudItem>
+
+        </MudGrid>
+
+        <!-- Button -->
+        <div class="d-flex justify-end mt-8">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="CreateProjectandDataset"> CREATE PROJECT </MudButton>
+        </div>
+
+    </MudPaper>
+</MudContainer>
+</div>
+@code {
+    class ProjectData
+    {
+        public ProjectRegistry Project { get; set; }
+        public string EntredName { get; set; }
+        public bool IsEditing = false;
+        public bool DeleteFromLocalStorage { get; set; } = false; // New property
+
+    }
+    private List<ProjectData> Projects;
+
+    private string projectName;
+    static string defaultProjectsFolderPath = AppPaths.DefaultProjectFolder;
+
+    private async Task CreateProjectandDataset()
+    {
+        // Validate project name for invalid folder characters
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        if (invalidChars == null)
+        {
+            invalidChars = new char[] { '\\', '/', ':', '*', '?', '\"', '<', '>', '|' };
+        }
+
+        if (string.IsNullOrWhiteSpace(projectName) || projectName.Any(c => invalidChars.Contains(c)))
+        {
+            Snackbar.Add("Project name is invalid. Please avoid using special characters like \\ / : * ? \" < > |", Severity.Warning);
+
+            return;
+        }
+
+        Projects = new List<ProjectData>(); // Clear old data
+
+        var projects = await projectService.GetAll(new Empty());
+
+        // Filter out projects whose database files no longer exist
+        var existingProjects = projects.Where(p => File.Exists(p.DBPath)).ToList();
+
+        Projects = existingProjects.Select(p => new ProjectData()
+            {
+                Project = p,
+                EntredName = p.Name,
+                IsEditing = false
+            }).ToList();
+
+        if (Projects.Any(p => p.Project.Name.Equals(projectName, StringComparison.OrdinalIgnoreCase)))
+        {
+            await Application.Current.MainPage.DisplayAlert("DataView", "A project with this name already exists. Please choose a different name.", "Ok");
+            return;
+        }
+        var projectRply = await NewProjectViewModel.CreateNewProjectAsync(projectName, defaultProjectsFolderPath, "");
+
+        var localProjectRply = await NewProjectViewModel.CreateNewLocalProjectAsync(projectName, defaultProjectsFolderPath);
+
+
+        if (localProjectRply.Id > 0)
+        {
+            IdRequest idrequest = new IdRequest
+                {
+                    Id = localProjectRply.Id
+                };
+            Project localProject = await NewProjectViewModel.localProjectRegistryGetById(idrequest, "");
+
+            if (projectRply.Id != -1)
+            {
+                idrequest = new IdRequest
+                    {
+                        Id = projectRply.Id
+                    };
+
+                ProjectRegistry newProject = await NewProjectViewModel.ProjectRegistryGetById(idrequest);
+                newProject.IdProject = localProject.IdProject.ToString().ToUpper();
+                //Update project with IdProject external:
+                projectRply = await NewProjectViewModel.UpdateProjectAsync(newProject);
+                appState.UpdateProject(localProject);
+                appState.UpdateBaseProject(newProject);
+
+                Serilog.Log.Information($"Project changed to  : {newProject.Name}");
+                //appState.DatasetCreatedAndNavigateToNewDataset(projectRply.Message, projectRply.Id != -1);
+            }
+        }
+    }
+
+    private async Task PickFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            defaultProjectsFolderPath = folder.Folder.Path;
+        }
+        StateHasChanged();
+    }
+}

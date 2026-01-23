@@ -1,0 +1,25 @@
+[
+  {
+    "Id": 1,
+    "Title": "Seoul City Report",
+    "Description": "Generates an Excel report for Seoul City.",
+    "FunctionName": "GenerateSeoulCityReport",
+    "Param1Type": [
+      "Urban Expressway",
+      "Main Arterial Road",
+      "Minor Arterial Road",
+      "Municipal Pavement"
+    ],
+    "Param2Type": null,
+    "Param3Type": null
+  },
+  {
+    "Id": 2,
+    "Title": "Hongkong City Report",
+    "Description": "Generates an Excel report for Hong kong.",
+    "FunctionName": "GenerateHongkongReport",
+    "Param1Type": null,
+    "Param2Type": null,
+    "Param3Type": null
+  }
+]

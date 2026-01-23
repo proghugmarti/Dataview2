@@ -1,0 +1,90 @@
+﻿using System.Runtime.InteropServices;
+
+namespace DataView2.Packages.Lcms
+{
+    public enum LicenseType
+    {
+        LCMS_LICENSE_ROAD = 0,
+        LCMS_LICENSE_IMUS = 1,
+        LCMS_LICENSE_RAIL = 2
+    }
+
+    public enum SystemModel
+    {
+        SYSTEM_MODEL_LCMS_1 = 0,
+        SYSTEM_MODEL_LCMS_2 = 1
+    }
+
+    public enum ProcessModules
+    {
+        LCMS_PROC_MODULE_LANE_MARKING = 0x00000002,
+        LCMS_PROC_MODULE_CRACKING = 0x00000004,
+        LCMS_PROC_MODULE_RUTTING = 0x00000008,
+        LCMS_PROC_MODULE_MACRO_TEXTURE = 0x00000010,
+        LCMS_PROC_MODULE_POTHOLES = 0x00000020,
+        LCMS_PROC_MODULE_COMPILATION = 0x00000040,
+        LCMS_PROC_MODULE_RAVELING = 0x00000080,
+        LCMS_PROC_MODULE_LONG_PROFILE = 0x00000100,
+        LCMS_PROC_MODULE_CONCRETE_PAVMNT_JOINT = 0x00000200,
+        LCMS_PROC_MODULE_DROPOFF_CURB = 0x00000400,
+        LCMS_PROC_MODULE_SEALED_CRACKING = 0x00000800,
+        LCMS_PROC_MODULE_FOD_DETECTOR = 0x00002000,
+        LCMS_PROC_MODULE_SLOPE_AND_CROSS_SLOPE = 0x00010000,
+        LCMS_PROC_MODULE_PICKOUT = 0x00080000,
+        LCMS_PROC_MODULE_BLEEDING = 0x00100000,
+        LCMS_PROC_MODULE_MANMADEOBJECT = 0x00200000,
+        LCMS_PROC_MODULE_PATCHDETECTION = 0x00400000,
+        LCMS_PROC_MODULE_PUMPINGDETECTION = 0x04000000,
+        LCMS_PROC_MODULE_PASER = 0x08000000,
+    }
+    public enum RailProcessModules
+    {
+        LRAIL_PROC_MODULE_RAIL_DETECTION = 0x00000002,
+        LRAIL_PROC_MODULE_TIE_DETECTION = 0x00000004,
+        LRAIL_PROC_MODULE_SURFACE_DEFECTS = 0x00000008,
+        LRAIL_PROC_MODULE_TIE_RATING = 0x00000010,
+        LRAIL_PROC_MODULE_FASTENER_DETECTION = 0x00000020,
+        LRAIL_PROC_MODULE_TIE_PLATE_DETECTION = 0x00000040,
+        LRAIL_PROC_MODULE_GAGEWIDTH_CANT = 0x00000080,
+        LRAIL_PROC_MODULE_TURNOUT_DETECTION = 0x00000100,
+        LRAIL_PROC_MODULE_SPIKE_DETECTION = 0x00000200,
+        LRAIL_PROC_MODULE_BALLAST_INSPECTION = 0x00000400,
+        LRAIL_PROC_MODULE_JOINT_DETECTION = 0x00000800,
+        LRAIL_PROC_MODULE_RAIL_WEAR = 0x00001000
+    }
+
+    public enum ResultImageType
+    {
+        LCMS_RESULT_IMAGE_INTENSITY = 0x00000001,
+        LCMS_RESULT_IMAGE_RANGE = 0x00000002,
+        LCMS_RESULT_IMAGE_OVERLAY_INTENSITY_RGB32 = 0x00000004,
+        LCMS_RESULT_IMAGE_OVERLAY_RANGE_RGB32 = 0x00000008,
+        LCMS_RESULT_IMAGE_3D = 0x00000010,
+        LCMS_RESULT_IMAGE_OVERLAY_3D_RGB32 = 0x00000020,
+        LCMS_RESULT_IMAGE_OVERLAY_BLACK_RGB32 = 0x00000080,
+        LCMS_RESULT_IMAGE_TEXTURE_RGB32 = 0x00000100,
+        LCMS_RESULT_IMAGE_SHAPEFILE = 0x00000200,
+        LCMS_RESULT_IMAGE_LASFILE = 0x00000400
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct sLcmsResultImage
+    {
+        public int iImageType;
+        public int iWidth;
+        public int iHeight;
+        public IntPtr pvImageData;
+    };
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct sSurfPreviewPt_GeoRef
+    {
+        public ushort usPosI; 
+        public ushort usPosJ; 
+        public byte ucInt; 
+        public byte ucInvalid;
+        public double dUtmX; 
+        public double dUtmY; 
+        public double dUtmZ;  
+    };
+}

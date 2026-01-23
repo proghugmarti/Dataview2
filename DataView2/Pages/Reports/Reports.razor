@@ -1,0 +1,226 @@
+@page "/Reports"
+@using CommunityToolkit.Maui.Storage
+@using DataView2.Core.Helper
+@using DataView2.Engines
+@using DataView2.Core.Models;
+@using DataView2.States;
+@using System.Diagnostics
+@using Serilog
+@inject ReportEngine ReportEngine
+@inject ISnackbar Snackbar
+@inject IDialogService Dialog
+@inject ApplicationEngine appEngine;
+@inject ApplicationState appState ;
+
+<MudContainer>
+    <div class="text-center my-5">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-2">Reports</MudText>
+    </div>
+    @if (reports == null)
+    {
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (reports.Count == 0)
+    {
+        <MudText>No reports available.</MudText>
+    }
+    else
+    {
+        <MudPaper Class="report-container" Style="padding:16px; max-width:1200px; margin:auto;">
+            <MudStack Row="true" Wrap="Wrap.NoWrap" AlignItems="AlignItems.Center" Spacing="2" Style="margin-bottom:16px;">
+                <MudText Style="font-weight:500; white-space:nowrap;">Save Directory</MudText>
+
+                <MudTextField ReadOnly="true"
+                              T="string"
+                              Text="@saveFilepath"
+                              Variant="Variant.Text"
+                              Style="min-width:200px; max-width:600px; width:100%; height:40px;" />
+
+                <MudButton Variant="Variant.Outlined"
+                           OnClick="PickSaveFolder"
+                           Color="Color.Primary"
+                           Style="height:40px; white-space:nowrap;">
+                    Select Directory
+                </MudButton>
+            </MudStack>
+
+            <MudTable Items="@reports" Hover="true" Class="mb-4" HeaderClass="mud-header" Bordered="true" Striped="true">
+                <HeaderContent>
+                    <MudTh>Id</MudTh>
+                    <MudTh>Title</MudTh>
+                    <MudTh>Description</MudTh>
+                    <MudTh>Function Name</MudTh>
+                    <MudTh>Action</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Id">@context.Id</MudTd>
+                    <MudTd DataLabel="Title">@context.Title</MudTd>
+                    <MudTd DataLabel="Description">@context.Description</MudTd>
+                    <MudTd DataLabel="Function Name">@context.FunctionName</MudTd>
+                    <MudTd DataLabel="Action">
+                        @if (context.Param1Type?.Any() == true)
+                        {
+                            <MudSelect T="string" @bind-Value="selectedParam1[context.Id]" Dense="true" Class="mb-2" Disabled="@isProcessing" Label="Select Road Type" Required="true">
+                                @foreach (var option in context.Param1Type)
+                                {
+                                    <MudSelectItem T="string" Value="@option">@option</MudSelectItem>
+                                }
+                            </MudSelect>
+                        }
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" OnClick="@(() => ExecuteReportAsync(context))" Disabled="@isProcessing">
+                            Run
+                        </MudButton>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudStack>
+                <MudText Color="Color.Primary" Style="font-weight:500;margin:10px">Select Surveys</MudText>
+                <MudTable HorizontalScrollbar="true" RowClass="cursor-pointer" Style="max-height: 200px; overflow: scroll; padding:2px;" Items="surveys" Dense>
+                    <RowTemplate>
+                        <MudTd>
+                            <MudPaper Class="d-flex align-start flex-grow-1 gap-1" Elevation="0">
+                                <MudCheckBox T="bool" Style="margin:3px" Label="@context.SurveyName" Color="Color.Primary" ValueChanged="(e => SurveySelected(e, context))" />
+                            </MudPaper>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudStack>
+        </MudPaper>
+
+        <div style="max-width:1200px; margin:auto; margin-top:24px;">
+            <MudButton Color="Color.Primary"
+                       Variant="Variant.Outlined"
+                       OnClick="OpenPath_Clicked"
+                       Style="width:100%; height:48px;">
+                Go to Saved Files
+            </MudButton>
+        </div>
+    }
+</MudContainer>
+@code {
+    private List<Report> reports;
+    private bool isProcessing = false;
+    private Dictionary<int, string> selectedParam1 = new(); // Report.Id to selected option
+
+    private List<Survey> surveys = new List<Survey>();
+    private List<Survey> selectedSurveys = new List<Survey>();
+    private List<string> selectedSurveyIds = new();
+
+    private string saveFilepath;
+    static private string _configAppPath = AppPaths.DocumentsFolder;
+    static private string _userFiles = "User Export Files";
+    static private string _configPath = $"{_configAppPath}\\{_userFiles}".Replace("\\", "/");
+
+    protected override void OnInitialized()
+    {
+        saveFilepath = _configPath;
+
+        if (!Directory.Exists(saveFilepath))
+        {
+            Directory.CreateDirectory(saveFilepath);
+        }
+
+        reports = ReportEngine.GetReports();
+        // Initialize selection dictionary, optionally set default selected value for reports that have Param1Type
+        foreach (var report in reports)
+        {
+            if (report.Param1Type != null && report.Param1Type.Count > 0)
+            {
+                selectedParam1[report.Id] = report.Param1Type[0];
+            }
+        }
+        surveys = appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty()).Result.ToList();
+    }
+
+    private async Task PickSaveFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+            saveFilepath = folderPath;
+
+            StateHasChanged();
+        }
+
+    }
+
+    private void OpenPath_Clicked()
+    {
+        try
+        {
+            Process.Start("explorer.exe", saveFilepath.Replace("/", "\\"));
+        }
+        catch (Exception ex)
+        {
+            Log.Warning($"Error in opening folder : {ex.Message}");
+        }
+    }
+
+    private void SurveySelected(bool value, Survey survey)
+    {
+        if (value == true)
+        {
+            selectedSurveys.Add(survey);
+        }
+        else
+        {
+            selectedSurveys.Remove(survey);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ExecuteReportAsync(Report report)
+    {
+        if (selectedSurveys.Count == 0)
+        {
+            Snackbar.Add("Please select at least one survey before executing the report.", Severity.Warning);
+            return;
+        }
+
+        isProcessing = true;
+        var parameters = new DialogParameters
+        {
+            { "DialogImage", "/images/download.gif" },  // your loading gif/image
+            { "DialogText", "Processing report, please wait..." }
+        };
+        var options = new DialogOptions
+        {
+            BackdropClick = false,
+            CloseButton = false,
+            MaxWidth = MaxWidth.ExtraSmall
+        };
+        // Show the existing "Charging" dialog component as the processing indicator
+        var dialog = Dialog.Show<Charging>("", parameters, options);
+        try
+        {
+            string paramRoadType = null;
+            selectedParam1.TryGetValue(report.Id, out paramRoadType);
+            // Pass all parameters in one object[] array
+            string basefolderName = "Report Export Data";
+            string exportFolder = Path.Combine(saveFilepath, basefolderName);
+            string folderName = $"{appState.SelectedProject.Name}_Export_{DateTime.Now:yyyyddMM_HHmmss}";
+            exportFolder = Path.Combine(exportFolder, folderName);
+            object[] reportParams = new object[] { paramRoadType, selectedSurveys, exportFolder };
+            // Run the report function (wrap in Task.Run if it is synchronous)
+            string message = await Task.Run(() => ReportEngine.ExecuteReportFunction(report.FunctionName, reportParams));
+            Snackbar.Add(message ?? $"Executed report: {report.Title}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to execute report: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            dialog.Close();
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+}

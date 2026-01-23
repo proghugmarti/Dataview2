@@ -1,0 +1,106 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-DataView2.WS.Processing-32bc9527-1a96-46c4-b89c-4ca326b0cb8a</UserSecretsId>
+	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+
+
+  
+	<ItemGroup>
+		<PackageReference Include="Grpc.Core" Version="2.46.6" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.1" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+		<PackageReference Include="Google.Protobuf" Version="3.29.2" />
+		<PackageReference Include="protobuf-net.Grpc" Version="1.2.2" />
+		<PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
+		<PackageReference Include="Grpc.AspNetCore.Web" Version="2.67.0" />
+		<PackageReference Include="Grpc.Tools" Version="2.68.1">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+
+		<PackageReference Include="Serilog" Version="4.2.0" />
+
+		<PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+		<PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
+		<PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+		<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+		<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+		<PackageReference Include="System.Diagnostics.PerformanceCounter" Version="9.0.2" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+
+		<PackageReference Include="DotSpatial.Data" Version="4.0.656" />
+
+	</ItemGroup>
+
+  
+	<ItemGroup>
+	  <ProjectReference Include="..\..\DataView2.Core\DataView2.Core.csproj" />
+	  <ProjectReference Include="..\..\DataView2.Packages.Lcms\DataView2.Packages.Lcms.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Protobuf Include="Protos\srvcsurveyprocessing.proto" GrpcServices="Server" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Update="LcmsDll\LcmsAnalyserLib.dll">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\EJOINT_V003\EJOINT_V003_LabelMap.pbtxt">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\EJOINT_V003\saved_model.pb">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\EJOINT_V003\variables\variables.data-00000-of-00001">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\EJOINT_V003\variables\variables.index">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\MMO\MMO_V001.onnx.enc">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\MMO\MMO_V001_LabelMap.pbtxt">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\MMO_MRs_V001.pb">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\PatchType1_V001.onnx.enc">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\PatchType2_V001.onnx.enc">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\Patch_FR_V002.pb">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\Patch_V001.onnx.enc">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\Pumping_FR_V001.pb">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="RoadModels\SEALEDCRACK_V001.onnx.enc">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+	  <None Update="Services\SegmentChunkSize.txt">
+	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	  </None>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="LcmsDll\" />
+	  <Folder Include="RoadModels\" />
+	</ItemGroup>
+
+
+</Project>

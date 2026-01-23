@@ -1,0 +1,639 @@
+﻿@page "/ParametersSetting"
+@using CommunityToolkit.Maui.Storage
+@using DataView2.Core.Models;
+@using DataView2.States
+@using Google.Protobuf.WellKnownTypes;
+
+@inject ISettingsService setting
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
+@inject ApplicationState appState;
+
+<MudContainer>
+    <div class="text-center my-5">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-2">Processing Parameters</MudText>
+    </div>
+
+    <MudPaper Class="mx-auto">
+        <MudGrid Class="my-7">
+            <MudItem xs="4" Class="my-3">
+                <div class="mx-5 p-2">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight:bold">LICENSE</MudText>
+                    <MudText Typo="Typo.body2" Class="subtext">Update a License File</MudText>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <MudStack Class="m-2 mx-5 p-5">
+                    <div @onclick="OnPaperClick" style="cursor: pointer;">
+
+                        <MudPaper Height="200px"
+                        Outlined="true"
+                        Class="@paperClass">
+                            @if (file != null)
+                            {
+                                <MudList T="string">
+                                    <MudListItem Icon="@Icons.Material.Filled.AttachFile">
+                                        <div class="d-flex justify-content-between w-100 align-items-center">
+                                            <span>@file.FileName</span>
+                                            <div class="d-flex">
+                                                <MudButton OnClick="@ReplaceLicenseFile"
+                                                Color="Color.Primary"
+                                                Disabled="@(file == null)"
+                                                Variant="Variant.Filled"
+                                                Class="m-2">
+                                                    Update
+                                                </MudButton>
+                                                <MudIconButton OnClick="@Clear"
+                                                Color="Color.Error"
+                                                Icon="@Icons.Material.Filled.Close"
+                                                Class="m-2" />
+                                            </div>
+                                        </div>
+                                    </MudListItem>
+                                </MudList>
+                            }
+                            else
+                            {
+                                <MudTooltip Text="upload a license here">
+                                    <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size="Size.Large" />
+                                    <MudText Typo="Typo.h6" Class="my-2">
+                                        Click here to upload
+                                    </MudText>
+                                    <MudText Typo="Typo.caption" style="color:gray">TEXT FILE ONLY</MudText>
+                                </MudTooltip>
+
+                            }
+                        </MudPaper> 
+                    </div>
+
+                    <div class="d-flex justify-content-center">
+                        <MudTooltip Text="View the currently active license">
+                            <MudButton OnClick="@OpenDialog"
+                            Color="Color.Primary"
+                            Variant="Variant.Filled"
+                            Class="m-2">
+                                View Current License
+                            </MudButton>
+                        </MudTooltip>
+
+                        @* <MudTooltip Text="please upload a license first to update"> *@
+                        @* <MudButton OnClick="@ReplaceLicenseFile" *@
+                        @*            Color="Color.Primary" *@
+                        @*            Disabled="@(file == null)" *@
+                        @*            Variant="Variant.Filled" *@
+                        @*            Class="m-2"> *@
+                        @*     Update *@
+                        @* </MudButton> *@
+                        @* </MudTooltip> *@
+
+                        @*<MudButton OnClick="@Clear"
+                                   Color="Color.Error"
+                                   Disabled="@(file == null)"
+                                   Variant="Variant.Filled"
+                                   Class="m-2">
+                            Clear
+                        </MudButton>*@
+                        <MudTooltip Text="Downloads the latest license from the website">
+                            <MudButton OnClick="@DownloadAndUpdateLicenseFile"
+                            Color="Color.Primary"
+                            Variant="Variant.Filled"
+                            Class="m-2">
+                                Download from website
+                            </MudButton>
+                        </MudTooltip>
+                    </div>
+                </MudStack>
+            </MudItem>
+
+            <MudItem xs="12" Class="my-2">
+                <MudDivider Class="custom-divider" />
+            </MudItem>
+
+            <MudItem xs="4" Class="my-3">
+                <div class="ml-5 p-2">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight:bold">ANALYSER CONFIG FILE PATH</MudText>
+                    <MudText Typo="Typo.body2" Class="subtext">Set the location of config files for the survey processing.</MudText>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <div class="d-flex align-items-center m-4 mx-auto" style="width:50vw;">
+                    <MudTextField T="string" Value="folderPath" ValueChanged="UpdateFolderPath" Variant="Variant.Outlined" ReadOnly="true" Label="File Location" Style="height: 50px; margin-right: 0;" />
+                    <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Medium" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" OnClick="@OpenFolder" />
+                </div>
+            </MudItem>
+
+            <MudItem xs="12" Class="my-2">
+                <MudDivider Class="custom-divider" />
+            </MudItem>
+
+            <MudItem xs="4" Class="my-3">
+                <div class="mx-5 p-2">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight:bold">GPS ANTENNA OFFSET</MudText>
+                    <MudText Typo="Typo.body2" Class="subtext">Enter the offset values based on the antenna placement in your vehicle.</MudText>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <MudStack Class="m-2 mx-5 p-5">
+                    <MudNumericField T="double?" HideSpinButtons="true" Variant="Variant.Filled" Label="Enter horizontal offset (mm)" Value="horizontalOffset" ValueChanged="UpdateHorizontalOffset" />
+                    <MudNumericField T="double?" HideSpinButtons="true" Variant="Variant.Filled" Label="Enter vertical offset (mm)" Value="verticalOffset" ValueChanged="UpdateVerticalOffset" />
+                </MudStack>
+            </MudItem>
+
+            <MudItem xs="12" Class="my-2">
+                <MudDivider Class="custom-divider" />
+            </MudItem>
+
+            <MudItem xs="4" Class="my-3">
+                <div class="mx-5 p-2">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight:bold">Batch Size (FIS)</MudText>
+                    <MudText Typo="Typo.body2" Class="subtext">Defines how many FIS files are grouped together for each processing unit.</MudText>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <MudNumericField T="int" Variant="Variant.Outlined" Value="batchSize" ValueChanged="UpdateBatchSize"></MudNumericField>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+    <MudItem xs="12">
+        <div class="d-flex justify-content-center align-items-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="my-6" OnClick="SetGeneralSetting">Save</MudButton>
+        </div>
+    </MudItem>
+</MudContainer>
+
+<MudDialog @bind-Visible="visible" Options="dialogOptions" Class="custom-dialog">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            Current License
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudItem xs="12">
+            <MudPaper Class="p-3">
+                <textarea class="form-control" rows="18" style="width:100%; font-size:14px;" readonly>@currentLicenseContent</textarea>
+            </MudPaper>
+        </MudItem>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close" Class="m-2">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<NavigationLock OnBeforeInternalNavigation="HandleNavigation">
+</NavigationLock>
+@code {
+    [Inject] private IDialogService Dialog { get; set; }
+    double? horizontalOffset;
+    double? verticalOffset;
+    private FileResult file;
+    private string commonStyles = "relative rounded-lg border-2 border-dashed pa-4 mt-4 z-10";
+    private string additionalStyles => file == null ? "d-flex flex-column justify-content-center align-content-center align-items-center" : "";
+
+    private string paperClass => $"{commonStyles} {additionalStyles}";
+    private string currentLicenseContent;
+    private bool visible;
+    private string folderPath;
+    private string folderPathSurveyBoundaries;
+    private int batchSize;
+
+    private bool hasUnsavedChanges = false;
+    private string initialFolderPath;
+    private double? initialHorizontalOffset;
+    private double? initialVerticalOffset;
+    private int initialBatchSize;
+
+    protected override void OnInitialized()
+    {
+        GetFolderPath();
+        GetMapSetting();
+    }
+    private void OpenDialog()
+    {
+        LoadCurrentLicenseContent();
+        visible = true;
+    }
+    void Close() => visible = false;
+    private DialogOptions dialogOptions = new() { FullWidth = true, CloseButton = true };
+
+    private async Task OnPaperClick()
+    {
+        var customFileType = new FilePickerFileType(
+              new Dictionary<DevicePlatform, IEnumerable<string>>
+                      {
+                       { DevicePlatform.iOS, new[] { "public.text" } }, // UTType values
+                       { DevicePlatform.Android, new[] { "text/plain" } }, // MIME type
+                       { DevicePlatform.WinUI, new[] { ".txt" } }, // file extension
+                       { DevicePlatform.macOS, new[] { "txt" } },
+                      });
+
+        var result = await FilePicker.PickAsync(new PickOptions
+        {
+            PickerTitle = "Please select a text file",
+            FileTypes = customFileType,
+        });
+
+        if (result != null)
+        {
+            file = result;
+        }
+    }
+
+    private async void LoadCurrentLicenseContent()
+    {
+        try
+        {
+            var response = await setting.GetLicense(new Empty());
+            if (response != null)
+            {
+                currentLicenseContent = response.content;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Write(ex.Message);
+        }
+    }
+
+    private async void ReplaceLicenseFile()
+    {
+        if (file != null)
+        {
+            using var stream = await file.OpenReadAsync();
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            var buffer = memoryStream.ToArray();
+            var licenseContent = System.Text.Encoding.Default.GetString(buffer);
+
+            var response = await setting.UpdateLicense(new LicenseSetting { content = licenseContent});
+            if(response!= null)
+            {
+                if(response.Id == 1)
+                {
+                    Snackbar.Add(response.Message, Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add(response.Message, Severity.Error);
+                }
+            }
+            await Clear();
+        }
+    }
+
+    private async void DownloadAndUpdateLicenseFile()
+    {
+        var fileUrl = "https://romdas.com/support/download/LCMS/License.txt";
+        var client = new HttpClient();
+
+        HttpResponseMessage response = await client.GetAsync(fileUrl);
+        if (response.IsSuccessStatusCode)
+        {
+            var fileStream = await response.Content.ReadAsStreamAsync();
+            using var memoryStream = new MemoryStream();
+            await fileStream.CopyToAsync(memoryStream);
+            var buffer = memoryStream.ToArray();
+            var licenseContent = System.Text.Encoding.Default.GetString(buffer);
+
+            var responseUpdate = await setting.UpdateLicense(new LicenseSetting { content = licenseContent });
+
+            if (responseUpdate != null)
+            {
+                if (responseUpdate.Id == 1)
+                {
+                    Snackbar.Add(responseUpdate.Message, Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add(responseUpdate.Message, Severity.Error);
+                }
+            }
+            await Clear();
+        }
+        else
+        {
+            Snackbar.Add("Failed to download new license file", Severity.Error);
+        }
+    }
+
+    private async Task Clear()
+    {
+        file = null;
+        StateHasChanged();
+        await Task.Delay(100);
+    }
+
+    private async Task OpenFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            folderPath = folder.Folder.Path;
+            var cfgFiles = Directory.GetFiles(folderPath, "*.cfg");
+            if (cfgFiles.Length == 0)
+            {
+                bool? result = await DialogService.ShowMessageBox("Warning", "No cfg files were found in the directory. Are you sure you want to use this folder?", 
+                yesText: "Yes", noText: "No");
+                if(result == false)
+                {
+                    folderPath = "Select a folder";
+                }
+            }
+        }
+    }
+
+    private async Task OpenFolderSurveyBoundaries()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            folderPathSurveyBoundaries = folder.Folder.Path;
+        }
+    }
+
+    private async void GetFolderPath()
+    {
+        var response = await setting.GetByName(new SettingName { name = "Cfg Folder Path" });
+        GeneralSetting generalSetting = response.FirstOrDefault();
+        if (generalSetting != null)
+        {
+            folderPath = generalSetting.Value;
+            initialFolderPath = folderPath;
+        }
+        else
+        {
+            folderPath = "Select a folder";
+        }
+        StateHasChanged();
+    }
+
+
+    private async void GetMapSetting()
+    {
+        var horizontalOffsetResponse = await setting.GetByName(new SettingName { name = "Horizontal Offset" });
+        var verticalOffsetResponse = await setting.GetByName(new SettingName { name = "Vertical Offset" });
+        var batchSizeResponse = await setting.GetByName(new SettingName { name = "Batch Size" });
+
+        if (horizontalOffsetResponse != null && horizontalOffsetResponse.Count > 0)
+        {
+            horizontalOffset = Convert.ToDouble(horizontalOffsetResponse.FirstOrDefault().Value);
+        }
+        else
+        {
+            //default value 0
+            horizontalOffset = 0.0;
+        }
+
+        if (verticalOffsetResponse != null && verticalOffsetResponse.Count > 0)
+        {
+            verticalOffset = Convert.ToDouble(verticalOffsetResponse.FirstOrDefault().Value);
+        }
+        else
+        {
+            //default value 0
+            verticalOffset = 0.0;
+        }
+
+        if (batchSizeResponse != null && batchSizeResponse.Count > 0)
+        {
+            batchSize = Convert.ToInt32(batchSizeResponse.FirstOrDefault().Value);
+        }
+        else
+        {
+            //default value 100
+            batchSize = 100;
+        }
+
+        initialHorizontalOffset = horizontalOffset;
+        initialVerticalOffset = verticalOffset;
+
+        StateHasChanged();
+    }
+
+    private async void SetGeneralSetting()
+    {
+        List<string> success = new List<string>();
+
+        try
+        {
+            //CFG FOLDER PATH
+            if (Path.IsPathRooted(folderPath) && Directory.Exists(Path.GetDirectoryName(folderPath)))
+            {
+                var response = await setting.GetByName(new SettingName { name = "Cfg Folder Path" });
+                if (response != null && response.Count > 0)
+                {
+                    GeneralSetting generalSetting = response.FirstOrDefault();
+                    if (generalSetting != null)
+                    {
+                        generalSetting.Value = folderPath;
+                        var editResponse = await setting.EditValue(generalSetting);
+                        if (editResponse != null)
+                        {
+                            success.Add("cfg");
+                        }
+                        else
+                        {
+                            Snackbar.Add("Failed to save configuration files path. Please try again.", Severity.Error);
+                        }
+                    }
+                }
+                else
+                {
+                    GeneralSetting newGeneralSetting = new GeneralSetting
+                        {
+                            Name = "Cfg Folder Path",
+                            Description = "Folder Path where configuration files are stored for survey set.",
+                            Type = SettingType.String,
+                            Value = folderPath,
+                            Category = "Path"
+                        };
+
+                    var saveResponse = await setting.Create(newGeneralSetting);
+                    if (saveResponse != null)
+                    {
+                        success.Add("cfg");
+                    }
+                    else
+                    {
+                        Snackbar.Add("Failed to save configuration files path. Please try again.", Severity.Error);
+                    }
+                }
+
+            }
+            else
+            {
+                Snackbar.Add("Invalid folder path. Please provide a valid folder path.", Severity.Error);
+            }
+
+
+            //OFFSET
+            var horizontalOffsetResponse = await setting.GetByName(new SettingName { name = "Horizontal Offset" });
+            var verticalOffsetResponse = await setting.GetByName(new SettingName { name = "Vertical Offset" });
+
+            if (horizontalOffsetResponse.Count > 0 && verticalOffsetResponse.Count > 0)
+            {
+                var firstHorizontalOffset = horizontalOffsetResponse.FirstOrDefault();
+                var firstVerticalOffset = verticalOffsetResponse.FirstOrDefault();
+                firstHorizontalOffset.Value = horizontalOffset.ToString();
+                firstVerticalOffset.Value = verticalOffset.ToString();
+                var editHorizontalOffsetResponse = await setting.EditValue(firstHorizontalOffset);
+                var editVerticalOffsetResponse = await setting.EditValue(firstVerticalOffset);
+
+                if (editHorizontalOffsetResponse != null && editVerticalOffsetResponse != null)
+                {
+                    success.Add("offset");
+                }
+                else
+                {
+                    Snackbar.Add("Failed to save offset values. Please try again.", Severity.Error);
+                }
+            }
+            else
+            {
+                if (horizontalOffset.HasValue && verticalOffset.HasValue)
+                {
+                    GeneralSetting newHorizontalOffset = new GeneralSetting
+                        {
+                            Name = "Horizontal Offset",
+                            Description = "Horizontal Offset values in Millimeters",
+                            Type = SettingType.Float,
+                            Value = horizontalOffset.ToString(),
+                            Category = "Map Display"
+                        };
+
+                    GeneralSetting newVerticalOffset = new GeneralSetting
+                        {
+                            Name = "Vertical Offset",
+                            Description = "Vertical Offset values in Millimeters",
+                            Type = SettingType.Float,
+                            Value = verticalOffset.ToString(),
+                            Category = "Map Display"
+                        };
+
+                    var hResponse = await setting.Create(newHorizontalOffset);
+                    var vResponse = await setting.Create(newVerticalOffset);
+
+                    if (hResponse != null && vResponse != null)
+                    {
+                        success.Add("offset");
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("Offset Values can not be empty.", Severity.Error);
+                }
+            }
+
+            //BATCHSIZE
+            var batchSizeResponse = await setting.GetByName(new SettingName { name = "Batch Size" });
+            if (batchSizeResponse != null && batchSizeResponse.Count > 0)
+            {
+                var firstResponse = batchSizeResponse.FirstOrDefault();
+                firstResponse.Value = batchSize.ToString();
+                var editResponse = await setting.EditValue(firstResponse);
+                if (editResponse != null && editResponse.Id != -1)
+                {
+                    success.Add("batchsize");
+                }
+            }
+            else
+            {
+                GeneralSetting newBatchSize = new GeneralSetting
+                {
+                    Name = "Batch Size",
+                    Description = "Batch Size in fis file processing",
+                    Type = SettingType.Float,
+                    Value = batchSize.ToString(),
+                    Category = "Fis Process"
+                };
+                var response = await setting.Create(newBatchSize);
+                if (response != null && response.Id != -1)
+                {
+                    success.Add("batchsize");
+                }
+            }
+        }
+        catch(Exception ex)
+        {
+            Snackbar.Add("Unexpected error has occured: " + ex.Message, Severity.Error);
+        }
+        finally
+        {
+            if (success.Count == 3)
+            {
+                hasUnsavedChanges = false;
+                Snackbar.Add("All settings successfully saved.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Unexpected error has occured. Please Try again.", Severity.Error);
+            }
+        }
+    }
+
+    private void UpdateFolderPath(string newValue)
+    {
+        folderPath = newValue;
+        CheckForUnsavedChanges();
+    }
+
+    private void UpdateHorizontalOffset(double? newValue)
+    {
+        horizontalOffset = newValue;
+        CheckForUnsavedChanges();
+    }
+
+    private void UpdateVerticalOffset(double? newValue)
+    {
+        verticalOffset = newValue;
+        CheckForUnsavedChanges();
+    }
+
+    private void UpdateBatchSize(int newValue)
+    {
+        batchSize = newValue;
+        CheckForUnsavedChanges();
+    }
+
+    private void CheckForUnsavedChanges()
+    {
+        hasUnsavedChanges = folderPath != initialFolderPath ||
+                            horizontalOffset != initialHorizontalOffset ||
+                            verticalOffset != initialVerticalOffset;
+    }
+
+    private async Task HandleNavigation(LocationChangingContext context)
+    {
+        if (hasUnsavedChanges)
+        {
+            bool confirm = await ShowUnsavedChangesConfirmation();
+            if (confirm)
+            {
+                SetGeneralSetting(); //save changes
+            }
+
+            hasUnsavedChanges = false;
+            appState.SetMenuPage("/ParametersSetting");
+            context.PreventNavigation();
+        }
+    }
+
+    private async Task<bool> ShowUnsavedChangesConfirmation()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "Unsaved Changes",
+            "You have unsaved changes. Do you want to save these changes before leaving the page?",
+            yesText: "Yes", noText: "No");
+
+        return result ?? false; 
+    }
+}

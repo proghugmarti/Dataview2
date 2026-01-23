@@ -1,0 +1,1091 @@
+﻿@using System.Text.RegularExpressions
+@using DataView2.Core.Helper;
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Core.Models.Other
+@using DataView2.Engines;
+@using DataView2.MapHelpers
+@using DataView2.States;
+@using DataView2.XAML;
+@using Esri.ArcGISRuntime.Geometry
+@using Google.Protobuf.WellKnownTypes;
+@using Newtonsoft.Json
+@using Newtonsoft.Json.Linq
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject ApplicationEngine appEngine;
+@inject ApplicationState appState;
+@inject ISnackbar Snackbar
+@inject IJSRuntime js
+
+<MudProviders />
+
+<MudIconButton Icon="@Icons.Material.Filled.ArrowDropDown" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Medium" Class="ms-1 mt-1 p-1" OnClick="HideMenu" />
+@if (attributesSegment != null && attributesSegment.Count > 0)
+{
+    <MudIconButton Icon="@Icons.Material.Filled.Refresh" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Medium" Class="ms-1 mt-1 p-1" OnClick="RefreshSegmentSummary"/>
+}
+<MudGrid Style="max-width: 100%; max-height:100%;">
+    @* Segment Summary *@
+    @if (attributesSegment != null && attributesSegment.Count > 0)
+    {
+        <MudItem xs="6">
+            <MudText Typo="Typo.subtitle1" Align="Align.Center" Class="mb-4 mb-md-6" Style="font-weight:bold">Segment Summary</MudText>
+            <MudSimpleTable Dense="true" Striped="true" Bordered="true" Class="m-2">
+                <tbody>
+                    @foreach (var attr in attributesSegment)
+                    {
+                        if (ShouldSkipKey(attr.Key))
+                            continue;
+
+                        var attributeName = FormatSegmentName(attr.Key);
+                        var attributeValue = FormatValue(attr.Key, attr.Value);
+
+                        if (attr.Key == "PickoutAvgPer_m2")
+                            attributeName += " mm²"; // Measured in mm2
+
+                        <tr>
+                            <td style="width: 65%; word-break: break-word;">@attributeName</td>
+                            <td style="width: 35%; word-break: break-word;">@attributeValue</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudItem>
+    }
+    @* Sample Unit Summary *@
+    else if (attributesSampleUnit != null && attributesSampleUnit.Count > 0)
+    {
+        <MudItem xs="6">
+            <MudText Typo="Typo.subtitle1" Align="Align.Center" Class="mb-4 mb-md-6" Style="font-weight:bold">Sample Unit Summary</MudText>
+            <MudSimpleTable Dense="true" Striped="true" Bordered="true" Class="m-2">
+                <tbody>
+                    @foreach (var attr in attributesSampleUnit)
+                    {
+                        var attributeName = FormatSegmentName(attr.Key);
+
+                        <tr>
+                            <td style="width: 65%; word-break: break-word;">@attributeName</td>
+                            <td style="width: 35%; word-break: break-word;">@attr.Value</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudItem>
+    }
+    @* Defect Clicked *@
+    @if (!string.IsNullOrEmpty(tableName))
+    {
+        <MudItem xs="6">
+            <MudText Typo="Typo.subtitle1" Align="Align.Center" Class="mb-2 mb-md-6" Style="font-weight:bold">@tableName</MudText>
+            @if (tableName == "Corner Break")
+            {
+                <MudCarousel TData="object" ShowBullets="false" AutoCycle="false" Style="height:500px">
+                    @foreach (var dictionary in attributeList)
+                    {
+                        <MudCarouselItem>
+                            <MudSimpleTable Dense="true" Striped="true" Bordered="true" Class="m-2">
+                                <tbody id="LCMS_Corner_Break">
+                                    <tr>
+                                        <td colspan="2">
+                                            <div style="display: flex; justify-content: flex-end; align-items: center; height: 100%; padding-right: 20px;">
+                                                <button onclick="save()" style="border: 1px solid rgba(0, 0, 0, 0.2); background-color: #f5f5f5; border-radius: 5px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); padding: 4px 8px; display: flex; align-items: center;">
+                                                    <MudIcon Icon="@Icons.Material.Filled.Save" Color="Color.Primary" Size="Size.Small"></MudIcon>
+                                                </button>
+                                            </div>
+                                        </td>
+
+                                    </tr>
+                                    @foreach (var dict in dictionary)
+                                    {
+                                        bool isEditable = editableColumns.Contains(dict.Key);
+                                        var idCorner = dictionary.FirstOrDefault(idC => idC.Key == "Id").Value;
+                                        if (dict.Key == "Id") continue;
+                                        <tr>
+                                            <td>
+                                                @dict.Key
+                                            </td>
+
+
+                                            @if (isEditable)
+                                            {
+                                                <td id="@dict.Key" data-value="@dict.Value" data-idtable="@idCorner" contenteditable="true" style="color:#000000;">@dict.Value</td>
+
+                                            }
+                                            else
+                                            {
+                                                <td style="color:#999999;">@dict.Value</td>
+                                            }
+
+                                        </tr>
+                                    }
+
+
+                                </tbody>
+                            </MudSimpleTable>
+
+                        </MudCarouselItem>
+                    }
+
+                </MudCarousel>
+            }
+            else if (nonChangableAttributes.Any())
+            {
+                <MudSimpleTable Dense="true" Striped="true" Bordered="true" Class="m-2">
+                    <tbody>
+                        @foreach (var attr in nonChangableAttributes)
+                        {
+                            var attributeName = FormatSegmentName(attr.Key);
+                            var attributeValue = FormatValue(attr.Key, attr.Value);
+                            <tr>
+                                <td>@attributeName</td>
+                                <td>@attributeValue</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Striped="true" Bordered="true" Class="m-2">
+                    <tbody>
+                        @foreach (var dict in attributes)
+                        {
+                            var attributeName = FormatSegmentName(dict.Key);
+                            var attributeValue = FormatValue(dict.Key, dict.Value);
+                            var measurementUnit = "";
+                            var idValue = dict.Value;
+                            if (dict.Key == "Id") continue;
+                            <tr>
+                                <td style="width: 50%; word-break: break-word;">
+                                    @attributeName
+                                </td>
+
+                                @if (!dict.Key.ToLower().EndsWith("id") && !dict.Key.ToLower().Contains("type") && !dict.Key.ToLower().Contains("date"))
+                                {
+                                    <td style="width: 40%; word-break: break-word;">
+                                        @if (dict.Key.Contains("Severity"))
+                                        {
+                                            <MudSelect T="string" Label="Severity" Variant="Variant.Outlined" Value="@(dict.Value?.ToString() ?? string.Empty)" ValueChanged="@(v => UpdateCellValue(attributes, dict.Key, v))" Style="font-size: 14px;">
+                                                @if (tableName == LayerNames.SegmentGrid)
+                                                {
+                                                    <MudSelectItem Value="@("None")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Very Low")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Low")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Medium")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("High")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Very High")" Style="font-size: 14px;"></MudSelectItem>
+                                                }
+                                                else
+                                                {
+                                                    @if (tableName == LayerNames.Potholes)
+                                                    {
+                                                        <MudSelectItem Value="@("Delamination")"></MudSelectItem>
+                                                    }
+                                                    @if (tableName == LayerNames.Cracking || tableName == LayerNames.CrackSummary)
+                                                    {
+                                                        <MudSelectItem Value="@("Very Low")" Style="font-size: 14px;"></MudSelectItem>
+                                                    }
+                                                    @if (tableName == LayerNames.Bleeding)
+                                                    {
+                                                        <MudSelectItem Value="@("No Bleeding")"></MudSelectItem>
+                                                    }
+                                                    <MudSelectItem Value="@("Low")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Medium")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("High")" Style="font-size: 14px;"></MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else if (dict.Key.Contains("MTQ"))
+                                        {
+                                            <MudSelect T="string" Label="Severity" Variant="Variant.Outlined" Value="@(dict.Value?.ToString() ?? string.Empty)" ValueChanged="@(v => UpdateCellValue(attributes, dict.Key, v))" Style="font-size: 14px;">
+                                                @if (tableName == LayerNames.Cracking || tableName == LayerNames.CrackSummary)
+                                                {
+                                                    <MudSelectItem Value="@("Multiple")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Alligator")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Longitudinal")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Transversal")" Style="font-size: 14px;"></MudSelectItem>
+                                                    <MudSelectItem Value="@("Unknown")" Style="font-size: 14px;"></MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else
+                                        {
+                                            var rawString = dict.Value?.ToString() ?? "";
+                                            var isDouble = double.TryParse(rawString, out var doubleValue);
+                                            var isInt = int.TryParse(rawString, out var intValue);
+
+
+                                            @if (isDouble)
+                                            {
+                                                <MudInput T="double" 
+                                                Label="@attributeName" 
+                                                Value="@(Math.Round(doubleValue, 2))"
+                                                ValueChanged="@(v => UpdateCellValue(attributes, dict.Key, v))"
+                                                Immediate="true"
+                                                Style="width: 70%; font-size: 14px;" />
+                                            }
+                                            else if (isInt)
+                                            {
+                                                <MudInput T="int" 
+                                                Label="@attributeName" 
+                                                Value="@intValue"
+                                                ValueChanged="@(v => UpdateCellValue(attributes, dict.Key, v))" 
+                                                Immediate="true"
+                                                Style="width: 70%; font-size: 14px;" />
+                                            }
+                                            else
+                                            {
+                                                <MudInput T="string" 
+                                                Label="@attributeName" 
+                                                Value="@rawString"
+                                                ValueChanged="@(v => UpdateCellValue(attributes, dict.Key, v))" 
+                                                Immediate="true"
+                                                Style="width: 70%; font-size: 14px;" />
+                                            }
+                                        }
+
+                                        @if (dict.Key.Contains("_mm2"))
+                                        {
+                                            measurementUnit = "mm²";
+                                        }
+                                        else if (dict.Key.Contains("_mm") || dict.Key.Contains("RutWidth"))
+                                        {
+                                            measurementUnit = "mm";
+                                        }
+                                        else if(dict.Key.Contains("_m2"))
+                                        {
+                                            measurementUnit = "m²";
+                                        }
+                                        else if(dict.Key.Contains("_m"))
+                                        {
+                                            measurementUnit = "m";
+                                        }
+                                        <span style="color: gray; font-size: 14px; width: 30%">@measurementUnit</span>
+
+                                    </td>
+
+                                    <td style="width: 10%; text-align: center;">
+                                        <MudIconButton Icon="@Icons.Material.Outlined.Save"
+                                        OnClick="() => SaveData(attributes, dict.Key)"
+                                        Size="Size.Small"
+                                        Color="Color.Primary" />
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td style ="color:#999999; width: 40%; word-break: break-word;" >@attributeValue</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudItem>
+    }
+</MudGrid>
+
+
+<div id="snackbar">message..</div>
+<script>
+
+    function save() {
+    var tbodys = document.querySelectorAll('tbody[id="LCMS_Corner_Break"]');
+    if (!tbodys.length) {
+    console.error("No se encontraron tbodys con id LCMS_Corner_Break.");
+    return;
+    }
+
+    var records = [];
+
+    tbodys.forEach(function (tbody) {
+    var cells = tbody.querySelectorAll("td[contenteditable=true]");
+
+    var tableColumns = {};
+
+    cells.forEach(function (cell) {
+    var keyValue = cell.id;
+    var value = cell.innerText;
+    tableColumns[keyValue] = value;
+    });
+
+    var idTable = cells[0].getAttribute('data-idtable');
+    records.push({ fieldsToUpdate: tableColumns, idTable: idTable });
+    // console.log("Enviando:", tableColumns, "LCMS_Corner_Break", idTable);
+    });
+
+    var table = "LCMS_Corner_Break";
+    console.log("Enviando registros:", table, records);
+    setDataBaseUpdate(table, records);
+    }
+
+    function setDataBaseUpdate(table, records) {
+    DotNet.invokeMethodAsync('DataView2', 'SaveRecords', table, records)
+    .then(data => {
+    msg('' + data + '.');
+    console.log('Browser: Sever Response: ' + data + '.');
+    });
+    }
+
+
+    function msg(message) {
+    var x = document.getElementById("snackbar");
+    snackbar.innerHTML = message;
+    x.className = "show";
+    setTimeout(function () { x.className = x.className.replace("show", ""); }, 3000);
+    }
+</script>
+
+@code {
+    [Inject] private IDialogService DialogService { get; set; }
+    private string segmentId { get; set; }
+    private string surveyId { get; set; }
+    private string fileName { get; set; }
+    List<Dictionary<string, object>> attributeList = new List<Dictionary<string, object>>();
+    private Dictionary<string, object> attributes = new Dictionary<string, object>();
+    private Dictionary<string, object> attributesSegment = new Dictionary<string, object>();
+    private Dictionary<string, object> nonChangableAttributes = new Dictionary<string, object>();
+    private Dictionary<string, object> attributesSampleUnit = new Dictionary<string, object>();
+
+    //private Dictionary<string, Dictionary<string, object>> summariesAttributes = new Dictionary<string, Dictionary<string, object>>();
+    private IEnumerable<string> selectedSummaryKeys = new HashSet<string>();
+
+    private string tableName;
+    private string selectableColumns = "";
+    private string editableColumns = "";
+    private string selectedIndex = "";
+    private bool showCount = false;
+    private string sINSGeometryLayer = "INS Geometry";
+
+    private static ApplicationEngine _app;
+
+    protected override async Task OnInitializedAsync()
+    {
+        appState.OnSegmentClicked += DisplaySegmentSummary;
+        appState.OnDefectGraphicClicked += FindDefectAttributes;
+        appState.OnGraphicOutSideSegmentClicked += HideTable;
+        appState.OnSampleUnitClicked += DisplaySampleUnitsummary;
+        _app = appEngine;
+    }
+
+    [JSInvokable]
+    public static async Task<string> SaveRecords(string table, List<Record> records)
+    {
+        string result = "";
+        try
+        {
+            foreach (var record in records)
+            {
+                LCMS_Corner_Break_Columns obj = new LCMS_Corner_Break_Columns { Key = record.IdTable, FieldsToUpdate = record.FieldsToUpdate };
+                await _app.CornerBreakService.UpdateQueryAsync(obj);
+            }
+            result = "Information saved.";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+            result = "Information was not saved.";
+        }
+        return result;
+    }
+    public class Record
+    {
+        public Dictionary<string, string> FieldsToUpdate { get; set; }
+        public string IdTable { get; set; }
+    }
+    private async Task UpdateQueryAsync(LCMS_Corner_Break_Columns obj)
+    {
+        try
+        {
+            var result = await _app.CornerBreakService.UpdateQueryAsync(obj);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private async void DisplaySampleUnitsummary(int ratingId, int sampleUnitId)
+    {
+        try
+        {
+            attributesSampleUnit.Clear();
+            var response = await appEngine.PCIRatingService.GetById(new IdRequest { Id = ratingId });
+            if (response != null)
+            {
+                var pciDefects = response.PCIDefects.Where(x => x.SampleUnitId == sampleUnitId).ToList();
+                //Add attributes of the pci defects 
+                foreach(var pciDefect in pciDefects)
+                {
+                    var defectName = pciDefect.DefectName;
+                    var qty = pciDefect.Qty;
+                    var severity = pciDefect.Severity;
+
+                    var pciDefectString = $"{defectName} - {severity}";
+                    attributesSampleUnit.Add(pciDefectString, qty);
+                }
+            }
+            attributesSegment.Clear();
+            nonChangableAttributes.Clear();
+            attributes.Clear();
+            StateHasChanged();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Error Occured: " + e.Message);
+        }
+    }
+
+    private async void DisplaySegmentSummary(string imagePath, string surveyId, string segmentId)
+    {
+        try
+        {
+            attributes.Clear();
+            attributesSampleUnit.Clear();
+            this.fileName = Path.GetFileName(imagePath) + ".jpg";
+            this.segmentId = segmentId;
+            this.surveyId = surveyId;
+            //attributesSegment.Clear(); - please don't clear it because this will cause summary panel to be closed.
+            LoadSegmentSummary();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Error Occured: " + e.Message);
+        }
+    }
+
+    private async void LoadSegmentSummary()
+    {
+        var segmentQuery = $"SELECT * FROM LCMS_Segment WHERE SurveyId = '{surveyId}' AND SegmentId = '{segmentId}'";
+        var segment = await appEngine.SegmentService.QueryAsync(segmentQuery);
+
+        if (segment.Count() == 1)
+        {
+            LCMS_Segment lCMS_Segment = segment.FirstOrDefault();
+            string jsonSegment = JsonConvert.SerializeObject(lCMS_Segment);
+            attributesSegment = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonSegment);
+
+            ShowSurveyNameAsId();
+        }
+        StateHasChanged();
+    }
+
+    // private async void CallRefreshSummary(HashSet<(string segmentId, string surveyId)> segmentPairs)
+    // {
+    //     var requestList = new List<SurveyAndSegmentRequest>();
+    //     foreach (var segmentPair in segmentPairs)
+    //     {
+    //         var request = new SurveyAndSegmentRequest
+    //             {
+    //                 SurveyId = surveyId,
+    //                 SegmentId = Convert.ToInt32(segmentId)
+    //             };
+    //         requestList.Add(request);
+    //     }
+
+    //     var segments = await appEngine.SegmentService.CalculateSegmentSummary(requestList);
+    //     if (segments != null && segments.Count > 0)
+    //     {
+    //         //set segment values in attributesSegment
+    //         string jsonSegment = JsonConvert.SerializeObject(segments.First());
+    //         attributesSegment = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonSegment);
+    //         ShowSurveyNameAsId();
+    //     }
+    //     StateHasChanged();
+
+    //     //PLEASE DON'T CLOSE QC MENU AFTER DELETING DEFECTS!!!!!!!!!!!!!!!!!!!!!!!!
+    //     //HideQCMenu();
+    // }
+
+    private void ShowSurveyNameAsId()
+    {
+        //added survey name instead of id
+        var survey = appState.ExistingSurveys.FirstOrDefault(x => x.SurveyIdExternal == surveyId);
+        if (survey != null)
+        {
+            attributesSegment["SurveyId"] = survey.SurveyName + " (" + surveyId + ")";
+        }
+        else
+        {
+            attributesSegment["SurveyId"] = surveyId;
+        }
+    }
+    private async void RefreshSegmentSummary()
+    {
+        try
+        {
+            // SegmentSumeriesHelper segmentSumeriesHelper = new SegmentSumeriesHelper();
+            // var segmentQuery = $"SELECT * FROM LCMS_Segment WHERE SurveyId = '{surveyId}' AND SegmentId = {segmentId}";
+            // var segment = await appEngine.SegmentService.QueryAsync(segmentQuery);
+            // if (segment.Count() == 1)
+            // {
+            //     LCMS_Segment lCMS_Segment = segment.FirstOrDefault();
+            //     var crackResponse = await appEngine.CrackingRawService.QueryAsync(GenerateQuery("LCMS_Cracking_Raw", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateCracks(crackResponse.ToList(), lCMS_Segment);
+
+            //     //calculating form segmentGrid
+            //     var crackclassificationResponse = await appEngine.SegmentGridService.QueryAsync(GenerateQuery("LCMS_Segment_Grid", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateSegmentGrids(crackclassificationResponse.ToList(), lCMS_Segment);
+
+            //     var pickoutResponse = await appEngine.PickOutRawService.QueryAsync(GenerateQuery("LCMS_PickOuts_Raw", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculatePickouts(pickoutResponse.ToList(), lCMS_Segment);
+
+            //     var ravellingResponse = await appEngine.RavellingService.QueryAsync(GenerateQuery("LCMS_Ravelling_Raw", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateRavelling(ravellingResponse.ToList(), lCMS_Segment);
+
+            //     var patchResponse = await appEngine.PatchService.QueryAsync(GenerateQuery("LCMS_Patch_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculatePatch(patchResponse.ToList(), lCMS_Segment);
+
+            //     var potholeResponse = await appEngine.PotholesService.QueryAsync(GenerateQuery("LCMS_Potholes_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculatePotholes(potholeResponse.ToList(), lCMS_Segment);
+
+            //     var bleedingResponse = await appEngine.BleedingService.QueryAsync(GenerateQuery("LCMS_Bleeding", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateBleeding(bleedingResponse.ToList(), lCMS_Segment);
+
+            //     var mmoResponse = await appEngine.MMOService.QueryAsync(GenerateQuery("LCMS_MMO_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateMMO(mmoResponse.ToList(), lCMS_Segment);
+
+            //     var pumpingResponse = await appEngine.PumpingService.QueryAsync(GenerateQuery("LCMS_Pumping_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculatePumping(pumpingResponse.ToList(), lCMS_Segment);
+
+            //     var roughnessResponse = await appEngine.RoughnessService.QueryAsync(GenerateQuery("LCMS_Rough_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateRoughness(roughnessResponse.ToList(), lCMS_Segment);
+
+            //     var rutResponse = await appEngine.RutProcessedService.QueryAsync(GenerateQuery("LCMS_Rut_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateRutting(rutResponse.ToList(), lCMS_Segment);
+
+            //     var sealedCrackResponse = await appEngine.SealedCrackService.QueryAsync(GenerateQuery("LCMS_Sealed_Cracks", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateSealedCracks(sealedCrackResponse.ToList(), lCMS_Segment);
+
+            //     var shoveResponse = await appEngine.ShoveService.QueryAsync(GenerateQuery("LCMS_Shove_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateShove(shoveResponse.ToList(), lCMS_Segment);
+
+            //     var macroTextureResponse = await appEngine.MacroTextureService.QueryAsync(GenerateQuery("LCMS_Texture_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateTexture(macroTextureResponse.ToList(), lCMS_Segment);
+
+            //     var sagsBumpsResponse = await appEngine.SagsBumpsService.QueryAsync(GenerateQuery("LCMS_Sags_Bumps", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateSagsBumps(sagsBumpsResponse.ToList(), lCMS_Segment);
+
+            //     var geometryResponse = await appEngine.GeometryService.QueryAsync(GenerateQuery("LCMS_Geometry_Processed", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculateGeometry(geometryResponse.ToList(), lCMS_Segment);
+
+            //     var paserResponse = await appEngine.PASERService.QueryAsync(GenerateQuery("LCMS_PASER", surveyId, segmentId, fileName));
+            //     lCMS_Segment = segmentSumeriesHelper.CalculatePASER(paserResponse.ToList(), lCMS_Segment);
+
+            //     //set segment values in attributesSegment
+            //     string jsonSegment = JsonConvert.SerializeObject(lCMS_Segment);
+            //     attributesSegment = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonSegment);
+
+            //     //added survey name instead of id
+            //     var survey = appState.existingSurveys.FirstOrDefault(x => x.SurveyIdExternal == surveyId);
+            //     if (survey != null)
+            //     {
+            //         attributesSegment["SurveyId"] = survey.SurveyName + " (" + surveyId + ")";
+            //     }
+            //     else
+            //     {
+            //         attributesSegment["SurveyId"] = surveyId;
+            //     }
+
+            //     //save updated values in the segment
+            //     await appEngine.SegmentService.EditValue(lCMS_Segment);
+            // }
+
+            var request = new List<SurveyAndSegmentRequest>
+            {
+                new SurveyAndSegmentRequest
+                {
+                    SurveyId = surveyId,
+                    SegmentId = Convert.ToInt32(segmentId)
+                }
+            };
+            var segments = await appEngine.SegmentService.CalculateSegmentSummaryFromMap(request);
+            if (segments != null && segments.Count > 0)
+            {
+                //set segment values in attributesSegment
+                string jsonSegment = JsonConvert.SerializeObject(segments.First());
+                attributesSegment = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonSegment);
+
+                ShowSurveyNameAsId();
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in RefreshSegmentSummary : {ex.Message}");
+        }
+    }
+
+    private void HideTable()
+    {
+        attributesSegment.Clear();
+        attributesSampleUnit.Clear();
+        StateHasChanged();
+    }
+
+    private string GenerateQuery(string tableName, string surveyId, string segmentId, string fileName)
+    {
+        var query = $"SELECT * FROM {tableName} WHERE SegmentId = {segmentId} AND ImageFileIndex = '{fileName}'";
+
+        if (tableName == "LCMS_Segment_Grid")
+            query = $"SELECT * FROM {tableName} WHERE SegmentId = {segmentId}";
+        else if (fileName.Equals("") || tableName == "LCMS_PASER")
+            query = $"SELECT * FROM {tableName} WHERE SegmentId = {segmentId} AND SurveyId = '{surveyId}'";
+
+        return query;
+    }
+
+    private void HideMenu()
+    {
+        appState.CloseSegmentSummaryMenu();
+        StateHasChanged();
+    }
+
+    private async void FindDefectAttributes(string tableName, string entityId, string type = null)
+    {
+        if (tableName == null && entityId == null)
+        {
+            attributes.Clear();
+            attributeList.Clear();
+            nonChangableAttributes.Clear();
+            this.tableName = string.Empty;
+
+            if (attributesSegment == null || attributesSegment.Count == 0)
+            {
+                HideMenu();
+            }
+        }
+        else
+        {
+            this.tableName = tableName;
+            try
+            {
+                if (tableName == LayerNames.CornerBreak)
+                {
+                    selectableColumns = "SurveyId,SurveyDate,Id,AvgDepth_mm,Area_mm2,BreakArea_mm2,CNR_SpallingArea_mm2,AreaRatio,PavementType,CornerId,QuarterId,ImageFileIndex,GPSLatitude,GPSLongitude,GPSAltitude,GeoJSON,QCAccepted,RoundedGPSLatitude,RoundedGPSLongitude,SegmentId,GPSTrackAngle";
+                    editableColumns = "AvgDepth_mm,Area_mm2,BreakArea_mm2,CNR_SpallingArea_mm2,AreaRatio";
+                    var idList = entityId.Split(',').ToList();
+                    var idIntList = idList.Select(int.Parse).ToList();
+                    foreach (var id in idIntList)
+                    {
+                        var IdRequest = new IdRequest { Id = id };
+                        var cornerbreakEntity = await appEngine.CornerBreakService.GetById(IdRequest);
+                        var cornerBreakAttributes = ExtractAttributesOrdered(cornerbreakEntity, selectableColumns);
+                        attributeList.Add(cornerBreakAttributes);
+                    }
+                }
+                else
+                {
+                    //change multi layer names to layer name
+                    string layerName = MultiLayerNameMappings.FirstOrDefault(kvp => kvp.Value.Contains(tableName)).Key ?? tableName;
+
+                    var idTableRequest = new IdTableRequest { Id = Convert.ToInt32(entityId), Table = layerName };
+                    var idRequest = new IdRequest { Id = Convert.ToInt32(entityId) };
+
+                    //LCMS Tables
+                    if (TableNameMappings.Any(x => x.LayerName == layerName))
+                    {
+                        var keyValues = await appEngine.SegmentService.ExtractAttributes(idTableRequest);
+                        foreach (var kvp in keyValues)
+                        {
+                            if (tableName == MultiLayerName.AverageTexture)
+                            {
+                                if (kvp.Key.Contains("Band"))
+                                    continue;
+                            }
+
+                            if (kvp.Key == "SurveyId")
+                            {
+                                var survey = appState.ExistingSurveys.FirstOrDefault(x => x.SurveyIdExternal == kvp.Value.ToString()); //try with lcms surveyId
+                                if (survey == null)
+                                {
+                                    //if survey is null try to get survey with db id
+                                    survey = appState.ExistingSurveys.FirstOrDefault(x => x.Id.ToString() == kvp.Value.ToString());
+                                } 
+
+                                if (survey != null)
+                                {
+                                    if (!string.IsNullOrEmpty(survey.SurveyName))
+                                    {
+                                        attributes[kvp.Key] = survey.SurveyName;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                attributes[kvp.Key] = kvp.Value;
+                            }
+                        }
+                    }
+                    //MetaTable or Summary
+                    else
+                    {
+                        if(type == "MetaTable")
+                        {
+                            //MetaTable
+                            var metaTable = await appEngine.MetaTableService.GetByName(layerName);
+                            if (metaTable != null && metaTable.TableName != null)
+                            {
+                                var metaTableValue = await appEngine.MetaTableService.GetById(idRequest);
+                                nonChangableAttributes = ExtractAttributesFromMetaTable(metaTable, metaTableValue);
+                            }
+                        }
+                        else if (type == "Summaries")
+                        {
+                            //Summary
+                            var summaries = await appEngine.SummaryService.GetByName(layerName);
+                            if (summaries != null && summaries.Count > 0)
+                            {
+                                nonChangableAttributes = await ExtractSummaries(summaries, idRequest.Id);
+                            }
+                        }
+                        else if (type == "PCIDefect")
+                        {
+                            //PCIDefect
+                            var pciDefect = await appEngine.PCIDefectsService.GetById(idRequest);
+                            if (pciDefect != null && pciDefect.DefectName != null)
+                            {
+                                nonChangableAttributes = ExtractAttributes(pciDefect);
+                                foreach (var attribute in nonChangableAttributes)
+                                {
+                                    if(attribute.Key.EndsWith("Id"))
+                                    {
+                                        nonChangableAttributes.Remove(attribute.Key);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in retrieving defects {ex.Message}");
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task<Dictionary<string, object>> ExtractSummaries(List<Summary> summaries, int summaryId)
+    {
+        var attributes = new Dictionary<string, object>();
+        var targetSummary = summaries.FirstOrDefault(x => x.Id == summaryId);
+        if (targetSummary != null)
+        {            
+            var response = await appEngine.SummaryService.GetSUNamesById(new IdRequest { Id = targetSummary.Id });
+            string SUName = response?.SUName;
+            string SUSName = response?.SUSName;
+
+            var properties = targetSummary.GetType().GetProperties();
+            foreach (var property in properties)
+            {
+                if (property.Name is "GeoJSON" or "SummaryDefects" or "Id" or "SampleUnitSetId" or "SampleUnitId") continue;
+
+                var propertyValue = property.GetValue(targetSummary);
+                if (propertyValue == null) continue;
+
+                if (property.Name == "SurveyId")
+                {
+                    var surveyId = propertyValue.ToString();
+                    var survey = appState.ExistingSurveys.FirstOrDefault(x => x.SurveyIdExternal == surveyId);
+                    attributes["SurveyId"] = survey != null ? survey.SurveyName + " (" + surveyId + ")" : surveyId;
+                }
+                else
+                {
+                    attributes[property.Name] = propertyValue;
+                }
+
+            }
+
+            if (SUName != null && SUSName != null)
+            {
+                attributes["Sample Unit"] = SUName;
+                attributes["Sample Unit Set"] = SUSName;
+            }
+
+            //Get each summary defects and add it to the attributes
+            if(targetSummary.SummaryDefects != null)
+            {
+                foreach (var summaryDefect in targetSummary.SummaryDefects)
+                {
+                    var key = $"{summaryDefect.TableName} {summaryDefect.Operation} ({summaryDefect.NumericField})";
+                    var value = summaryDefect.Value;
+
+                    if(!attributes.ContainsKey(key))
+                    {
+                        attributes.Add(key, value);
+                    }
+                }
+            }
+        }
+
+        return attributes;
+    }
+
+    private Dictionary<string, object> ExtractAttributes<T>(T entity)
+    {
+        var attributes = new Dictionary<string, object>();
+
+        if (entity != null)
+        {
+            var properties = entity.GetType().GetProperties();
+
+            foreach (var property in properties)
+            {
+                if (property.Name.Contains("GPS") || property.Name.Contains("QC") || property.Name.Contains("GeoJSON") || property.Name.Contains("Image") || property.Name == "Id")
+                {
+                    continue;
+                }
+
+                var propertyName = property.Name;
+                var propertyValue = property.GetValue(entity);
+
+                if (propertyValue != null && !string.IsNullOrEmpty(propertyValue.ToString()))
+                {
+                    if (propertyName == "DeductedValues")
+                    {
+                        //Extract PCI deducted values from json format
+                        var dict = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<string, object>>(propertyValue.ToString());
+                        foreach (var kvp in dict)
+                        {
+                            var key = kvp.Key + " (DV)";
+                            attributes[key] = kvp.Value;
+                        }
+                    }
+                    else if (propertyName == "SurveyId")
+                    {
+                        var survey = appState.ExistingSurveys.FirstOrDefault(x => x.SurveyIdExternal == propertyValue.ToString());
+                        if(!string.IsNullOrEmpty(survey.SurveyName))
+                        {
+                            attributes[propertyName] = survey.SurveyName;
+                        }
+                    }
+                    else
+                    {
+                        attributes[propertyName] = propertyValue;
+                    }
+                }
+            }
+        }
+        return attributes;
+    }
+
+    private Dictionary<string, object> ExtractAttributesOrdered<T>(T entity, string columns)
+    {
+        var attributes = new Dictionary<string, object>();
+
+        if (entity != null)
+        {
+            var properties = entity.GetType().GetProperties();
+            var columnsList = columns.Split(',').Select(c => c.Trim()).ToList();
+
+            foreach (var column in columnsList)
+            {
+                var property = properties.FirstOrDefault(p => p.Name == column);
+                if (property != null)
+                {
+
+                    if (property.Name.Contains("GPS") || property.Name.Contains("QC") || property.Name == "GeoJSON" || property.Name.Contains("Image") || property.Name == "Id") 
+                    {
+                        if (property.Name == "Id" && (entity.ToString().IndexOf("LCMS_Corner_Break") >= 0))
+                        {
+                            var propertyNameCorner = property.Name;
+                            var propertyValueCorner = property.GetValue(entity);
+                            attributes[propertyNameCorner] = propertyValueCorner;
+                        }
+                        continue;
+                    }
+                    var propertyName = property.Name;
+                    var propertyValue = property.GetValue(entity);
+
+                    if(propertyName == "SurveyId")
+                    {
+                        var survey = appState.ExistingSurveys.FirstOrDefault(x => x.SurveyIdExternal == propertyValue.ToString());
+                        if (!string.IsNullOrEmpty(survey.SurveyName))
+                        {
+                            attributes[property.Name] = survey.SurveyName;
+                        }
+                    }
+                    else
+                    {
+                        attributes[propertyName] = propertyValue;
+                    }
+                }
+            }
+        }
+
+        return attributes;
+    }
+
+
+    private Dictionary<string, object> ExtractAttributesFromMetaTable(MetaTable metaTable, MetaTableValue metaTableValue)
+    {
+        var attributes = new Dictionary<string, object>();
+        var survey = appState.ExistingSurveys.FirstOrDefault(x => x.SurveyIdExternal == metaTableValue.SurveyId);
+        if (survey != null)
+        {
+            attributes["SurveyId"] = survey.SurveyName;
+        }
+        attributes["LRPNumber"] = metaTableValue.LRPNumber;
+        attributes["Chainage"] = metaTableValue.Chainage;
+
+        for (int i = 1; i <= 25; i++)
+        {
+            var columnName = metaTable.GetType().GetProperty($"Column{i}")?.GetValue(metaTable) as string;
+            var columnType = metaTable.GetType().GetProperty($"Column{i}Type")?.GetValue(metaTable) as string;
+            var strValue = metaTableValue.GetType().GetProperty($"StrValue{i}")?.GetValue(metaTableValue) as string;
+            var decValue = metaTableValue.GetType().GetProperty($"DecValue{i}")?.GetValue(metaTableValue);
+
+            if (!string.IsNullOrEmpty(columnName))
+            {
+                // Determine field type based on ColumnType
+                if ((columnType == "Number" || columnType == "Measurement") && decValue != null)
+                {
+                    attributes[columnName] = decValue;
+                }
+                else if (columnType != "Number" && columnType != "Measurement" && !string.IsNullOrEmpty(strValue))
+                {
+                    attributes[columnName] = strValue;
+                }
+            }
+        }
+
+        if (metaTableValue.SegmentId != -1)
+        {
+            if (metaTable.TableName.StartsWith("IRI") && metaTable.TableName.Contains("Meter Section"))
+            {
+                attributes.Add("IRI SectionId", metaTableValue.SegmentId);
+            }
+            else
+            {
+                attributes.Add("SegmentId", metaTableValue.SegmentId);                            
+            }
+        }
+        return attributes;
+    }
+
+    private async Task HandleIndexChanged(int newIndex)
+    {
+        //await Task.Delay(200);
+        foreach (var dict in attributeList[newIndex])
+        {
+            if (dict.Key == "QuarterId")
+            {
+                selectedIndex = dict.Value.ToString();
+            }
+        }
+        await Task.CompletedTask;
+    }
+
+    private async Task SaveData(Dictionary<string, object> item, string column)
+    {
+        try
+        {
+            // Implement EF Core update logic here
+            string dbTableName = TableNameMappings.FirstOrDefault(x => x.LayerName == tableName).DBName;
+            int id = Convert.ToInt32(item["Id"]);
+            Serilog.Log.Information($"Saving {column} for ID: {item["Id"]}, New Value: {item[column]} in table {dbTableName}");
+
+            string query = $@"UPDATE {dbTableName} SET {column}={item[column]} WHERE Id={id};";
+            if (column.Contains("Severity") || column.Contains("MTQ"))
+            {
+                //use SelectedSeverity
+                query = $@"UPDATE {dbTableName} SET {column}='{item[column]}' WHERE Id={id};";
+            }
+
+            var response = await appEngine.SegmentService.ExecuteQueryAndReturnIds(query);
+            if (response != null) 
+            {
+                Snackbar.Add("Selected data is updated sucessfully.", Severity.Info);
+                RefreshSegmentSummary();
+            }
+            else Snackbar.Add("Selected data is failed to update.", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in Saving individual data : {ex.Message}");
+            Snackbar.Add("Selected data is failed to update.", Severity.Info);
+        }
+    }
+
+    private void UpdateCellValue(Dictionary<string, object> row, string column, object? value)
+    {
+        if (row == null)
+            row = new Dictionary<string, object>();
+
+        if (value is int || value is double || value is bool)
+        {
+            row[column] = value;
+        }
+        else
+        {
+            row[column] = value?.ToString() ?? string.Empty;
+        }
+    }
+
+    private string FormatSegmentName(string key)
+    {
+        if (key == "IRIAverage")
+            return "IRI Average";
+
+        // Removes unit names from segments
+        var name = key.Replace("_mm2", "").Replace("_mm", "").Replace("_m2", "").Replace("_m", " ").Replace("_", " ");
+
+        // Add spaces between words but also keeping acronyms
+        return Regex.Replace(name, @"(?<=[a-z])(?=[A-Z])", " ");
+    }
+
+    private string FormatValue(string key, object? value)
+    {
+        var valueString = value?.ToString();
+
+        if(key.Contains("_mm2") || key.Contains("PickoutAvg")) // square millimetre
+        {
+            if (double.TryParse(valueString, out double valueDouble))
+            {
+                return valueDouble >= 1000000
+                    ? $"{valueDouble / 1000000.0:0.00} m²"
+                    : $"{valueDouble:0.00} mm²";
+            }
+            return "0 mm²";
+        }
+        else if (key.Contains("_mm") || key.Contains("RutWidth_m")) // millimitre
+        {
+            if (double.TryParse(valueString, out double valueDouble))
+            {
+                if (valueDouble == 0)
+                    return "0 mm";
+                return valueDouble >= 1000  && !key.Contains("RutWidth_m")
+                    ? $"{valueDouble / 1000.0:0.00} m"
+                    : $"{valueDouble:0.00} mm";
+            }
+            return "0 mm";
+        }
+        else if (key.Contains("_m2")) // square metre
+        {
+            if (double.TryParse(valueString, out double valueDouble))
+            {
+                return valueDouble > 0 ? $"{valueDouble:0.00} m²" : "0 m²";
+            }
+            return "0 m";
+        }
+        else if(key.Contains("_m"))
+        {
+            if (double.TryParse(valueString, out double valueDouble))
+            {
+                return valueDouble > 0 ? $"{valueDouble:0.00} m" : "0 m";
+            }
+            return "0 m";
+
+        }
+        else
+        {
+            return valueString ?? "0"; // no value or null.
+        }
+    }
+
+    private bool ShouldSkipKey(string key)
+    {
+        return key.Contains("GPS") || key.Contains("QC") || key.Contains("GeoJSON") || key.Contains("Image") || key == "Id";
+    }
+}
+

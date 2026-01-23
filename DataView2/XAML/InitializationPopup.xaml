@@ -1,0 +1,37 @@
+<toolkit:Popup 
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+    x:Class="DataView2.XAML.InitializationPopup"
+    xmlns:local="clr-namespace:DataView2.XAML"
+    xmlns:pages="clr-namespace:DataView2.Pages.Dataset"
+
+    Color="Transparent"
+    Size="800,600"
+    CanBeDismissedByTappingOutsideOfPopup="False">
+
+    <VerticalStackLayout
+        HorizontalOptions="Center"
+        VerticalOptions="Center">
+
+        <Border 
+            Stroke="Black" 
+            StrokeThickness="1"
+            StrokeShape="RoundRectangle 10"
+            Background="White"
+            Padding="0"
+            WidthRequest="800"
+            HeightRequest="600"
+            HorizontalOptions="Center"
+            VerticalOptions="Center">
+
+            <BlazorWebView x:Name="blazorWebView" 
+            HostPage="wwwroot/index.html" IsVisible="{Binding DisplayWebview}">
+                <BlazorWebView.RootComponents>
+                    <RootComponent Selector="#app" ComponentType="{x:Type pages:NewDataset}" />
+                </BlazorWebView.RootComponents>
+            </BlazorWebView>
+
+        </Border>
+    </VerticalStackLayout>
+</toolkit:Popup>

@@ -1,0 +1,117 @@
+﻿@using CsvHelper
+@using DataView2.Core.Models
+@using DataView2.Engines
+@using DataView2.States
+@using System.Globalization
+@using Serilog
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+
+
+<MudProviders />
+
+<MudContainer Class="d-flex flex-column align-items-center" Style="padding: 20px;">
+
+    <MudDataGrid T="SegmentationTableData"  Items="@surveys" QuickFilter="@_quickFilter"  
+        Hover = "true"
+        ReadOnly="false"
+        EditMode="DataGridEditMode.Cell" 
+        EditTrigger="DataGridEditTrigger.Manual"
+        RowClick="@OnRowClick"
+        Dense="true"
+        RowStyleFunc = "@_rowStyleFunc"
+        RowsPerPage="10">
+
+
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Select Survey for Segmentation</MudText>
+            <MudSpacer />
+            <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
+            AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+        </ToolBarContent>
+
+        <Columns>
+            <SelectColumn T="Survey" />
+            <PropertyColumn Property="x => x.SurveyName" Title="Survey Name" Editable="false" />
+            <PropertyColumn Property="x => x.SegmentRangeStart" Title="Segment start "  />
+            <PropertyColumn Property="x => x.SegmentRangeEnd" Title="Segment end " />
+            <PropertyColumn Property="x => (int)x.length" Title="Length" /> <!-- No decimals -->
+            <PropertyColumn Property="x => (int)(Math.Abs(x.SegmentRangeEnd - x.SegmentRangeStart) * 5 - x.length)" Title="Length Difference" Editable="false" />
+            <PropertyColumn Property="x => x.NewStartChainage" Title="Start Chainage" />
+            <PropertyColumn Property="x => x.Direction" Title="Direction"/>
+            <TemplateColumn Editable="false" Title="Actions">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="delete" OnClick="@(() => RemoveItem(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="SegmentationTableData" PageSizeOptions=@(new int[] {10, 20, 50}) />
+        </PagerContent>
+    </MudDataGrid>
+
+    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveSurveys" Class="mt-3">Save surveys</MudButton>
+
+</MudContainer>
+
+@code {
+
+    List<SegmentationTableData> surveys = new List<SegmentationTableData>();
+    private string _searchString;
+
+    // style the rows where the length does not match reference length 
+    private Func<SegmentationTableData, int, string> _rowStyleFunc => (x, i) =>
+    {
+
+        double calculatedLength = Math.Abs(x.SegmentRangeEnd - x.SegmentRangeStart) * 5; // 5m per segment
+
+        if (Math.Abs(calculatedLength - x.length) >200)
+            return "background-color:#E5BDE5";
+        return "";
+    };
+
+    protected override void OnInitialized()
+    {
+        GetSurveys();
+    }
+
+
+    private void GetSurveys()
+    {
+        surveys.Clear();
+        surveys = appState.tableDatas;
+        StateHasChanged();
+    }
+
+    private void SaveSurveys()
+    {
+        // Save all surveys with their edited values
+        appState.ApplySegmentation(surveys);
+    }
+
+    private Func<SegmentationTableData, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.SurveyId.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    };
+
+
+    void OnRowClick(DataGridRowClickEventArgs<SegmentationTableData> args)
+    {
+        appState.SurveySegmentationRowClicked(args.Item.SurveyName, "Click");
+    }
+
+    private void RemoveItem(SegmentationTableData item)
+    {
+        surveys.Remove(item);
+        StateHasChanged(); // Refresh the UI
+    }
+    
+}

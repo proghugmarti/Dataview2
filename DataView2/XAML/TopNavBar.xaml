@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="DataView2.XAML.TopNavBar"
+             VerticalOptions="Start">
+
+    <ContentView.Resources>
+        <Style x:Key="DropdownButtonStyle" TargetType="Button" BasedOn="{StaticResource InterStyle}">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="HeightRequest" Value="40"/>
+            <Setter Property="HorizontalOptions" Value="Fill"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="TextColor" Value="#EAEAEA"/>
+            <Setter Property="VisualStateManager.VisualStateGroups">
+                <VisualStateGroupList>
+                    <VisualStateGroup Name="CommonStates">
+                        <VisualState Name="Normal">
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="#202123" />
+                                <Setter Property="TextColor" Value="#EAEAEA" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState Name="Pressed">
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="DarkGray" />
+                                <Setter Property="TextColor" Value="White" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState Name="PointerOver">
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="#393C3E" />
+                                <Setter Property="TextColor" Value="White" />
+                            </VisualState.Setters>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateGroupList>
+            </Setter>
+        </Style>
+
+        <Style x:Key="NavBarButtonStyle" TargetType="Button" BasedOn="{StaticResource InterStyle}">
+
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="TextColor" Value="#EAEAEA"/>
+            <Setter Property="BorderColor" Value="#202123"/>
+            <Setter Property="ContentLayout" Value="Left, 3"/>
+            <Setter Property="VisualStateManager.VisualStateGroups">
+                <VisualStateGroupList>
+                    <VisualStateGroup Name="CommonStates">
+                        <VisualState Name="Normal">
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="#202123" />
+                                <Setter Property="TextColor" Value="#EAEAEA" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState Name="Pressed">
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="#393C3E" />
+                                <Setter Property="TextColor" Value="White" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState Name="PointerOver">
+                            <VisualState.Setters>
+                                <Setter Property="BackgroundColor" Value="#393C3E" />
+                                <Setter Property="TextColor" Value="White" />
+                            </VisualState.Setters>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateGroupList>
+            </Setter>
+        </Style>
+    </ContentView.Resources>
+
+    <Grid RowDefinitions="Auto, 0.1, Auto">
+
+        <Grid Grid.Row="0" HeightRequest="60" BackgroundColor="#202123" HorizontalOptions="Fill" ColumnDefinitions="100,100,110,180,100,130,*,130">
+
+            <Button x:Name="HomeButton" Text="Home" Style="{StaticResource NavBarButtonStyle}" ImageSource="house_sregular_full.png" Clicked="HomeButton_Clicked">
+                <Button.GestureRecognizers>
+                    <PointerGestureRecognizer PointerEntered="HomeButton_PointerEntered"
+                                        PointerExited="HomeButton_PointerExited" />
+                </Button.GestureRecognizers>
+            </Button>
+            <Button Grid.Column="1" Text="Projects" x:Name="ProjectsButton" Style="{StaticResource NavBarButtonStyle}" ImageSource="projects_w.png"/>
+            <Button Grid.Column="2" Text="Datasets" x:Name="DatasetsButton" Style="{StaticResource NavBarButtonStyle}" ImageSource="dataset_w.png"/>
+            <Button Grid.Column="3" Text="Data Management" x:Name="DataManagementButton" Style="{StaticResource NavBarButtonStyle}" ImageSource="datamanagement_w.png"/>
+            <Button Grid.Column="4" Text="Export" x:Name="ExportButton" Style="{StaticResource NavBarButtonStyle}" ImageSource="export_w.png"/>
+            <Button Grid.Column="5" Text="Survey Tools" x:Name="SurveyToolsButton" Style="{StaticResource NavBarButtonStyle}" ImageSource="surveytools_w.png"/>
+            <Button Grid.Column="7" Text="Settings" x:Name="SettingsButton" Style="{StaticResource NavBarButtonStyle}" ImageSource="settings_w.png"/>
+        </Grid>
+
+        <Grid Grid.Row="1" HorizontalOptions="Fill" ColumnDefinitions="100,100,110,180,100,130,*,130">
+            <BoxView Grid.Column="0" x:Name="HomeUnderline" Opacity="0" HeightRequest="2" Margin="0,-8,0,0" WidthRequest="60" Color="#FF2748"/>
+            <BoxView Grid.Column="1" x:Name="ProjectUnderline" Opacity="0" HeightRequest="2" Margin="0,-10,0,0" WidthRequest="70" Color="#FF2748"/>
+            <BoxView Grid.Column="2" x:Name="DatasetsUnderline" Opacity="0" HeightRequest="2" Margin="0,-10,0,0" WidthRequest="70" Color="#FF2748"/>
+            <BoxView Grid.Column="3" x:Name="DataManagementUnderline" Opacity="0" HeightRequest="2" Margin="0,-10,0,0" WidthRequest="140" Color="#FF2748"/>
+            <BoxView Grid.Column="4" x:Name="ExportUnderline" Opacity="0" HeightRequest="2" Margin="0,-10,0,0" WidthRequest="60" Color="#FF2748"/>
+            <BoxView Grid.Column="5" x:Name="SurveyToolsUnderline" Opacity="0" HeightRequest="2" Margin="0,-10,0,0" WidthRequest="100" Color="#FF2748"/>
+            <BoxView Grid.Column="7" x:Name="SettingsUnderline" Opacity="0" HeightRequest="2" Margin="0,-10,0,0" WidthRequest="70" Color="#FF2748"/>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="100,100,100,180,100,130,*,163">
+
+            <Frame x:Name="ProjectsDropdown" Grid.Column="1" IsVisible="False" WidthRequest="150" HeightRequest="160" HorizontalOptions="Start" VerticalOptions="Start" Padding="0" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Load Project" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/LoadProject"/>
+                    <Button Text="Edit Project" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/EditProject"/>
+                    <Button Text="New Project" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/NewProject"/>
+                    <Button Text="Import Project" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ImportProject"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="DatasetDropdown" Grid.Column="2" IsVisible="False" WidthRequest="150" HeightRequest="120" VerticalOptions="Start" HorizontalOptions="Start" Padding="0" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="New Dataset" WidthRequest="150" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/NewDataset"/>
+                    <Button Text="Edit Dataset" WidthRequest="150" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/EditDataset"/>
+                    <Button Text="Import Dataset" WidthRequest="150" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ImportDataset"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="DataManagementDropdown" Grid.Column="3" IsVisible="False" WidthRequest="180" HeightRequest="120" Padding="0" VerticalOptions="Start" HorizontalOptions="Start" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Import Data" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ImportData"/>
+                    <Button Text="View Data" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/TablesGeneral"/>
+                    <Button Text="PCI Modules" x:Name="PCIModulesButton" Style="{StaticResource DropdownButtonStyle}" ImageSource="chevron_right.png" ContentLayout="Right, 5"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="PCIDropdown" Grid.Column="4" IsVisible="False" WidthRequest="180" Padding="0" Margin="0,80,0,0" HeightRequest="120" CornerRadius="0" HorizontalOptions="Start" VerticalOptions="Start" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Sample Units" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/SampleUnits"/>
+                    <Button Text="PCI Rating" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/PCIRatingPage"/>
+                    <Button Text="PCI Defect Description" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/PCIDefectDescription"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="ExportDropdown" Grid.Column="4" IsVisible="False" WidthRequest="150" HeightRequest="80" VerticalOptions="Start" HorizontalOptions="Start" Padding="0" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Export Data" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ExportTemplateDataExt"/>
+                    <Button Text="Reports" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/Reports"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="SurveyToolsDropdown" Grid.Column="5" IsVisible="False" WidthRequest="180" HeightRequest="120" Padding="0" HorizontalOptions="Start" VerticalOptions="Start" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Survey Templates" x:Name="SurveyTemplateButton" Style="{StaticResource DropdownButtonStyle}" ImageSource="chevron_right.png" ContentLayout="Right, 5"/>
+                    <Button Text="Offline Map" x:Name="OfflineMapButton" Style="{StaticResource DropdownButtonStyle}" ImageSource="chevron_right.png" ContentLayout="Right, 5"/>
+                    <Button Text="New DataView Session" Style="{StaticResource DropdownButtonStyle}" Clicked="StartNewDVInstance" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="SurveyTemplatesDropdown" Grid.Column="6" IsVisible="False" WidthRequest="150" Padding="0" HeightRequest="120" Margin="25,0,0,0" HorizontalOptions="Start" VerticalOptions="Start" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="New Template" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/NewSurvey"/>
+                    <Button Text="Open Template" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/OpenSurvey"/>
+                    <Button Text="Import Template" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ImportSurvey"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="OfflineDropdown" Grid.Column="6" IsVisible="False" Padding="0" WidthRequest="150" Margin="25,40,0,0" HeightRequest="80" HorizontalOptions="Start" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Offline Map" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/OfflineMapSetting"/>
+                    <Button Text="Create Offline Map" Style="{StaticResource DropdownButtonStyle}" Clicked="CreateMap" />                    
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame x:Name="SettingsDropdown" Grid.Column="7" IsVisible="False" Padding="0" Margin="-15,0,0,0" WidthRequest="180" HeightRequest="160" HorizontalOptions="Start" VerticalOptions="Start" BackgroundColor="#202123">
+                <VerticalStackLayout>
+                    <Button Text="Network" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/NetworkSetting"/>
+                    <Button Text="Export" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ExportSetting"/>
+                    <Button Text="Crack Classification" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/CrackClassificationSetting"/>
+                    <Button Text="Processing Parameters" Style="{StaticResource DropdownButtonStyle}" Clicked="NavButton_Clicked" CommandParameter="/ParametersSetting"/>
+                </VerticalStackLayout>
+            </Frame>
+        </Grid>
+    </Grid>
+</ContentView>

@@ -1,0 +1,986 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using System.Text.Json
+@using System.Reflection
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject LayerViewModel viewModel;
+@inject ApplicationState appState;
+@inject ApplicationEngine appEngine;
+@inject ISnackbar Snackbar
+@implements IDisposable;
+
+<MudProviders />
+
+@if(pointIcon)
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudText Typo="Typo.h6" Align="Align.Center">Icon Editor (@tableName) </MudText>
+        <div Class="d-flex flex-column justify-content-center align-items-center m-3">
+            <div class="d-flex justify-content-center align-content-center" 
+            style="overflow-y:auto; max-height:200px; padding:10px; width:380px; border:solid rgb(189, 189, 189) 1px; border-radius:4px;">
+                <MudGrid>
+                    @foreach (var icon in existingIconsBase64)
+                    {
+                        <MudItem>
+                            <MudPaper Elevation="0" Class="@(selectedIconName == icon.Key ? "icon-card selected" : "icon-card")" @onclick="() => SelectIcon(icon.Key)">
+                                <img src="@icon.Value" alt="@icon.Key" style="width: 30px; height:30px;" />
+                            </MudPaper>
+                        </MudItem>
+                    }
+                </MudGrid>
+            </div>
+            <MudNumericField @bind-Value="@iconSize" Label="Size" Variant="Variant.Outlined" Step="1" Style="width:380px;" />
+
+            <MudStack Row Class="m-2" Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="UploadIcon">Upload</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveIconPath">Save</MudButton>
+            </MudStack>
+        </div>
+    </MudStack>
+}
+else
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            @if (tableName == "Segment Grid")
+            {
+                <MudText Typo="Typo.h6" Align="Align.Center">Layer Editor (Crack Classification) </MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.h6" Align="Align.Center">Layer Editor (@tableName) </MudText>
+            }
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudRadioGroup T="bool" @bind-value="IsColorCode" Class="mx-auto">
+            <MudRadio T="bool" Value="false" >Basic Styling</MudRadio>
+            <MudRadio T="bool" Value="true" Disabled="colorCodeDisabled">Color Code</MudRadio>
+        </MudRadioGroup>
+
+        @if (!IsColorCode)
+        {
+            <div class="d-flex flex-column justify-content-center mx-auto mt-5">
+
+                <!-- Pick color -->
+                <MudColorPicker Label="Color" Variant="Variant.Outlined" ColorPickerMode="ColorPickerMode.RGB"
+                @bind-text="@graphicColor" Style="@($"color:{graphicColor}; max-width:350px; margin:10px;")" Rounded="true" PickerVariant="PickerVariant.Dialog" />
+
+                <!-- Thickness -->
+                <MudNumericField @bind-Value="@thickness" Label="Thickness" Variant="Variant.Outlined" Step="0.5" Style="width:350px; margin:10px;" />
+
+                <!-- Label Dropdown  -->
+                <MudSelect T="string" Label="Label" Variant="Variant.Outlined"
+                @bind-Value="@selectedLabelProperty" Style="width:350px; margin:10px;" MaxHeight=300>
+                    @foreach (var property in allLabelProperties)
+                    {
+                        <MudSelectItem Value="@property">@property</MudSelectItem>
+                    }
+                </MudSelect>
+            </div>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mx-auto m-2" Style="width:350px;" OnClick="Apply">Apply</MudButton>
+        }
+        else
+        {
+
+            <MudPaper Outlined="true" Class="p-2">
+                <MudStack Row Justify="Justify.FlexEnd">
+                    <MudIconButton Icon="@Icons.Material.Filled.SyncAlt" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="ChangeLastMaxValue" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="AddColorCodeStack" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="RemoveColorCodeStack" />
+                </MudStack>
+                <div class="d-flex flex-column justify-content-center mx-auto">
+
+                    @foreach (var colorCode in colorCodeList)
+                    {
+                        <MudStack Row Justify="Justify.SpaceAround" Class="mt-2">
+                            @if (colorCodeList.IndexOf(colorCode) == 0)
+                            {
+                                <MudSelect T="string" Label="Properties" Variant="Variant.Outlined" Value=@colorCode.Property ValueChanged="FirstEntryPropertyChanged" Style="width:200px;" MaxHeight=300>
+                                    @foreach (var numericProperty in numericProperties)
+                                    {
+                                        <MudSelectItem Value="@numericProperty"></MudSelectItem>
+                                    }
+                                    @foreach (var stringProperty in stringProperties)
+                                    {
+                                        <MudSelectItem Value="@stringProperty"></MudSelectItem>
+                                    }
+                                </MudSelect>
+                            }
+                            else
+                            {
+                                <MudSelect T="string" Label="Properties" Variant="Variant.Outlined" @bind-Value=@colorCode.Property Style="width:200px;" MaxHeight=300>
+                                    <MudSelectItem Value="@(colorCodeList[0].Property)"></MudSelectItem>
+                                </MudSelect>
+                            }
+
+
+                            @if (numericProperties.Contains(colorCode.Property))
+                            {
+                                if (colorCode.IsAboveFrom)
+                                {
+                                    <MudStack Row>
+                                        <MudText Class="m-3">Above</MudText>
+                                        <MudNumericField @bind-Value=@colorCode.MinRange Label="From" Variant="Variant.Outlined" Style="width:80px" />
+                                    </MudStack>
+                                }
+                                else
+                                {
+                                    <MudNumericField Value=@colorCode.MinRange ValueChanged="@((double newValue) => FromValueChanged(newValue, colorCode))" Label="From" Variant="Variant.Outlined" Style="width:80px" />
+                                    <MudNumericField Value=@colorCode.MaxRange ValueChanged="@((double newValue) => ToValueChanged(newValue, colorCode))" Label="To" Min="@colorCode.MinRange" Variant="Variant.Outlined" Style="width:80px" />
+                                }
+                            }
+                            else if (stringProperties.Contains(colorCode.Property))
+                            {
+                                @if (stringPropertyValues.ContainsKey(colorCode.Property))
+                                {
+                                    <MudSelect T="string" Label="@colorCode.Property" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                        @foreach (var value in stringPropertyValues[colorCode.Property])
+                                        {
+                                            <MudSelectItem Value="@(value)">@value</MudSelectItem>
+                                        }
+                                    </MudSelect>
+
+                                }
+                                else if (colorCode.Property == "Severity")
+                                {
+                                    if (tableName == LayerNames.SegmentGrid)
+                                    {
+                                        <MudSelect T="string" Label="Severity" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            <MudSelectItem Value="@("None")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Very Low")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Low")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Medium")"></MudSelectItem>
+                                            <MudSelectItem Value="@("High")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Very High")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                    else
+                                    {
+                                        <MudSelect T="string" Label="Severity" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            @if (tableName == LayerNames.Potholes)
+                                            {
+                                                <MudSelectItem Value="@("Delamination")"></MudSelectItem>
+                                            }
+                                            @if (tableName == LayerNames.Cracking || tableName == LayerNames.CrackSummary)
+                                            {
+                                                <MudSelectItem Value="@("Very Low")"></MudSelectItem>
+                                            }
+                                            @if (layerType == "PCIDefect")
+                                            {
+                                                <MudSelectItem Value="@("N/A")"></MudSelectItem>
+                                            }
+                                            <MudSelectItem Value="@("Low")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Medium")"></MudSelectItem>
+                                            <MudSelectItem Value="@("High")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                }
+                                else if (colorCode.Property == "Type")
+                                {
+                                    if (tableName == LayerNames.CurbDropOff)
+                                    {
+                                        <MudSelect T="string" Label="Type" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            <MudSelectItem Value="@("Curb")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Dropoff")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.MarkingContour)
+                                    {
+                                        <MudSelect T="string" Label="Type" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            <MudSelectItem Value="@("Black")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Bright")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.MMO)
+                                    {
+                                        <MudSelect T="string" Label="Type" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            <MudSelectItem Value="@("ManHole")"></MudSelectItem>
+                                            <MudSelectItem Value="@("StormDrain")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.RumbleStrip)
+                                    {
+                                        <MudSelect T="string" Label="Type" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            <MudSelectItem Value="@("milled strip")"></MudSelectItem>
+                                            <MudSelectItem Value="@("raised strip")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.SagsBumps)
+                                    {
+                                        <MudSelect T="string" Label="Type" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                            <MudSelectItem Value="@("Sags")"></MudSelectItem>
+                                            <MudSelectItem Value="@("Bumps")"></MudSelectItem>
+                                        </MudSelect>
+                                    }
+                                }
+                                else if (colorCode.Property == "LaneSide")
+                                {
+                                    <MudSelect T="string" Label="LaneSide" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                        <MudSelectItem Value="@("Left")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Right")"></MudSelectItem>
+                                    </MudSelect>
+                                }
+                                else if (colorCode.Property == "MTQ")
+                                {
+                                    <MudSelect T="string" Label="MTQ" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                        <MudSelectItem Value="@("Multiple")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Alligator")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Longitudinal")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Transversal")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Unknown")"></MudSelectItem>
+                                    </MudSelect>
+                                }
+                                else if (colorCode.Property == "CrackType")
+                                {
+                                    <MudSelect T="string" Label="CrackType" Variant="Variant.Outlined" Style="width:130px;" @bind-Value=@colorCode.StringProperty>
+                                        <MudSelectItem Value="@("Unknown")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Offroad")"></MudSelectItem>
+                                        <MudSelectItem Value="@("WheelPath")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Transversal")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Longitudinal")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Multiple")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Alligator")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Pending")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Other")"></MudSelectItem>
+                                    </MudSelect>
+                                }
+                            }
+                            <input type="color" @bind="@colorCode.HexColor" class="m-2 mt-5" />
+                        </MudStack>
+                    }
+                </div>
+            </MudPaper>
+            <MudStack Row>
+                <MudNumericField @bind-Value="@colorCodeThickness" Label="thickness" Variant="Variant.Outlined" Step="0.5" Style="margin:5px; height:40px;" />
+                <MudNumericField @bind-Value="@transparency" Label="transparency(%)" Variant="Variant.Outlined" Step="5" Max="100" Style=" height:40px;" />
+                <!-- Label Dropdown  -->
+                <MudSelect T="string" Label="Label" Variant="Variant.Outlined"
+                @bind-Value="@selectedLabelProperty" Style=" margin:5px; height:40px;" MaxHeight=300>
+                    @foreach (var property in allLabelProperties)
+                    {
+                        <MudSelectItem Value="@property">@property</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+
+            <div class="d-flex justify-content-center align-items-center">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="m-2" OnClick="Apply">Apply</MudButton>
+                @if (ColorCodeInfoFound)
+                {
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="m-2" OnClick="DeleteColorCode">Delete</MudButton>
+                }
+            </div>
+        }
+    </MudStack>
+}
+
+@if (IsLoading)
+{
+    <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+            <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+            <MudText Typo="Typo.caption" Align="Align.Center" Style="background-color:white">Color Coding in Progress. This may take a few minutes.</MudText>
+        </MudStack>
+    </MudOverlay>
+}
+
+@code {
+    [Parameter]
+    public string tableName { get; set; }
+    [Parameter]
+    public string layerType { get; set; }
+    [Parameter]
+    public bool pointIcon { get; set; }
+    private int iconSize { get; set; }
+
+    private string graphicColor { get; set; }
+    private Dictionary<string, (string property, string color)> stringPropertyColor { get; set; }
+    private double thickness { get; set; }
+    public double colorCodeThickness { get; set; }
+    private int transparency = 100;
+
+    private bool IsColorCode { get; set; } = false;
+    private bool colorCodeDisabled { get; set; } = false;
+    private bool IsLoading { get; set; } = false;
+    private bool ColorCodeInfoFound { get; set; } = false;
+    private IEnumerable<string> numericProperties { get; set; }
+    private IEnumerable<string> stringProperties { get; set; }
+    private Dictionary<string, List<string>> stringPropertyValues = new Dictionary<string, List<string>>();
+    private List<ColorCodeInformation> colorCodeList = new List<ColorCodeInformation>();
+
+    private string NoLabelString = "No Label";
+    private string selectedLabelProperty { get; set; } = "No Label";
+    private List<string> allLabelProperties = new ();
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+
+        //Get properties for color coding
+        numericProperties = GetNumericProperties();
+        stringProperties = GetStringProperties();
+
+        List<ColorCodeInformation> colorCodeInformation = await appEngine.ColorCodeInformationService.GetByName(tableName);
+
+        //color code not used for these tables
+        if (tableName == "Boundary" || tableName == "LasPoints" || layerType == "Shapefile" || layerType == "Video" || layerType == "Keycodes")
+        {
+            colorCodeDisabled = true;
+        }
+        else if (layerType == "MetaTable")
+        {
+            //Get metaTable properties
+            await GetMetaTableProperties();
+        }
+        else if (layerType == "Summary")
+        {
+            await GetSummaryProperties();
+        }
+
+        if (pointIcon)
+        {
+            InitializeIconInfo();
+        }
+        //color code
+        else if (colorCodeInformation != null && colorCodeInformation.Count > 0)
+        {
+            InitializeColorCode();
+        }
+        //Basic Styling
+        else
+        {
+            graphicColor = appState.Color;
+            thickness = appState.Thickness;
+            colorCodeThickness = thickness;
+
+            IsColorCode = false;
+            string alpha ="0";
+
+            if (!String.IsNullOrEmpty(graphicColor))
+            {
+                alpha = graphicColor.Substring(7, 2);
+            }
+
+            int alphaInt = Convert.ToInt32(alpha, 16);
+            transparency = (int)Math.Ceiling((double)alphaInt * 100 / 255);
+
+            if (!colorCodeDisabled)
+            {
+                colorCodeList.Add(new ColorCodeInformation { HexColor = "#000000" });
+                InitializeColorCode();
+            }
+        }
+
+        GetLabels();
+        appState.OnColorCodeApplied += Close;
+    }
+
+    private async void GetLabels()
+    {
+        allLabelProperties.Add(NoLabelString);
+        allLabelProperties.AddRange(numericProperties.Concat(stringProperties));
+
+        //Labels stored either in metadata (lcms) or dataset (metaTable)
+        MapGraphicData appLevelGraphic = await appEngine.MapGraphicDataService.GetByName(new NameRequest { Name = tableName });
+        if (appLevelGraphic != null && appLevelGraphic.LabelProperty != NoLabelString && allLabelProperties.Contains(appLevelGraphic.LabelProperty))
+        {
+            selectedLabelProperty = appLevelGraphic.LabelProperty;
+        }
+        else
+        {
+            // Fallback option if no label property is found
+            selectedLabelProperty = NoLabelString;
+        }
+        StateHasChanged();
+    }
+    // private void InitializeStringPropertyColor()
+    // {
+    //     stringPropertyColor = appState.StringPropertyColor;
+    //     thickness = appState.Thickness;
+    //     colorCodeThickness = appState.Thickness;
+    //     IsColorCode = true;
+
+    //     foreach (var kvp in stringPropertyColor)
+    //     {
+    //         string symbolName = kvp.Key;
+    //         string property = kvp.Value.property;
+    //         string colorHex = kvp.Value.color;
+    //         string rgbHex = colorHex.Substring(0, 7);
+    //         string alpha = colorHex.Substring(7, 2);
+    //         int alphaInt = Convert.ToInt32(alpha, 16);
+    //         transparency = (int)Math.Ceiling((double)alphaInt * 100 / 255);
+
+    //         if (property == "Severity")
+    //         {
+    //             // Determine severity level based on symbolName
+    //             string severity = string.Empty;
+    //             if (symbolName.Contains(tableName))
+    //             {
+    //                 char lastChar = symbolName[symbolName.Length - 1];
+    //                 if (int.TryParse(lastChar.ToString(), out int severityIndex))
+    //                 {
+    //                     severity = GetSeverity(severityIndex);
+    //                 }
+    //             }
+    //             else
+    //             {
+    //                 return;
+    //             }
+
+    //             // Create ColorCodeData object and add it to the list
+    //             ColorCodeInformation colorCodeData = new ColorCodeInformation
+    //             {
+    //                 Property = property,
+    //                 StringProperty = severity,
+    //                 HexColor = rgbHex,
+    //                 Thickness = thickness
+    //             };
+    //             colorCodeList.Add(colorCodeData);
+    //         }
+    //         else if(property == "Type")
+    //         {
+    //             ColorCodeInformation colorCodeData = new ColorCodeInformation
+    //             {
+    //                 Property = property,
+    //                 StringProperty = symbolName,
+    //                 HexColor = rgbHex,
+    //                 Thickness = thickness
+    //             };
+    //             colorCodeList.Add(colorCodeData);
+
+    //         }
+    //     }
+    // }
+
+    private void InitializeColorCode()
+    {
+        var colorCodeInformation = appState.ColorCodeInfo.Where(cc => cc.TableName == tableName);
+        if(colorCodeInformation.Any())
+        {
+            colorCodeList.Clear();
+            foreach (var colorCode in colorCodeInformation)
+            {
+                // Access color code data properties
+                var colorHex = colorCode.HexColor;
+                string rgbHex = colorHex.Substring(0, 7);
+                string alpha = colorHex.Substring(7, 2);
+                int alphaInt = Convert.ToInt32(alpha, 16);
+                transparency = (int)Math.Ceiling((double)alphaInt * 100 / 255);
+
+                if(stringProperties.Contains(colorCode.Property))
+                {
+                    colorCodeList.Add(new ColorCodeInformation
+                    {
+                        Property = colorCode.Property,
+                        HexColor = rgbHex,
+                        Thickness = colorCode.Thickness,
+                        TableName = colorCode.TableName,
+                        IsStringProperty = true,
+                        StringProperty = colorCode.StringProperty
+                    });
+                }
+                else
+                {
+                    colorCodeList.Add(new ColorCodeInformation
+                    {
+                        Property = colorCode.Property,
+                        HexColor = rgbHex,
+                        Thickness = colorCode.Thickness,
+                        MinRange = colorCode.MinRange,
+                        MaxRange = colorCode.MaxRange,
+                        IsAboveFrom = colorCode.IsAboveFrom,
+                        IsStringProperty = false,
+                        TableName = colorCode.TableName
+                    });
+                }
+            }
+            IsColorCode = true;
+            ColorCodeInfoFound = true;
+            colorCodeThickness = colorCodeList[0].Thickness;
+            graphicColor = appState.Color;
+            thickness = appState.Thickness;
+            StateHasChanged();
+        }
+    }
+
+    private IEnumerable<string> GetNumericProperties()
+    {
+        var fields = viewModel.GetNumericProperties(tableName);
+
+        // if(tableName.Contains("IRI"))
+        // {
+        //     var hasCwpIRI = appEngine.RoughnessService.HasCwpIRI(new Google.Protobuf.WellKnownTypes.Empty()).GetAwaiter().GetResult();
+        //     if(hasCwpIRI.Id == 0)
+        //     {
+        //         //if cwpIRI doesn't exist, remove it from the fields
+        //         fields = fields.Where(field => field != "CwpIRI");
+        //     }
+        // }
+
+        //ignore numeric fields from the method but this manually
+        if (tableName == MultiLayerName.BandTexture)
+        {
+            fields = new List<string> { "MTDBand", "SMTDBand", "MPDBand", "RMSBand" };
+        }
+
+        if (tableName == MultiLayerName.AverageTexture)
+        {
+            fields = new List<string> { "AvgMTD", "AvgSMTD", "AvgMPD", "AvgRMS" };
+        }
+
+        if (tableName == "LasRutting")
+        {
+            fields = new List<string> { "RutDepth_mm", "RutWidth_m" };
+        }
+
+        if (layerType == "PCIDefect")
+        {
+            fields = new List<string> { "Qty" };
+        }
+
+
+        return fields;
+    }
+
+    private IEnumerable<string> GetStringProperties()
+    {
+        var fields = viewModel.GetStringProperties(tableName);
+
+        if (tableName == LayerNames.Bleeding || layerType == "PCIDefect")
+        {
+            return new List<string>
+            {
+                "Severity"
+            };
+        }
+
+        return fields;
+    }
+
+
+    private void AddColorCodeStack()
+    {
+        if (colorCodeList.Count > 0)
+        {
+            for (int i = 0; i < colorCodeList.Count; i++)
+            {
+                colorCodeList[i].IsAboveFrom = false;
+            }
+
+            var firstRowProperty = colorCodeList[0].Property;
+            if (firstRowProperty != null)
+            {
+                var previousTo = colorCodeList[colorCodeList.Count - 1].MaxRange;
+                colorCodeList.Add(new ColorCodeInformation { Property = firstRowProperty, MinRange = previousTo, MaxRange = previousTo, HexColor = "#000000" });
+            }
+            else
+            {
+                App.Current.MainPage.DisplayAlert("Alert", "Please select a property for the first entry before adding more.", "OK");
+            }
+        }
+    }
+
+    private void RemoveColorCodeStack()
+    {
+        if (colorCodeList.Count > 1)
+        {
+            colorCodeList.RemoveAt(colorCodeList.Count - 1);
+        }
+        else
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "Cannot remove the first entry. At least one entry is required.", "OK");
+        }
+    }
+
+    private void Close()
+    {
+        appState.OnColorCodeApplied -= Close;
+        viewModel.ClosePopup();
+    }
+
+    private void ChangeLastMaxValue()
+    {
+        if (colorCodeList.Count > 0)
+        {
+            // Set all color codes' IsAboveFrom property to false
+            for (int i = 0; i < colorCodeList.Count - 1; i++)
+            {
+                colorCodeList[i].IsAboveFrom = false;
+            }
+
+            // Toggle the IsAboveFrom property of the last color code
+            var lastColorCode = colorCodeList[colorCodeList.Count - 1];
+            lastColorCode.IsAboveFrom = !lastColorCode.IsAboveFrom;
+        }
+    }
+
+    private void FirstEntryPropertyChanged(string newValue)
+    {
+        // Update the property of all other entries to match the new value of the first entry's property
+        for (int i = 0; i < colorCodeList.Count; i++)
+        {
+            colorCodeList[i].Property = newValue;
+            if (!string.IsNullOrEmpty(colorCodeList[i].StringProperty))
+                colorCodeList[i].StringProperty = string.Empty;
+        }
+    }
+
+    private void FromValueChanged(double newValue, ColorCodeInformation colorCode)
+    {
+        // Update the value of colorCode.To to ensure it is not below colorCode.From
+        colorCode.MinRange = newValue;
+        colorCode.MaxRange = Math.Max(newValue, colorCode.MaxRange);
+    }
+
+    private void ToValueChanged(double newValue, ColorCodeInformation colorCode)
+    {
+        colorCode.MaxRange = newValue;
+        var index = colorCodeList.IndexOf(colorCode);
+        if (index < colorCodeList.Count - 1)
+        {
+            var nextRange = colorCodeList[index + 1];
+            if (newValue >= nextRange.MinRange)
+            {
+                // Set the minimum "From" value for the next range
+                nextRange.MinRange = newValue;
+            }
+            if (newValue > nextRange.MaxRange)
+            {
+                nextRange.MaxRange = newValue;
+            }
+        }
+    }
+
+    private async void Apply()
+    {
+        try
+        {
+            IsLoading = true;
+            StateHasChanged();
+
+            if (!IsColorCode)
+            {
+                appState.SetBasicGraphicColor(tableName, graphicColor, thickness, selectedLabelProperty);
+            }
+            else
+            {
+                var colorCodes = new List<ColorCodeInformation>();
+                foreach (var colorCode in colorCodeList)
+                {
+                    var rangeStart = colorCode.MinRange;
+                    var rangeEnd = colorCode.MaxRange;
+                    if (colorCode.IsAboveFrom)
+                    {
+                        rangeEnd = colorCode.MinRange;
+                    }
+
+                    var rgbaHex = ConvertRgbHexToRgbaHex(colorCode.HexColor, transparency);
+
+                    if (stringProperties.Contains(colorCode.Property))
+                    {
+                        colorCodes.Add(new ColorCodeInformation
+                        {
+                            TableName = tableName,
+                            Property = colorCode.Property,
+                            HexColor = rgbaHex,
+                            Thickness = colorCodeThickness,
+                            IsStringProperty = true,
+                            StringProperty = colorCode.StringProperty,
+                        });                        
+                    }
+                    else
+                    {
+                        colorCodes.Add(new ColorCodeInformation
+                        {
+                            TableName = tableName,
+                            Property = colorCode.Property,
+                            HexColor = rgbaHex,
+                            MinRange = rangeStart,
+                            MaxRange = rangeEnd,
+                            Thickness = colorCodeThickness,
+                            IsStringProperty = false,
+                            IsAboveFrom = colorCode.IsAboveFrom,
+                        });
+                    }
+                }
+
+                appState.SetColorCodeGraphic(colorCodes, selectedLabelProperty);
+
+                //update label only
+                var response = await appEngine.MapGraphicDataService.GetByName(new NameRequest { Name = tableName });
+                if (response != null && response.Id != 0)
+                {
+                    response.LabelProperty = selectedLabelProperty;
+                    var editResponse = await appEngine.MapGraphicDataService.Edit(response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await App.Current.MainPage.DisplayAlert("Alert", ex.Message, "OK");
+        }
+    }
+
+    private string ConvertRgbHexToRgbaHex(string rgbHex, int transparencyPercentage)
+    {
+        if (string.IsNullOrWhiteSpace(rgbHex) || rgbHex.Length != 7)
+        {
+            return string.Empty;
+        }
+
+        if (transparencyPercentage < 0 || transparencyPercentage > 100)
+        {
+            return string.Empty;
+        }
+        rgbHex = rgbHex.Substring(1);
+        // Parse the RGB hex color
+        int r = int.Parse(rgbHex.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
+        int g = int.Parse(rgbHex.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
+        int b = int.Parse(rgbHex.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
+
+        // Convert transparency percentage to alpha value (0-255)
+        int alpha = (int)(255 * (transparencyPercentage / 100.0));
+
+        // Combine RGB and alpha to form RGBA hex color
+        string rgbaHex = $"#{r:X2}{g:X2}{b:X2}{alpha:X2}";
+
+        return rgbaHex;
+    }
+
+    private async void DeleteColorCode()
+    {
+        var answer = await App.Current.MainPage.DisplayAlert("Confirmation", "Are you sure you want to delete the color code? This will remove it from the map and delete the saved information.", "Yes", "No");
+        if (answer == true)
+        {
+            //var table = TableNameHelper.GetOverlayTableName(tableName);
+            var deleteResponse = await appEngine.ColorCodeInformationService.DeleteByTableName(tableName);
+            if(deleteResponse.Id == 1)
+            {
+                appState.ColorCodeInfo.RemoveAll(cc => cc.TableName == tableName);
+                appState.SetBasicGraphicColor(tableName, graphicColor, thickness, selectedLabelProperty);
+            }
+        }
+    }
+
+    // IconEditor
+    private string selectedIconName;
+    private Dictionary<string, string> existingIconsBase64 = new Dictionary<string, string>();
+    private string[] resourceImageNames = new[] { "car.png", "check.png", "heart.png", "pin.png", "pin_black.png", "question.png", "star.png", "warning.png",
+                                                  "arrow_down.png", "arrow_left.png", "arrow_right.png", "arrow_up.png" };
+    private async void InitializeIconInfo()
+    {
+        foreach (var imageName in resourceImageNames)
+        {
+            existingIconsBase64[imageName] = $"Images/{imageName}";
+        }
+
+        var uploadFolderPath = AppPaths.IconFolder;
+        if (!Directory.Exists(uploadFolderPath))
+        {
+            Directory.CreateDirectory(uploadFolderPath);
+        }
+
+        var imageFiles = Directory.GetFiles(uploadFolderPath);
+
+        foreach (var file in imageFiles)
+        {
+            var fileBytes = File.ReadAllBytes(file);
+            var base64String = Convert.ToBase64String(fileBytes);
+
+            // Avoid duplicate keys (in case user-uploaded file has the same name as a default icon)
+            if (!existingIconsBase64.ContainsKey(file))
+            {
+                existingIconsBase64[file] = $"data:image/png;base64,{base64String}";
+            }
+        }
+
+        var metaTable = await appEngine.MetaTableService.GetByName(tableName);
+        if (metaTable.TableName != null)
+        {
+            selectedIconName = metaTable.Icon;
+            iconSize = metaTable.IconSize != null? metaTable.IconSize.Value: 20;
+        }
+        StateHasChanged();
+    }
+
+    private void SelectIcon(string selectedIcon)
+    {
+        selectedIconName = selectedIcon;
+    }
+
+    private async void UploadIcon()
+    {
+        var customFileType = new FilePickerFileType(
+            new Dictionary<DevicePlatform, IEnumerable<string>>
+                    {
+                { DevicePlatform.iOS, new[] { "public.image" } }, // UTType for image files
+                { DevicePlatform.Android, new[] { "image/png", "image/jpeg" } }, // MIME types for PNG and JPEG
+                { DevicePlatform.WinUI, new[] { ".png", ".jpg", ".jpeg" } }, // file extensions
+                { DevicePlatform.macOS, new[] { "public.image" } } // UTType for image files
+                    });
+
+        var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Please select a text file",
+                FileTypes = customFileType,
+            });
+        if (result != null)
+        {
+            //Save uploaded icon into the icon folder
+            var uploadFolderPath = AppPaths.IconFolder;
+            if (!Path.Exists(uploadFolderPath))
+            {
+                Directory.CreateDirectory(uploadFolderPath);
+            }
+
+            var filePath = Path.Combine(uploadFolderPath, result.FileName);
+
+            using (var fileStream = await result.OpenReadAsync())
+            using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
+            {
+                await fileStream.CopyToAsync(stream);
+            }
+
+            using (var fileStream = await result.OpenReadAsync())
+            {
+                using (var memoryStream = new MemoryStream())
+                {
+                    await fileStream.CopyToAsync(memoryStream);
+                    var fileBytes = memoryStream.ToArray();
+                    var base64String = Convert.ToBase64String(fileBytes);
+                    var iconBase64 = $"data:image/png;base64,{base64String}";
+
+                    // Update the dictionary with the new icon
+                    existingIconsBase64[result.FileName] = iconBase64;
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async void SaveIconPath()
+    {
+        if (selectedIconName != null)
+        {
+            var metaTable = await appEngine.MetaTableService.GetByName(tableName);
+            if (metaTable.TableName != null)
+            {
+                string iconPath = string.Empty;
+
+                if (resourceImageNames.Contains(selectedIconName))
+                {
+                    iconPath = selectedIconName;
+                }
+                else
+                {
+                    var basePath = AppPaths.IconFolder;
+                    iconPath = Path.Combine(basePath, selectedIconName);
+                }
+                metaTable.Icon = iconPath;
+                metaTable.IconSize = iconSize;
+                var response = await appEngine.MetaTableService.UpdateMetaTableIconAsync(metaTable);
+
+                if (response.Id == 0)
+                {
+                    Snackbar.Add(response.Message, Severity.Success);
+                    appState.UpdateMetaTable(metaTable.TableName, iconPath, iconSize);
+                    Close();
+                }
+                else
+                {
+                    Snackbar.Add(response.Message, Severity.Error);
+                }
+            }
+        }
+        else
+        {
+            Snackbar.Add("Please select a icon.", Severity.Error);
+        }
+    }
+
+    private async Task GetMetaTableProperties()
+    {
+        if (tableName.StartsWith("IRI") && tableName.Contains("Meter Section"))
+        {
+            //Get one average IRI for 100 meter section
+            numericProperties = new List<string> { "Average IRI" };
+            return;
+        }
+
+        var metaTable = await appEngine.MetaTableService.GetByName(tableName);
+        if (metaTable!= null && metaTable.TableName != null)
+        {
+            //Get ColumnTypes - dropdown, number , measurement
+            for(int i = 1; i <= 10; i ++)
+            {
+                var columnProp = typeof(MetaTable).GetProperty($"Column{i}");
+                var columnTypeProp = typeof(MetaTable).GetProperty($"Column{i}Type");
+                var columnDefaultProp = typeof(MetaTable).GetProperty($"Column{i}Default");
+
+                if (columnTypeProp != null)
+                {
+                    var columnTypeValue = columnTypeProp.GetValue(metaTable)?.ToString();
+                    var columnValue = columnProp.GetValue(metaTable)?.ToString();
+
+                    //dropdown for string properties
+                    if(columnTypeValue == ColumnType.Dropdown.ToString())
+                    {
+                        stringProperties = stringProperties.Append(columnValue);
+
+                        var columnDefaultValue = columnDefaultProp.GetValue(metaTable)?.ToString();
+                        var columnSplitValues = columnDefaultValue.Split(",").ToList();
+
+                        stringPropertyValues.Add(columnValue, columnSplitValues);
+                    }
+                    //number, measurement for numeric values
+                    else if (columnTypeValue == ColumnType.Number.ToString() || columnTypeValue == ColumnType.Measurement.ToString())
+                    {
+                        numericProperties = numericProperties.Append(columnValue);
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task GetSummaryProperties()
+    {
+        var properties = new List<string>();
+        if(tableName == null) return;
+
+        var summaries = await appEngine.SummaryService.GetByName(tableName);
+        if (summaries != null && summaries.Count > 0)
+        {
+            foreach (var summary in summaries)
+            {
+                if(summary.SummaryDefects != null)
+                {
+                    foreach(var summaryDefect in summary.SummaryDefects)
+                    {
+                        var propertyToAdd = $"{summaryDefect.TableName} {summaryDefect.Operation} ({summaryDefect.NumericField})";
+                        if (!properties.Contains(propertyToAdd))
+                        {
+                            properties.Add(propertyToAdd);
+                        }
+                    }
+                }
+            }
+        }
+
+        numericProperties = properties;
+    }
+
+    public void Dispose()
+    {
+        appState.OnColorCodeApplied -= Close;
+    }
+}

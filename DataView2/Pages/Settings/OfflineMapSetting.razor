@@ -1,0 +1,362 @@
+﻿@page "/OfflineMapSetting"
+@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.States
+@using CommunityToolkit.Maui.Storage
+
+@inject ISettingsService setting
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+
+<MudContainer>
+    <div class="text-center my-5">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-2">Offline Map Setting</MudText>
+    </div>
+    <MudPaper Class="mx-auto">
+        <MudGrid Class="my-7">
+            <MudItem xs="4" Class="my-3">
+                <div class="mx-5 p-2">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight:bold">MAP MODE</MudText>
+                    <MudText Typo="Typo.body2" Class="subtext">Switch between offline and online map modes</MudText>
+                </div>
+            </MudItem>
+            <MudItem xs="8">
+                <div class="mx-10 my-5 mb-10">
+                    <MudSwitch T="Boolean" Color="Color.Primary" Size="Size.Large" Value="@isUsingOnlineMap" ValueChanged="ToggleSwitch">
+                        @if (isUsingOnlineMap)
+                        {
+                            <span>Online</span>
+                        }
+                        else
+                        {
+                            <span>Offline</span>
+                        }
+                    </MudSwitch>
+                </div>
+            </MudItem>
+
+            @if (!isUsingOnlineMap)
+            {
+                <MudItem xs="12">
+                    <MudDivider Class="custom-divider" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTabs Rounded="true" ApplyEffectsToContainer="true" Centered="true" MinimumTabWidth="35vw" @ref="tabs">
+                        <MudTabPanel Text="CHOOSE OFFLINE MAP" @ref="panel1">
+                            <MudGrid>
+                                <MudItem xs="4" Class="my-7">
+                                    <div class="mx-5 p-2">
+                                        <MudText Typo="Typo.subtitle1" Style="font-weight:bold">CHOOSE OFFLINE MAP</MudText>
+                                        <MudText Typo="Typo.body2" Class="subtext">Select a map from your generated offline maps for navigation without internet.</MudText>
+                                    </div>
+                                </MudItem>
+                                <MudItem xs="7" Class="my-7">
+                                    <div class="mx-8 mt-4">
+                                        @if (files.Count > 0)
+                                        {
+                                            <MudSelect T="string" AnchorOrigin="Origin.BottomCenter" Variant="Variant.Outlined" @bind-Value="selectedFile">
+
+                                                @foreach (var file in files)
+                                                {
+                                                    <MudSelectItem T="string" Value="@file">@Path.GetFileName(file)</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else
+                                        {
+                                            <MudSelect T="string" Disabled Label="@label"></MudSelect>
+                                        }
+                                    </div>
+                                </MudItem>
+                            </MudGrid>
+                        </MudTabPanel>
+                        <MudTabPanel Text="UPLOAD OFFLINE MAP" @ref="panel2">
+                            <MudGrid>
+                                <MudItem xs="4" Class="my-7">
+                                    <div class="mx-5 p-2">
+                                        <MudText Typo="Typo.subtitle1" Style="font-weight:bold">UPLOAD OFFLINE MAP</MudText>
+                                        <MudText Typo="Typo.body2" Class="subtext">Upload your own offline map for navigation without internet.</MudText>
+                                    </div>
+                                </MudItem>
+                                <MudItem xs="2" Class="my-7">
+                                    <div class="d-flex align-items-center m-4 mx-auto">
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenFile">
+                                            <MudIcon Icon="@Icons.Material.Filled.AttachFile" />
+                                        </MudButton>
+                                    </div>
+                                </MudItem>
+                                <MudItem xs="6" Class="my-7">
+                                    <div class="p-2">
+                                        @if (uploadedFolderPath != null)
+                                        {
+                                            <MudText Typo="Typo.subtitle1" Style="font-weight:bold">SELECTED FOLDER</MudText>
+                                            <MudText Typo="Typo.body2" Class="subtext">@Path.GetFileName(uploadedFolderPath)</MudText>
+                                        }
+                                    </div>
+                                </MudItem>
+                            </MudGrid>
+                        </MudTabPanel>
+                    </MudTabs>
+                </MudItem>
+            }
+        </MudGrid>
+    </MudPaper>
+    <MudItem xs="12">
+        <div class="d-flex justify-content-center align-items-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="my-6" OnClick="Apply">Apply</MudButton>
+        </div>
+    </MudItem>
+</MudContainer>
+
+@code {
+    List<string> files = new List<string>();
+    string label = "No offline map found";
+    string selectedFile { get; set; }
+    bool isUsingOnlineMap { get; set; }
+    string uploadedFolderPath;
+    MudTabs tabs;
+    MudTabPanel panel1;
+    MudTabPanel panel2;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Initialize();
+    }
+
+    private async void Initialize()
+    {
+        if (appState.isUsingOnlineMap)
+        {
+            isUsingOnlineMap = true;
+        }
+        else
+        {
+            isUsingOnlineMap = false;
+        }
+
+        var offlineMapDirectory = AppPaths.OfflineMapFolder; 
+        if (Directory.Exists(offlineMapDirectory))
+        {
+            files = Directory.GetDirectories(offlineMapDirectory).ToList();
+        }
+
+
+        List<GeneralSetting> response = new List<GeneralSetting>();
+        if (appState.SelectedDataset != null)
+        {
+            response = await setting.GetByName(new SettingName { name = appState.SelectedDataset.Name });
+        }
+
+        if(response.Count > 0)
+        {
+            GeneralSetting offlineMapSetting = response.FirstOrDefault();
+            var offlineMap = offlineMapSetting.Value;
+            var directory = Path.GetDirectoryName(offlineMap);
+            if(offlineMapDirectory == directory)
+            { 
+                selectedFile = Path.GetFileName(offlineMapSetting.Value);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void ToggleSwitch()
+    {
+        isUsingOnlineMap = !isUsingOnlineMap;
+        StateHasChanged();
+    }
+    private async Task OpenFile()
+    {
+        try
+        {
+            CancellationTokenSource source = new CancellationTokenSource();
+            CancellationToken token = source.Token;
+
+            var folder = await FolderPicker.PickAsync(token);
+            string folderDirectory = "";
+            if (folder.IsSuccessful)
+            {
+                folderDirectory = folder.Folder.Path;
+                StateHasChanged();
+            }
+            var tpkxfiles = Directory.GetFiles(folderDirectory, "*.tpkx").Select(Path.GetFileName).ToList();
+            //only accepting .tpkx file for now
+            if (tpkxfiles.Any())
+            {
+                uploadedFolderPath = folderDirectory;
+                StateHasChanged();
+            }
+            else
+            {
+                Snackbar.Add("only .tpkx files accepted", Severity.Error);
+
+            }
+        }
+        catch (Exception ex)
+        {
+            // Handle exceptions
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private async void Apply()
+    {
+        try
+        {
+            //Using Offline Map
+            if (!isUsingOnlineMap)
+            {
+                var activePanel = tabs.ActivePanel;
+                if(activePanel == panel1)
+                {
+                    if (selectedFile != null)
+                    {
+                        var response = await setting.GetByName(new SettingName { name = appState.SelectedDataset.Name });
+                        if (response.Count > 0)
+                        {
+                            GeneralSetting offlineMapSetting = response.FirstOrDefault();
+                            offlineMapSetting.Value = selectedFile;
+                            var editResponse = await setting.EditValue(offlineMapSetting);
+                            if (editResponse != null)
+                            {
+                                Snackbar.Add("Offline map applied successfully.", Severity.Success);
+                                appState.applyOfflineMap(selectedFile);
+                            }
+                            else
+                            {
+                                Snackbar.Add("Unexpected Error occured.", Severity.Error);
+                            }
+                        }
+                        else
+                        {
+                            GeneralSetting newOfflineMapSetting = new GeneralSetting
+                                {
+                                    Name = appState.SelectedDataset.Name,
+                                    Description = "last used offline map",
+                                    Type = SettingType.String,
+                                    Value = selectedFile,
+                                    Category = "Offline Map",
+                                };
+                            var createResponse = await setting.Create(newOfflineMapSetting);
+                            if (createResponse != null)
+                            {
+                                Snackbar.Add("Offline map applied successfully.", Severity.Success);
+                                appState.applyOfflineMap(selectedFile);
+                            }
+                            else
+                            {
+                                Snackbar.Add("Unexpected Error occured.", Severity.Error);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Snackbar.Add("No file was selected.", Severity.Error);
+                    }
+                }
+                else if(activePanel == panel2) // Apply uploaded offline map
+                {
+                    if (string.IsNullOrWhiteSpace(uploadedFolderPath))
+                    {
+                        Snackbar.Add("Please upload an offline map folder first.", Severity.Warning);
+                        return;
+                    }
+
+                    var offlineMapDirectory = AppPaths.OfflineMapFolder;
+                    if (!Directory.Exists(offlineMapDirectory))
+                    {
+                        Directory.CreateDirectory(offlineMapDirectory);
+                    }
+
+                    var offlineMapPath = Path.Combine(offlineMapDirectory, Path.GetFileName(uploadedFolderPath));
+                    if (!Directory.Exists(offlineMapPath))
+                    {
+                        Directory.CreateDirectory(offlineMapPath);
+                    }
+
+                    var tpkxFiles = Directory.GetFiles(uploadedFolderPath, "*.tpkx");
+                    if (tpkxFiles.Any()) // Copy selected folder with tpkxfiles to OfflineMap folder.
+                    {
+                        foreach(string tpkxFile in tpkxFiles)
+                        {
+                            var fileName = Path.GetFileName(tpkxFile);
+                            var destPath = Path.Combine(offlineMapPath, fileName);
+
+                            File.Copy(tpkxFile, destPath, overwrite: true);
+                        }
+                    }
+                    if (uploadedFolderPath != null)
+                    {
+
+                        var response = await setting.GetByName(new SettingName { name = appState.SelectedDataset.Name });
+                        if (response.Count > 0)
+                        {
+                            GeneralSetting offlineMapSetting = response.FirstOrDefault();
+                            offlineMapSetting.Value = offlineMapPath;
+                            var editResponse = await setting.EditValue(offlineMapSetting);
+                            if (editResponse != null)
+                            {
+                                Snackbar.Add("Offline map applied successfully.", Severity.Success);
+                                appState.applyOfflineMap(uploadedFolderPath);
+                            }
+                            else
+                            {
+                                Snackbar.Add("Unexpected Error occured.", Severity.Error);
+                            }
+                        }
+                        else
+                        {
+                            GeneralSetting newOfflineMapSetting = new GeneralSetting
+                                {
+                                    Name = appState.SelectedDataset.Name,
+                                    Description = "last used offline map",
+                                    Type = SettingType.String,
+                                    Value = offlineMapPath,
+                                    Category = "Offline Map",
+                                };
+                            var createResponse = await setting.Create(newOfflineMapSetting);
+                            if (createResponse != null)
+                            {
+                                Snackbar.Add("Offline map applied successfully.", Severity.Success);
+                                appState.applyOfflineMap(uploadedFolderPath);
+                            }
+                            else
+                            {
+                                Snackbar.Add("Unexpected Error occured.", Severity.Error);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Snackbar.Add("No file was uploaded.", Severity.Error);
+                    }
+                }
+            }
+            else
+            {
+                var isInternetAvailable = System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+                if (isInternetAvailable)
+                {
+                    appState.applyOfflineMap("online");
+                    var deleteResponse = await setting.DeleteByName(new SettingName { name = appState.SelectedDataset.Name });
+                    if(deleteResponse.Id > 0)
+                    {
+                        Console.WriteLine("Offline map path is deleted from the database.");
+                    }
+                    Snackbar.Add("Online map applied successfully.", Severity.Success);
+                }
+                else
+                {
+                    Snackbar.Add("The application is currently offline. Please connect to the internet to use the online map.", Severity.Error);
+                }
+            }
+
+        }
+        catch(Exception ex)
+        {
+            Snackbar.Add("Error occured"+ ex.Message, Severity.Error);
+        }
+    }
+}
+

@@ -1,0 +1,287 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes
+@using System.Text.Json
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject LayerViewModel viewModel;
+@inject ISegmentGridService segmentGridService;
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:1px; margin:1px;" OnClick="Close"></MudIconButton>
+</div>
+@if (layerType == LayerNames.CrackClassification)
+{
+    <MudContainer>
+        <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="m-3">Edit Selected Crack Classifications</MudText>
+
+        <MudStack Row="true">
+            <MudText Color="Color.Primary">Crack Type : </MudText>
+            <MudSelect T="string" @bind-Value="strCrackType" Variant="Variant.Outlined" Margin="Margin.Dense" Dense Class="my-2">
+                <MudSelectItem Value="@("Others")">Others</MudSelectItem>
+                <MudSelectItem Value="@("None")">None</MudSelectItem>
+                <MudSelectItem Value="@("Transversal")">Transversal</MudSelectItem>
+                <MudSelectItem Value="@("Longitudinal")">Longitudinal</MudSelectItem>
+                <MudSelectItem Value="@("Fatigue")">Fatigue</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+
+        <MudStack Row="true">
+            <MudText Color="Color.Primary">Severity : </MudText>
+            <MudSelect T="string" @bind-Value="strSeverity" Variant="Variant.Outlined" Margin="Margin.Dense" Dense Class="my-2">
+                <MudSelectItem Value="@("None")">None</MudSelectItem>
+                <MudSelectItem Value="@("Very Low")">Very Low</MudSelectItem>
+                <MudSelectItem Value="@("Low")">Low</MudSelectItem>
+                <MudSelectItem Value="@("Medium")">Medium</MudSelectItem>
+                <MudSelectItem Value="@("High")">High</MudSelectItem>
+                <MudSelectItem Value="@("Very High")">Very High</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+        
+        <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Spacing="1">
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" Class="m-2" OnClick="Update">Update</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" Class="m-2" OnClick="Close">Cancel</MudButton>
+        </MudStack>
+    </MudContainer>
+}
+else if (layerType == LayerNames.CrackSummary)
+{
+    <MudContainer>
+        <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="m-3">Edit Selected Cracks Summary</MudText>
+
+        <MudStack Row="true">
+            <MudText Color="Color.Primary">MTQ : </MudText>
+            <MudSelect T="string" @bind-Value="strCrackMTQ" Variant="Variant.Outlined" Margin="Margin.Dense" Dense Class="my-2">
+                <MudSelectItem Value="@("Others")">Others</MudSelectItem>
+                <MudSelectItem Value="@("None")">None</MudSelectItem>
+                <MudSelectItem Value="@("Transversal")">Transversal</MudSelectItem>
+                <MudSelectItem Value="@("Longitudinal")">Longitudinal</MudSelectItem>
+                <MudSelectItem Value="@("Fatigue")">Fatigue</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+
+        <MudStack Row="true">
+            <MudText Color="Color.Primary">Severity : </MudText>
+            <MudSelect T="string" @bind-Value="strSeverity" Variant="Variant.Outlined" Margin="Margin.Dense" Dense Class="my-2">
+                <MudSelectItem Value="@("Very Low")">Very Low</MudSelectItem>
+                <MudSelectItem Value="@("Low")">Low</MudSelectItem>
+                <MudSelectItem Value="@("Medium")">Medium</MudSelectItem>
+                <MudSelectItem Value="@("High")">High</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+
+        <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Spacing="1">
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" Class="m-2" OnClick="Update">Update</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" Class="m-2" OnClick="Close">Cancel</MudButton>
+        </MudStack>
+    </MudContainer>
+}
+
+@code {
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    string loadingImage = "/images/download.gif";
+    string loadingText = "Update is in progress...";
+    DialogParameters parameters;
+    private string layerType;
+
+    private IEnumerable<LCMS_Segment_Grid> listLCMS_Segment_Grids = null;
+    private int LCMS_Segment_GridCount = 0;
+    private string strCrackType = string.Empty, strSeverity = string.Empty;
+
+    private IEnumerable<LCMS_CrackSummary> listLCMS_CrackSummary = null;
+    private int LCMS_CrackSummary_Count = 0;
+    private string strCrackMTQ = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        appEngine = MauiProgram.AppEngine;
+        appState.CrackEditChanged += InitializeCrackEdit;
+    }
+
+    private void InitializeCrackEdit(string layer)
+    {
+        layerType = layer;
+        if (layer == LayerNames.CrackClassification)
+        {
+            GetServerClassicifationData();
+        }
+        else if (layer == LayerNames.CrackSummary)
+        {
+            GetServerSummaryData();
+        }
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        InitializeValues();
+        appState.cracksEditIdsForProcessing.Clear();
+        appState.ClosePopupInMap();
+    }
+
+    private async void Update()
+    {
+        if ((strCrackMTQ == string.Empty || strCrackType == string.Empty) && strSeverity == string.Empty)
+        {
+            Snackbar.Add("Please select at least one value to update the information.", Severity.Info);
+            return;
+        }
+
+        List<string> updateQueries = new List<string>();
+        string listedIds = string.Join(", ", appState.cracksEditIdsForProcessing.Select(n => n));
+
+        parameters = new DialogParameters
+            {
+                { "DialogImage", loadingImage },
+                { "DialogText", loadingText }
+            };
+
+        var dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+        await Task.Delay(2000);
+
+        if (!string.IsNullOrEmpty(listedIds))
+        {
+            if (layerType == LayerNames.CrackClassification)
+            {
+                string type = strCrackType;
+                var setClauses = new List<string>();
+
+                switch (strCrackType)
+                {
+                    case "Others":
+                        type = "Unknown";
+                        break;
+
+                    case "None":
+                        type = "WheelPath";
+                        break;
+
+                    case "Fatigue":
+                        type = "Alligator";
+                        break;
+
+                    default:
+                        break;
+                };
+                if (!string.IsNullOrEmpty(type))
+                    setClauses.Add($"CrackType = '{type}'");
+
+                if (!string.IsNullOrEmpty(strSeverity))
+                    setClauses.Add($"Severity = '{strSeverity}'");
+
+                updateQueries.Add($"UPDATE LCMS_Segment_Grid SET {string.Join(", ", setClauses)} WHERE Id in ({listedIds})");
+
+                if (updateQueries.Any())
+                    await segmentGridService.ExecuteQueryInDb(updateQueries);
+
+
+                //reload all graphics
+                appState.LayerSelected(LayerNames.SegmentGrid, false);
+                appState.LayerSelected(LayerNames.SegmentGrid, true);
+            }
+            else if (layerType == LayerNames.CrackSummary)
+            {
+                var setClauses = new List<string>();
+
+                if (!string.IsNullOrEmpty(strCrackMTQ))
+                    setClauses.Add($"MTQ = '{strCrackMTQ}'");
+
+                if (!string.IsNullOrEmpty(strSeverity))
+                    setClauses.Add($"Severity = '{strSeverity}'");
+
+                updateQueries.Add($"UPDATE LCMS_CrackSummary SET {string.Join(", ", setClauses)} WHERE Id in ({listedIds})");
+
+                if (updateQueries.Any())
+                    await segmentGridService.ExecuteQueryInDb(updateQueries);
+
+                //reload all graphics
+                appState.LayerSelected(LayerNames.CrackSummary, false);
+                appState.LayerSelected(LayerNames.CrackSummary, true);
+            }
+        }
+
+        dialog.Close();
+
+        Close();
+    }
+
+    private Task<TableData<LCMS_Segment_Grid>> GetServerClassicifationData()
+    {
+        try
+        {
+            listLCMS_Segment_Grids?.ToList().Clear();
+            string sort = " ASC";
+
+            var response = appEngine.SegmentGridService.QueryAsync(GenerateQuery(sort, "LCMS_Segment_Grid")).Result;
+            var countReply = appEngine.SegmentGridService.GetCountAsync(GenerateQuery(sort, "LCMS_Segment_Grid")).Result;
+            LCMS_Segment_GridCount = countReply.Count;
+            listLCMS_Segment_Grids = response;
+
+            return Task.FromResult(new TableData<LCMS_Segment_Grid>
+                {
+                    Items = response,
+                    TotalItems = LCMS_Segment_GridCount
+                });
+        }
+        catch (Exception ex)
+        {
+            if (ex != null) { Console.WriteLine(ex.Message); }
+            return null;
+        }
+    }
+
+        private Task<TableData<LCMS_CrackSummary>> GetServerSummaryData()
+    {
+        try
+        {
+            listLCMS_CrackSummary?.ToList().Clear();
+            string sort = " ASC";
+
+            var response = appEngine.CrackSummaryService.QueryAsync(GenerateQuery(sort, "LCMS_CrackSummary")).Result;
+            LCMS_CrackSummary_Count = response.Count(); // countReply.Count;
+            listLCMS_CrackSummary = response;
+
+            return Task.FromResult(new TableData<LCMS_CrackSummary>
+                {
+                    Items = response,
+                    TotalItems = LCMS_CrackSummary_Count
+                });
+        }
+        catch (Exception ex)
+        {
+            if (ex != null) { Console.WriteLine(ex.Message); }
+            return null;
+        }
+    }
+
+    private string GenerateQuery(string sort, string tableName)
+    {
+        //SELECT * FROM tablename WHERE Id in (Id1,Id2,..etc) ORDER BY ID ASC;
+        string query = string.Empty;
+        string listedIds = string.Join(", ", appState.cracksEditIdsForProcessing.Select(n => n));
+
+        if (!string.IsNullOrEmpty(listedIds))
+            query = $"SELECT * FROM {tableName} WHERE Id in ({listedIds}) ORDER BY Id {sort}";
+
+        return query;
+    }
+
+    private void InitializeValues()
+    {
+        strCrackType = string.Empty;
+        strSeverity = string.Empty;
+        strCrackMTQ = string.Empty;
+        StateHasChanged();
+    }
+}

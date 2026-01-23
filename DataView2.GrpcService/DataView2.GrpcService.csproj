@@ -1,0 +1,162 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Remove="Migrations\Project - Copy\**" />
+		<Compile Remove="Migrations\Project_\**" />
+		<Content Remove="Migrations\Project - Copy\**" />
+		<Content Remove="Migrations\Project_\**" />
+		<EmbeddedResource Remove="Migrations\Project - Copy\**" />
+		<EmbeddedResource Remove="Migrations\Project_\**" />
+		<MauiCss Remove="Migrations\Project - Copy\**" />
+		<MauiCss Remove="Migrations\Project_\**" />
+		<MauiXaml Remove="Migrations\Project - Copy\**" />
+		<MauiXaml Remove="Migrations\Project_\**" />
+		<None Remove="Migrations\Project - Copy\**" />
+		<None Remove="Migrations\Project_\**" />
+		<Page Remove="Migrations\Project - Copy\**" />
+		<Page Remove="Migrations\Project_\**" />
+	</ItemGroup>
+
+	
+ <ItemGroup>
+    <Compile Remove="Migrations\20231105234131_initial.cs" />
+    <Compile Remove="Services\AppDbServices\EntityService.cs" />
+    <Compile Remove="Services\AppDbServices\GenericRepositoryService.cs" />
+  </ItemGroup>
+
+
+	<ItemGroup>
+		<None Remove="GPS_Processed" />
+		<None Remove="GPS_Processed.csv" />
+		<None Remove="Protos\ExportDataService.proto" />
+		<None Remove="Protos\srvcsurveyprocessing.proto" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Protobuf Include="Protos\ExportDataService.proto" GrpcServices="Server" />
+		<Protobuf Include="Protos\GenerateReportService.proto" GrpcServices="Server" />
+		<Protobuf Include="Protos\greet.proto" GrpcServices="Server" />
+		<Protobuf Include="Protos\surveyprocessing.proto" GrpcServices="Server" />
+		<Protobuf Include="Protos\srvcsurveyprocessing.proto" GrpcServices="Client" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Azure.Storage.Blobs" Version="12.23.0" />
+		<PackageReference Include="CsvHelper" Version="33.0.1" />
+		<PackageReference Include="Dapper" Version="2.1.35" />
+		<PackageReference Include="DotSpatial.Data" Version="4.0.656" />
+		<PackageReference Include="EPPlus" Version="8.2.1" />
+		<PackageReference Include="Esri.ArcGISRuntime.Maui" Version="200.6.0" />
+		<PackageReference Include="Google.Protobuf" Version="3.29.2" />
+		<PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
+		<PackageReference Include="Grpc.AspNetCore.Web" Version="2.67.0" />
+		<PackageReference Include="Grpc.Tools" Version="2.68.1">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+		<PackageReference Include="microsoft.entityframeworkcore.design" Version="9.0.0">
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+			<PrivateAssets>all</PrivateAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
+		<PackageReference Include="NetTopologySuite" Version="2.5.0" />
+		<PackageReference Include="NetTopologySuite.IO.ShapeFile" Version="2.1.0" />
+		<PackageReference Include="NPOI" Version="2.7.4" />
+		<PackageReference Include="OpenCvSharp4" Version="4.10.0.20241108" />
+		<PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
+		<PackageReference Include="protobuf-net.Grpc.AspNetCore" Version="1.2.2" />
+		<PackageReference Include="Serilog" Version="4.2.0" />
+		<PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
+		<PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+		<PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+		<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+		<PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
+		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+		<PackageReference Include="System.Data.SQLite" Version="1.0.119" />
+	</ItemGroup>
+
+
+	<ItemGroup>
+		<Folder Include="Migrations\Metadata\" />
+		<Folder Include="Repositories\" />
+		<Folder Include="Services\Header Services\" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\DataView2.Core\DataView2.Core.csproj" />
+		<ProjectReference Include="..\DataView2.Packages.Ladybug\DataView2.Packages.Ladybug.csproj" />
+		<ProjectReference Include="..\DataView2.Packages.Lcms\DataView2.Packages.Lcms.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Update="appsettings.json">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="LcmsAnalyserParam.cfg">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Model_MMO_MRs_V001.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Model_Patch_FR_V002.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Model_Pumping_FR_V001.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Properties\LcmsAnalyserParam.cfg">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Properties\License.txt">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Properties\Model_MMO_MRs_V001.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Properties\Model_Patch_FR_V002.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="Properties\Model_Pumping_FR_V001.pb">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="DataView.db">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Report\KOREA Report Template.xlsx">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Geometry_calc.dll">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+		<PRIResource Remove="Migrations\Project - Copy\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PRIResource Remove="Migrations\Project_\**" />
+	</ItemGroup>
+
+</Project>

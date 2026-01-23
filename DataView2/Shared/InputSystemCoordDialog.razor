@@ -1,0 +1,55 @@
+﻿@using DataView2.Core.Helper
+<MudDialog>
+    <DialogContent>
+        <MudText Style="font-size: 16px; color: rgb(26, 64, 118) !important;" Color="Color.Primary">@HeaderText</MudText>
+        <MudSelect T="string" Label="@UserInput" @bind-Value="selectedCSTFormat" Style="width: 130px; max-width: 80%; margin-left: 25px;">
+            @foreach (var format in cstFormats)
+            {
+                <MudSelectItem Value="@format">
+                    @if (selectedCSTFormat == format)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.PinDrop" style="font-size:larger;" Color="Color.Error" />
+                    }
+                    <span style="margin-left: 10px; font-size:small;">@format</span>
+                </MudSelectItem> 
+            }
+        </MudSelect>
+
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Submit">OK</MudButton>
+        <MudButton Color="Color.Secondary" OnClick="Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private MudDialogInstance MudDialog { get; set; }
+    private bool IsDifferentLocation { get; set; } = false;
+    [Parameter] public string HeaderText { get; set; } = "Insert value: ";
+    [Parameter] public string UserInput { get; set; }
+
+    public List<string> cstFormats;
+    private string selectedCSTFormat { get; set; } = "WGS84";
+
+    private void Cancel() => MudDialog.Close(DialogResult.Cancel());
+    private void Submit()
+    {
+        MudDialog.Close(DialogResult.Ok((selectedCSTFormat, IsDifferentLocation))); // Retorna el valor del checkbox junto con UserInput.
+    }
+
+    protected override void OnInitialized()
+    {
+        cstFormats = LoadCoordinateFormats();
+    }
+
+    public List<string> LoadCoordinateFormats()
+    {
+        var cstFormats = new List<string>();
+        foreach (Tools.cstFormats format in System.Enum.GetValues(typeof(Tools.cstFormats)))
+        {
+            cstFormats.Add(format.GetDescription());
+        }
+        return cstFormats;
+    }
+}

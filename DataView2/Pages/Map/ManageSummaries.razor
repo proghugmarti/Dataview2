@@ -1,0 +1,1067 @@
+﻿@using CommunityToolkit.Maui.Storage
+@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes
+@using System.Reflection
+@using System.Text.RegularExpressions
+@using Newtonsoft.Json
+@using Newtonsoft.Json.Linq
+@using System.Text.Json
+@using System.Text
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject ApplicationEngine appEngine;
+@inject ApplicationState appState;
+@inject LayerViewModel viewModel;
+@inject ISnackbar Snackbar
+@inject MudBlazor.IDialogService DialogService
+@inject NavigationManager NavManager
+
+<MudProviders />
+
+@if (mode == "summary")
+{
+    <MudStack Spacing="2">
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2">
+            <MudText Typo="Typo.h6" Align="Align.Center">Add a summary</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudStack Class="mx-3" Spacing="2">
+            <MudRadioGroup T="bool" @bind-value="isUsingSampleUnitSet" Class="mx-auto">
+                <MudRadio T="bool" Value="true">Sample Unit Summary</MudRadio>
+                <MudRadio T="bool" Value="false">Interval Summary</MudRadio>
+            </MudRadioGroup>
+            @if (isUsingSampleUnitSet)
+            {
+                if (summarySampleUnitSets != null && summarySampleUnitSets.Count > 0)
+                {
+                    <MudSelect T="SampleUnit_Set" Label="Sample Unit Set" Variant="Variant.Outlined" @bind-Value="@selectedSummarySet" Class="m-0">
+                        @foreach (var sampleUnitSet in summarySampleUnitSets)
+                        {
+                            @if (sampleUnitSet.SampleUnits != null)
+                            {
+                                <MudSelectItem T="SampleUnit_Set" Value="sampleUnitSet">@sampleUnitSet.Name</MudSelectItem>
+                            }
+                            else
+                            {
+                                <MudSelectItem T="SampleUnit_Set" Value="sampleUnitSet" Disabled>@sampleUnitSet.Name (No sample units found)</MudSelectItem>
+                            }
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="string" Label="No Sample Unit Set found" Variant="Variant.Outlined" Class="m-0" Disabled></MudSelect>
+                }
+            }
+            else
+            {
+                @if (intervalSampleUnitSets.Count > 0)
+                {
+                    <MudCheckBox T="bool" Size="Size.Small" @bind-Value="isUsingPastIntervalSUS" Dense>
+                        <span class="mud-typography-body2">Use previously created interval set?</span>
+                    </MudCheckBox>
+                    if (isUsingPastIntervalSUS)
+                    {
+                        <MudSelect T="SampleUnit_Set" Label="Interval Sample Unit Set" Variant="Variant.Outlined" @bind-Value="@selectedIntervalSet" Class="m-0">
+                            @foreach (var sampleUnitSet in intervalSampleUnitSets)
+                            {
+                                @if (sampleUnitSet.SampleUnits != null)
+                                {
+                                    <MudSelectItem T="SampleUnit_Set" Value="sampleUnitSet">@sampleUnitSet.Name</MudSelectItem>
+                                }
+                                else
+                                {
+                                    <MudSelectItem T="SampleUnit_Set" Value="sampleUnitSet" Disabled>@sampleUnitSet.Name (No sample units found)</MudSelectItem>
+                                }
+                            }
+                        </MudSelect>
+                    }
+                    else
+                    {
+                        <MudNumericField @bind-Value="interval" Label="Interval (m)" Variant="Variant.Outlined" HelperText="Defines the fixed interval (in meters) for generating segment summaries." Margin="Margin.Dense" />
+                    }
+                }
+                else
+                {
+                    <MudNumericField @bind-Value="interval" Label="Interval (m)" Variant="Variant.Outlined" HelperText="Defines the fixed interval (in meters) for generating segment summaries." Margin="Margin.Dense" />
+                }
+            }
+
+            @if (surveys.Count > 0)
+            {
+                <MudSelect T="Survey" Variant="Variant.Outlined" Label="Please select survey(s)" Class="m-0" MultiSelection="true"
+                LockScroll="false" SelectedValues="@selectedSummarySurveys" SelectedValuesChanged="OnSurveySummarySelected">
+                    @foreach (var survey in surveys)
+                    {
+                        <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudSelect T="string" Label="No survey found" Variant="Variant.Outlined" Class="m-0" Disabled></MudSelect>
+            }
+
+            <MudTextField T="string" Label="Summary Name" @bind-Value="summaryName" Variant="Variant.Outlined" Class="m-0"></MudTextField>
+
+            <MudStack>
+                <MudPaper Outlined style="height:200px; overflow-y: auto;">
+                    <MudList T="SummaryItem">
+                        <MudStack Row Spacing="0">
+                            <MudTooltip Text="Load a summary template" >
+                                <MudIconButton Icon="@Icons.Material.Filled.FileDownload" Color="Color.Primary" OnClick="LoadSummaryTemplate" />
+                            </MudTooltip>
+                            <MudTooltip Text="Save as a summary template">
+                                <MudIconButton Icon="@Icons.Material.Filled.FileUpload" Color="Color.Primary" OnClick="SaveSummaryTemplate" />
+                            </MudTooltip>
+                        </MudStack>
+
+                        @if (summaryItems.Any())
+                        {
+                            @foreach (var summary in summaryItems)
+                            {
+                                <MudStack Row>
+                                    <MudListItem Value="summary">@summary.TableName @summary.NumericField @summary.Operation</MudListItem>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => RemoveSummaries(summary))"></MudIconButton>
+                                </MudStack>
+                            }
+                        }
+                    </MudList>
+                </MudPaper>
+            </MudStack>
+        </MudStack>
+
+        <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Class="my-1">
+            @if (isUsingSampleUnitSet)
+            {
+                @* redirect to the creating a boundary *@
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="RedirectToSampleUnit">Create a Sample Unit Set</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="OpenSummaryDialog">Add</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveSampleUnitSummary">Save Summary</MudButton>
+            }
+            else
+            {
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="OpenSummaryDialog">Add</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveIntervalSummary">Save Summary</MudButton>
+            }
+        </MudStack>
+    </MudStack>
+
+    @if (isSummaryProcessing)
+    {
+        <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudProgressLinear Color="Color.Primary" Size="Size.Large" Striped="true" Value="@progress">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Dark">
+                        <b>@progress %</b>
+                    </MudText>
+                </MudProgressLinear>
+                <MudText Typo="Typo.caption" Align="Align.Center">Creating Summaries...</MudText>
+            </MudStack>
+        </MudOverlay>
+    }
+}
+else if (mode == "recalculate")
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-3">
+            <MudText Typo="Typo.h6" Class="ms-1">Recalculate Summaries</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudStack>
+            <MudText Typo="Typo.caption" Align="Align.Center">
+                <b>SummaryName</b> : @tableName<br />
+                <b>Survey</b> : @string.Join(", ", surveys.Select(s => s.SurveyName))
+            </MudText>
+
+            @if (summaryItems.Count > 0)
+            {
+                <MudTable T="SummaryItem" Items="@summaryItems" MultiSelection="true" Hover="true" HeaderClass="mud-header" Style="margin:10px; max-height:350px; overflow-y: auto" @bind-SelectedItems="selectedSummaryDefects">
+                    <HeaderContent>
+                        <MudTh>Table Name</MudTh>
+                        <MudTh>Operation</MudTh>
+                        <MudTh>Field</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="TableName">@context.TableName</MudTd>
+                        <MudTd DataLabel="Operation">@context.Operation</MudTd>
+                        <MudTd DataLabel="Field">@context.NumericField</MudTd>
+                        <MudTd>
+                            @if (IsUserAdded(context))
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="@(() => RemoveSummaries(context))"></MudIconButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+                <div class="d-flex justify-content-center gap-2">
+                    <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="OpenSummaryDialog">Add</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RecalculateSelected">Recalculate</MudButton>
+                </div>
+            }
+        </MudStack>
+    </MudStack>
+
+    @if (isSummaryProcessing)
+    {
+        <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudProgressLinear Color="Color.Primary" Size="Size.Large" Striped="true" Value="@progress">
+                    <MudText Typo="Typo.subtitle1" Color="Color.Dark">
+                        <b>@progress %</b>
+                    </MudText>
+                </MudProgressLinear>
+                <MudText Typo="Typo.caption" Align="Align.Center">Recalculating Summaries...</MudText>
+            </MudStack>
+        </MudOverlay>
+    }
+}
+else
+{
+    <MudStack>
+        <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-2">
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+        </MudStack>
+        <MudText>Sorry, the page can not be found.</MudText>
+    </MudStack>
+}
+
+<MudDialog @bind-Visible="_dialogVisible" Options="_dialogOptions">
+    <DialogContent>
+        <MudStack>
+            @if (summaryTableNames.Any())
+            {
+                <MudSelect T="string" Label="Tables" Variant="Variant.Outlined" Value="selectedSummaryTable" ValueChanged="OnSummaryTableSelected" MaxHeight="180" LockScroll="false">
+                    @foreach (var table in summaryTableNames)
+                    {
+                        <MudSelectItem T="string" Value="@table">@table</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                if (mode == "summary" && selectedSummarySurveys.Count() == 0)
+                {
+                    <MudSelect T="string" Label="Select a Survey first" Variant="Variant.Outlined" Disabled></MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="string" Label="No tables found" Variant="Variant.Outlined" Disabled></MudSelect>
+                }
+            }
+
+            @if (numericValues != null && numericValues.Count > 0)
+            {
+                <MudSelect T="string" Label="Fields" Variant="Variant.Outlined" @bind-Value="@selectedSummaryField" MaxHeight="180" LockScroll="false">
+                    @foreach (var value in numericValues)
+                    {
+                        <MudSelectItem T="string" Value="@value">@value</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else if (metaTableNumericValues != null && metaTableNumericValues.Count > 0)
+            {
+                <MudSelect T="string" Label="Fields" Variant="Variant.Outlined" @bind-Value="@selectedSummaryField" MaxHeight="180" LockScroll="false">
+                    @foreach (var value in metaTableNumericValues)
+                    {
+                        <MudSelectItem T="string" Value="@value.Value">@value.Value</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudSelect T="string" Label="No Numeric Field Found" Variant="Variant.Outlined" Disabled></MudSelect>
+            }
+
+            <MudSelect T="string" Label="Operation" Variant="Variant.Outlined" @bind-Value="@selectedSummaryOperation">
+                <MudSelectItem T="string" Value="@("SUM")">Sum</MudSelectItem>
+                <MudSelectItem T="string" Value="@("AVG")">Average</MudSelectItem>
+                <MudSelectItem T="string" Value="@("COUNT")">Count</MudSelectItem>
+                <MudSelectItem T="string" Value="@("MIN")">Min</MudSelectItem>
+                <MudSelectItem T="string" Value="@("MAX")">Max</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+
+        <MudStack Row Justify="Justify.Center" Class="m-3">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="AddSummaries">Add</MudButton>
+        </MudStack>
+    </DialogContent>
+</MudDialog>
+@code {
+    [Parameter]
+    public string mode { get; set; }
+    [Parameter]
+    public string tableName { get; set; }
+
+    private List<Summary> summaries = new List<Summary>();
+    private List<SummaryItem> summaryDefects = new List<SummaryItem>();
+    private HashSet<SummaryItem> selectedSummaryDefects = new HashSet<SummaryItem>();
+
+    private IEnumerable<Survey> selectedSummarySurveys = new HashSet<Survey>();
+    private List<Survey> surveys = new List<Survey>();
+    private string surveyLabel = "Nothing Selected";
+
+    private List<SampleUnit_Set> summarySampleUnitSets = new List<SampleUnit_Set>();
+    private List<SampleUnit_Set> intervalSampleUnitSets = new List<SampleUnit_Set>();
+    private List<string> numericValues = new List<string>();
+    private Dictionary<int, string> metaTableNumericValues = new Dictionary<int, string>();
+    private List<string> summaryTableNames = new List<string>();
+    private SampleUnit_Set selectedSummarySet;
+    private SampleUnit_Set selectedIntervalSet;
+
+    private string summaryName;
+    private string selectedSummaryTable;
+    private string selectedSummaryField;
+    private string selectedSummaryOperation;
+    private bool isSelectedSummaryMetaTable = false;
+    private double progressValue = 0;
+    private bool isSummaryProcessing = false;
+    private bool isUsingSampleUnitSet = true;
+    private bool isUsingPastIntervalSUS = false;
+    private int interval = 0;
+    private int progress = 0;
+
+    //dialog
+    private bool _dialogVisible = false;
+    private readonly DialogOptions _dialogOptions = new() { CloseButton = true, FullWidth = true };
+
+    public List<SummaryItem> summaryItems = new List<SummaryItem>();
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        if (mode == "summary")
+        {
+            GetSampleUnitSets();
+        }
+        else if (mode == "recalculate")
+        {
+            GetSummariesForRecalculation();
+        }
+
+        appState.OnIntervalSummaryFinished += SegmentSummaryProcessed;
+        summaryTableNames = TableNameHelper.GetAllLCMSTables();
+        if (summaryTableNames.Contains(LayerNames.Segment))
+        {
+            summaryTableNames.Remove("Segment");
+        }
+    }
+
+    private void Close()
+    {
+        appState.OnIntervalSummaryFinished -= SegmentSummaryProcessed;
+        viewModel.ClosePopup();
+    }
+
+    //Creating Summaries
+    private async void GetSampleUnitSets()
+    {
+        //get surveys
+        surveys = await appEngine.SurveyService.GetAll(new Empty());
+
+        //get sample unit set
+        var response = await appEngine.SampleUnitSetService.GetAll(new Empty());
+        if (response != null && response.Count > 0)
+        {
+            var summarySUS = response.Where(x => x.Type == SampleUnitSetType.Summary);
+            if (summarySUS != null && summarySUS.Any())
+            {
+                summarySampleUnitSets = summarySUS.ToList();
+            }
+
+            var intervalSUS = response.Where(x => x.Type == SampleUnitSetType.Interval);
+            if (intervalSUS != null && intervalSUS.Any())
+            {
+                intervalSampleUnitSets = intervalSUS.ToList();
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void OpenSummaryDialog()
+    {
+        _dialogVisible = true;
+    }
+
+    private async void LoadSummaryTemplate()
+    {
+        //open file picker
+        var customFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".csv" } } });
+        var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Please select a CSV file",
+                FileTypes = customFileType,
+            });
+
+        if (result != null)
+        {
+            // Read CSV content from file
+            using var stream = await result.OpenReadAsync();
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+            summaryItems = ParseCsvToSummaryItems(content);
+        }
+        StateHasChanged();
+    }
+
+    private List<SummaryItem> ParseCsvToSummaryItems(string csvContent)
+    {
+        var validOperations = new List<string> { "SUM", "AVG", "COUNT" };
+        var items = new List<SummaryItem>();
+        var lines = csvContent.Split('\n');
+        // Skip the header line (index 0)
+        for (int i = 1; i < lines.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i])) continue; // Skip empty lines
+
+            var fields = lines[i].Split(',');
+            if (fields.Length >= 4)
+            {
+                var item = new SummaryItem 
+                {
+                    TableName = fields[0],
+                    NumericField = fields[1],
+                    Operation = fields[2],
+                    NumericValue = 0.0, //default 0.0
+                    IsMetaTable = bool.TryParse(fields[3], out var isMetaTable) && isMetaTable
+                };
+                var operationMatch = validOperations.FirstOrDefault(op => op.Equals(item.Operation, StringComparison.OrdinalIgnoreCase));
+                if (operationMatch != null)
+                {
+                    item.Operation = operationMatch; // Normalize to valid operation
+                }
+                else
+                {
+                    Console.WriteLine($"Invalid operation '{item.Operation}' found in line {i + 1}");
+                    Snackbar.Add($"Invalid operation '{item.Operation}' found. Entry skipped.", Severity.Error);
+                    continue; // Skip this item
+                }
+
+                var validNumericFields = GetValidNumericFields(item); // Method to retrieve valid numeric fields
+                if (validNumericFields == null) continue;
+
+                var numericFieldMatch = validNumericFields.FirstOrDefault(field => field.Equals(item.NumericField, StringComparison.OrdinalIgnoreCase));
+                if (numericFieldMatch != null)
+                {
+                    item.NumericField = numericFieldMatch;
+                }
+                else
+                {
+                    Console.WriteLine($"Invalid numeric field '{item.NumericField}' found in line {i + 1}");
+                    Snackbar.Add($"Invalid numeric field '{item.NumericField}' found in {item.TableName}. Entry skipped.", Severity.Error);
+                    continue; //Skip this item
+                }
+
+                // Check for duplicates before adding
+                bool isDuplicate = items.Any(existingItem =>
+                    existingItem.TableName.Equals(item.TableName, StringComparison.OrdinalIgnoreCase) &&
+                    existingItem.NumericField.Equals(item.NumericField, StringComparison.OrdinalIgnoreCase) &&
+                    existingItem.Operation.Equals(item.Operation, StringComparison.OrdinalIgnoreCase) &&
+                    existingItem.IsMetaTable == item.IsMetaTable);
+
+                if (!isDuplicate)
+                {
+                    items.Add(item);                    
+                }
+            }
+        }
+
+        return items;
+    }
+
+    private List<string> GetValidNumericFields(SummaryItem item)
+    {
+        var DBTableName = TableNameHelper.GetDBTableName(item.TableName);
+        var entityType = GetEntityTypeByName(DBTableName);
+        if (entityType == null)
+        {
+            if (item.IsMetaTable)
+            {
+                //DecValue1 to DecValue25
+                return Enumerable.Range(1, 25).Select(i => $"DecValue{i}").ToList();
+            }
+            else
+            {
+                return null;
+            }
+        }
+        else
+        {
+            return entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(prop => IsNumericType(prop.PropertyType) && !prop.Name.Contains("GPS") && !prop.Name.Contains("Id") &&
+                        !prop.Name.Contains("LRP") && !prop.Name.Contains("Chainage"))
+                .Select(prop => prop.Name)
+                .ToList();
+        }
+    }
+    private async Task SaveSummaryTemplate()
+    {
+        //Check if summaryItems is empty
+        if (summaryItems.Count == 0)
+        {
+            Snackbar.Add("No summaries available to save. Please add summaries before attempting to save.", Severity.Error);
+            return;
+        }
+
+        //open file saver
+        var cancellationToken = new CancellationToken();
+        var csvContent = new StringBuilder();
+        csvContent.AppendLine("TableName,NumericField,Operation,IsMetaTable");
+
+        foreach (var item in summaryItems)
+        {
+            var line = $"{item.TableName},{item.NumericField},{item.Operation},{item.IsMetaTable}";
+            csvContent.AppendLine(line);
+        }
+        using var stream = new MemoryStream(Encoding.Default.GetBytes(csvContent.ToString()));
+
+        try
+        {
+            var filePromptTask = Application.Current?.MainPage?.DisplayPromptAsync("Save Summary Template", "Choose filename");
+            var fileName = await filePromptTask;
+
+            // Check if user canceled the prompt
+            if (fileName == null)
+            {
+                Snackbar.Add("File naming canceled. The save operation was not performed.", Severity.Error);
+                return; // Exit if filename is null or whitespace, thus not proceeding further
+            }
+            else if (fileName == string.Empty)
+            {
+                fileName = "untitled";
+            }
+
+            // Ensure filename ends with '.csv'
+            if (!fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                fileName += ".csv";
+            }
+            // var documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            // var defaultPath = Path.Combine(documentsPath, "Summary Templates");
+            // #if WINDOWS 
+            // Microsoft.Win32.SaveFileDialog fileChooser = new Microsoft.Win32.SaveFileDialog(); string dname = defaultPath; fileChooser.InitialDirectory = dname;
+            // #endif
+            var fileSaverResult = await FileSaver.Default.SaveAsync(fileName, stream, cancellationToken);
+            if (fileSaverResult.IsSuccessful)
+            {
+                Snackbar.Add($"A summary template saved successfully to {fileSaverResult.FilePath}", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"Failed to save file '{fileName}'. Please try again.", Severity.Error);
+                Console.WriteLine($"File save error: {fileSaverResult.Exception?.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"An error occurred: {ex.Message}", Severity.Error);
+            Console.WriteLine($"An error occurred: {ex.Message}");            
+        }
+    }
+
+    private void AddSummaries()
+    {
+        if(selectedSummaryTable != null && selectedSummaryField != null && selectedSummaryOperation != null)
+        {
+            var newSummary = new SummaryItem
+                {
+                    TableName = selectedSummaryTable,
+                    NumericField = selectedSummaryField,
+                    Operation = selectedSummaryOperation,
+                    IsMetaTable = isSelectedSummaryMetaTable
+                };
+
+            if (isSelectedSummaryMetaTable)
+            {
+                var matchingEntry = metaTableNumericValues.FirstOrDefault(x => x.Value == selectedSummaryField);
+                var columnIndex = matchingEntry.Key;
+                newSummary.NumericField = $"DecValue{columnIndex}";
+            }
+
+            var existingSameSummaryItem = summaryItems.FirstOrDefault(x => x.TableName == newSummary.TableName && x.NumericField == newSummary.NumericField && x.Operation == newSummary.Operation && x.IsMetaTable == newSummary.IsMetaTable);
+            if(existingSameSummaryItem != null)
+            {
+                Snackbar.Add("Same summary item already exists.", Severity.Error);
+            }
+            else
+            {
+                summaryItems.Add(newSummary);
+
+                selectedSummaryTable = null;
+                selectedSummaryField = null;
+                selectedSummaryOperation = null;
+                isSelectedSummaryMetaTable = false;
+
+                Snackbar.Add("Summary added.", Severity.Success);
+            }
+        }
+        else
+        {
+            Snackbar.Add("All fields must be filled.", Severity.Error);
+        }
+    }
+
+    private void RemoveSummaries(SummaryItem summary)
+    {
+        summaryItems.Remove(summary);
+    }
+
+    private async void SaveSampleUnitSummary()
+    {
+        if (selectedSummarySet != null && selectedSummarySurveys.Count() > 0 && summaryName != null && summaryItems.Count > 0)
+        {
+            var sampleUnits = selectedSummarySet.SampleUnits.ToList();
+
+            if (sampleUnits == null || sampleUnits.Count == 0)
+            {
+                Snackbar.Add("No Sample Units found for the selected sample unit set.", Severity.Warning);
+                return;
+            }
+
+            var sameNameExist = await CheckSummaryNameIfExist();
+            if (sameNameExist)
+            {
+                return;
+            }
+
+            isSummaryProcessing = true;
+            StateHasChanged();
+
+            appState.CreateSampleUnitSummary(selectedSummarySurveys.ToList(), sampleUnits, summaryName, summaryItems, selectedSummarySet.Id);
+        }
+        else
+        {
+            Snackbar.Add("All fields must be filled", Severity.Error);
+        }
+    }
+
+    private void RedirectToSampleUnit()
+    {
+        // Get the base URL from NavigationManager dynamically
+        var baseUrl = NavManager.BaseUri;
+
+        // Append the path to the base URL
+        var fullUrl = new Uri(new Uri(baseUrl), "SummarySampleUnits").ToString();
+        appState.SetActivePage(fullUrl);
+        Close();
+    }
+
+    private async void OnSurveySummarySelected(IEnumerable<Survey> surveys)
+    {
+        //summaryTableNames.Clear();
+        var selectedList = surveys.ToList(); //avoid selection modified error
+        selectedSummarySurveys = selectedList;
+
+        foreach (var survey in selectedList)
+        {
+            // var request = new SurveyIdRequest
+            // {
+            //     SurveyId = survey.Id,
+            //     SurveyExternalId = survey.SurveyIdExternal
+            // };
+
+            // var surveyTables = await appEngine.SurveyService.FetchLCMSTablesBySurvey(request);
+            // if (surveyTables != null && surveyTables.Count > 0)
+            // {
+            //     foreach (var table in surveyTables)
+            //     {
+            //         if (!summaryTableNames.Contains(table))
+            //         {
+            //             summaryTableNames.Add(table);
+            //         }
+            //     }
+            // }
+
+            //Get MetaTable
+            var metaTables = await appEngine.MetaTableService.GetExistingMetaTableNamesBySurvey(survey.SurveyIdExternal);
+            if (metaTables != null & metaTables.Count > 0)
+            {
+                foreach (var metaTable in metaTables)
+                {
+                    if (!summaryTableNames.Contains(metaTable))
+                    {
+                        summaryTableNames.Add(metaTable);
+                    }
+                }
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void OnSummaryTableSelected(string value)
+    {
+        selectedSummaryTable = value;
+        numericValues.Clear();
+        metaTableNumericValues.Clear();
+        selectedSummaryField = null;
+
+        var DBTableName = TableNameHelper.GetDBTableName(value);
+        var entityType = GetEntityTypeByName(DBTableName);
+        if (entityType == null)
+        {
+            //metaTable
+            var metaTable = appEngine.MetaTableService.GetByName(value).Result;
+
+            if (metaTable.TableName != null)
+            {
+                for (int i = 1; i <= 25; i++)
+                {
+                    var columnName = metaTable.GetType().GetProperty($"Column{i}")?.GetValue(metaTable) as string;
+                    var columnType = metaTable.GetType().GetProperty($"Column{i}Type")?.GetValue(metaTable) as string;
+
+                    if (columnType == ColumnType.Number.ToString() || columnType == ColumnType.Measurement.ToString())
+                    {
+                        metaTableNumericValues[i] = columnName;
+                    }
+                    isSelectedSummaryMetaTable = true;
+                }
+            }
+        }
+        else
+        {
+            // Get the numeric fields using reflection
+            var fields = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(prop => IsNumericType(prop.PropertyType) && !prop.Name.Contains("GPS") && !prop.Name.Contains("Id") &&
+                            !prop.Name.Contains("LRP") && !prop.Name.Contains("Chainage"))
+                    .Select(prop => prop.Name)
+                    .ToList();
+
+            selectedSummaryField = null;
+            selectedSummaryOperation = null;
+            numericValues = fields;
+            isSelectedSummaryMetaTable = false;
+        }
+    }
+
+    public static bool IsNumericType(System.Type type)
+    {
+        // Check if the type is nullable (e.g., double? or float?)
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            type = type.GetGenericArguments()[0]; // Get the underlying type
+        }
+
+        // Check for numeric types
+        return type == typeof(int) || type == typeof(double) || type == typeof(float) ||
+               type == typeof(decimal) || type == typeof(long) || type == typeof(short) ||
+               type == typeof(byte) || type == typeof(uint) || type == typeof(ulong) ||
+               type == typeof(ushort) || type == typeof(sbyte);
+    }
+
+    private System.Type GetEntityTypeByName(string tableName)
+    {
+        return AppDomain.CurrentDomain.GetAssemblies()
+               .SelectMany(assembly => assembly.GetTypes())
+               .FirstOrDefault(type => type.Name == tableName &&
+                                       typeof(IEntity).IsAssignableFrom(type) &&
+                                       !type.IsInterface && !type.IsAbstract);
+    }
+
+    private async void SaveIntervalSummary()
+    {
+        if (isUsingPastIntervalSUS)
+        {
+            if (selectedIntervalSet == null)
+            {
+                Snackbar.Add("Please select previous interval summary set", Severity.Error);
+                return;
+            }
+        }
+        else
+        {
+            if (interval == 0)
+            {
+                Snackbar.Add("Interval can not be 0.", Severity.Error);
+                return;
+            }
+        }
+
+        if (selectedSummarySurveys.Count() == 0 || summaryName == null || summaryItems.Count == 0)
+        {
+            Snackbar.Add("All fields must be filled", Severity.Error);
+            return;
+        }
+
+        var sameNameExist = await CheckSummaryNameIfExist();
+        if (sameNameExist)
+        {
+            return;
+        }
+
+        //Check if any surveys do not contain segments
+        foreach (var selectedSurvey in selectedSummarySurveys)
+        {
+            var response = await appEngine.SegmentService.HasDataBySurvey(selectedSurvey.SurveyIdExternal);
+            if (response.Id == 0) // No segment data
+            {
+                Snackbar.Add($"{selectedSurvey.SurveyName} has no segment data available. Please deselect this survey to proceed with the interval summary.", Severity.Error);
+                return;
+            }
+        }
+
+        isSummaryProcessing = true;
+        StateHasChanged();
+
+        if (isUsingPastIntervalSUS)
+        {
+            var sampleUnits = selectedIntervalSet.SampleUnits.ToList();
+
+            if (sampleUnits == null || sampleUnits.Count == 0)
+            {
+                Snackbar.Add("No Sample Units found for the selected sample unit set.", Severity.Warning);
+                return;
+            }
+            appState.CreateSampleUnitSummary(selectedSummarySurveys.ToList(), sampleUnits, summaryName, summaryItems, selectedIntervalSet.Id);
+        }
+        else
+        {
+            appState.CreateSegmentIntervalSummary(selectedSummarySurveys.ToList(), interval, summaryName, summaryItems);
+        }
+    }
+
+    private async Task<bool> CheckSummaryNameIfExist()
+    {
+        var existingNames = TableNameHelper.GetAllLCMSOverlayIds();
+        if (existingNames.Contains(summaryName, StringComparer.OrdinalIgnoreCase))
+        {
+            Snackbar.Add("Summary name can not be same as LCMS layers. Please use a different summary name.", Severity.Error);
+            return true;
+        }
+
+        var response = await appEngine.SummaryService.HasSameNameSummary(summaryName);
+
+        if (response.Id == 1)
+        {
+            Snackbar.Add("Same summary name already exists. Please use a different summary name.", Severity.Error);
+        }
+
+        return response.Id == 1;
+    }
+
+    private async void SegmentSummaryProcessed(int progressPercent, string error = null)
+    {
+        if (progressPercent == 100)
+        {
+            if (error == null)
+                await App.Current.MainPage.DisplayAlert("Success", "All summaries have been saved successfully.", "OK");
+            else
+                await App.Current.MainPage.DisplayAlert("Error", error, "OK");
+            isSummaryProcessing = false;
+            StateHasChanged();
+
+            //Update Layer menu
+            appState.UpdateTableNames();
+            Close();
+        }
+        else if (progressPercent == -1)
+        {
+            isSummaryProcessing = false;
+            StateHasChanged();
+            if (error != null)
+            {
+                Snackbar.Add(error, Severity.Error);
+            }
+        }
+        else
+        {
+            progress = progressPercent;
+            StateHasChanged();
+        }
+    }
+
+    //Recalculate Summaries
+    private async void GetSummariesForRecalculation()
+    {
+        try
+        {
+            var existingSurveys = await appEngine.SurveyService.GetAll(new Empty());
+            var distinctSurveyIds = new List<string>();
+            var distinctSummaryDefects = new List<SummaryItem>();
+            var relatedSummaries = await appEngine.SummaryService.GetByName(tableName);
+            if (relatedSummaries != null)
+            {
+                foreach (var summary in relatedSummaries)
+                {
+                    var summaryDefects = summary.SummaryDefects;
+                    if (summaryDefects != null)
+                    {
+                        foreach (var defect in summaryDefects)
+                        {
+                            var newSummaryItem = new SummaryItem
+                                {
+                                    TableName = defect.TableName,
+                                    NumericField = defect.NumericField,
+                                    Operation = defect.Operation
+                                };
+
+                            if (defect.NumericField.Contains("DecValue"))
+                            {
+                                newSummaryItem.IsMetaTable = true;
+                            }
+
+                            if (!distinctSummaryDefects.Any(item =>
+                                  item.TableName == newSummaryItem.TableName &&
+                                  item.NumericField == newSummaryItem.NumericField &&
+                                  item.Operation == newSummaryItem.Operation))
+                            {
+                                distinctSummaryDefects.Add(newSummaryItem);
+                            }
+                        }
+                    }
+                    if (!distinctSurveyIds.Contains(summary.SurveyId))
+                    {
+                        distinctSurveyIds.Add(summary.SurveyId);
+                    }
+                }
+                summaryItems = distinctSummaryDefects;
+                summaryDefects = new List<SummaryItem>(distinctSummaryDefects);
+                summaries = relatedSummaries;
+            }
+
+
+            if (distinctSurveyIds.Count > 0)
+            {
+                foreach (var surveyId in distinctSurveyIds)
+                {
+                    var tableNames = await appEngine.SurveyService.FetchLCMSTablesByExternalSurveyId(surveyId);
+                    if (tableNames != null && tableNames.Count > 0)
+                    {
+                        foreach(var table in tableNames)
+                        {
+                            if(!summaryTableNames.Contains(table))
+                            {
+                                summaryTableNames.Add(table);
+                            }
+                        }
+                    }
+
+                    var metaTables = await appEngine.MetaTableService.GetExistingMetaTableNamesBySurvey(surveyId);
+                    if (metaTables != null & metaTables.Count > 0)
+                    {
+                        foreach (var metaTable in metaTables)
+                        {
+                            if (!summaryTableNames.Contains(metaTable))
+                            {
+                                summaryTableNames.Add(metaTable);
+                            }
+                        }
+                    }
+                }
+            }
+
+            surveys = existingSurveys.Where(x => distinctSurveyIds.Contains(x.SurveyIdExternal)).ToList();
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in Fetching Summaries {ex.Message}");
+        }
+    }
+
+    private async void RecalculateSelected()
+    {
+        try
+        {
+            if (!selectedSummaryDefects.Any())
+            {
+                Snackbar.Add("Please select at least one summary defect to recalculate.", Severity.Error);
+                return;
+            }
+
+            isSummaryProcessing = true;
+            StateHasChanged();
+
+            int completed = 0;
+            int totalUnits = summaries.Count;
+            int batchSize;
+            if (totalUnits > 300)
+            {
+                batchSize = 50;
+            }
+            else if(totalUnits > 100)
+            {
+                batchSize = 20;
+            }
+            else if (totalUnits > 50)
+            {
+                batchSize = 15;
+            }
+            else if (totalUnits > 20)
+            {
+                batchSize = 10;
+            }
+            else
+            {
+                batchSize = 5;
+            }
+
+            for (int i = 0; i < summaries.Count; i += batchSize)
+            {
+                var batch = summaries.Skip(i).Take(batchSize).ToList();
+
+                var batchRequests = new List<SummaryRequest>();
+
+                foreach (var summary in batch)
+                {
+                    var summaryRequest = new SummaryRequest
+                    {
+                        SummaryName = summary.Name,
+                        SummaryItems = selectedSummaryDefects.ToList(),
+                        SummaryId = summary.Id,
+                        SelectedSurvey = summary.SurveyId,
+                        SampleUnitId = summary.SampleUnitId.Value,
+                        SampleUnitSetId = summary.SampleUnitSetId.Value
+                    };
+
+                    batchRequests.Add(summaryRequest);
+                }
+
+                var response = await appEngine.SummaryService.BatchRecalculateSummaries(batchRequests);
+                if (response != null && response.Id != -1)
+                {
+                    completed += batchSize;
+                    int progressPercentage = (int)((double)completed / totalUnits * 100);
+                    progress = progressPercentage;
+                    StateHasChanged();
+                }
+                else
+                {
+                    Snackbar.Add("Error in recalculating summary defects.", Severity.Error);
+                    return;
+                }
+            }
+
+            //Success
+            await App.Current.MainPage.DisplayAlert("Success", "Selected summaries have been recalculated and updated successfully.", "OK");
+            appState.FetchSummaries(tableName);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Something went wrong. Please check logs.", Severity.Error);
+            Console.WriteLine($"Error in Recalculating Summaries {ex.Message}");
+        }
+        finally
+        {
+            isSummaryProcessing = false;
+            StateHasChanged();            
+        }
+    }
+
+    private bool IsUserAdded(SummaryItem item) =>
+        !summaryDefects.Any(i => i.TableName == item.TableName &&
+                                      i.Operation == item.Operation &&
+                                      i.NumericField == item.NumericField);
+
+}

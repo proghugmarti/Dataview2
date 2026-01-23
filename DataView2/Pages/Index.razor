@@ -1,0 +1,30 @@
+﻿@page "/"
+@page "/Home"
+
+@if (isOfflineMode)
+{
+    //Only show this message when offline without offline map.
+    <MudContainer class="d-flex justify-content-center align-items-center" style="height: 90vh;">
+        <MudPaper Outlined="true">
+            <div class="m-3 p-5 text-center">
+                <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Size="Size.Large" />
+                <MudText Typo="Typo.h6" Align="Align.Center" class="m-3">No Internet Connection & No Offline Map Found</MudText>
+                <MudText Typo="Typo.body2" Align="Align.Center">Please restart the application when the internet is available. Alternatively, you can upload an offline map in the settings.</MudText>
+            </div>
+        </MudPaper>
+    </MudContainer>
+}
+
+@code
+{
+    private bool isOfflineMode;
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        var isInternetAvailable = System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+        if (!isInternetAvailable)
+        {
+            isOfflineMode = true;
+        }
+    }
+}

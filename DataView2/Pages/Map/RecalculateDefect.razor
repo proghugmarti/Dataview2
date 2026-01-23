@@ -1,0 +1,151 @@
+﻿@using CsvHelper
+@using DataView2.Core.Models
+@using DataView2.Engines
+@using DataView2.States
+@using System.Globalization
+@using Serilog
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:7px;" OnClick="Close"></MudIconButton>
+</div>
+
+<MudContainer>
+    <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="mb-3">IRI Custom Meter Sections</MudText>
+    @*    <MudSelect T="Survey" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=100 LockScroll="false"
+                Class="my-2" @bind-SelectedValues="selectedSurveys" OnOpen="GetSurveys" MultiSelection>
+        @if (surveys.Count > 0)
+        {
+            @foreach (var survey in surveys)
+            {
+                <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+            }
+        }
+    </MudSelect> *@
+    <MudAutocomplete T="Survey" Label="Please select a Survey" @bind-Value="selectedSurvey" SearchFunc="@SearchSurveys"
+    CoerceText="true" SelectValueOnTab="@true" Variant = "Variant.Outlined" 
+    AdornmentIcon="@Icons.Material.Filled.Search" AdornmentColor="Color.Primary"
+    ToStringFunc="@(survey => survey != null ? survey.SurveyName : string.Empty)" />
+    <MudNumericField T="int" @bind-Value="iriMeter" Label="IRI Meter" Variant="Variant.Outlined" />
+    @*     <MudTooltip Text="If ticked, sectioning will reset when two consecutive segments are missing. If not ticked, sections will be split strictly according to the user-defined meter value, regardless of missing segments.">
+        <MudCheckBox @bind-Value="isResetLogic">Reset on Missing Segments</MudCheckBox>
+    </MudTooltip> *@
+
+    <div class="d-flex justify-content-center align-items-center mt-3">
+        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" OnClick="RecalculateIRI" Disabled="isSettingRange">Process IRI Summary</MudButton>
+    </div>
+
+    @if (isSettingRange)
+    {
+        <MudText Typo="Typo.subtitle2" Align="Align.Center" Color="Color.Error" Class="m-2">Click start and end points to set IRI summary range.</MudText>
+    }
+
+</MudContainer>
+
+@if (isRecalculating)
+{
+    <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+            <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+            <MudText Typo="Typo.caption" Align="Align.Center">Processing... Please wait.</MudText>
+        </MudStack>
+    </MudOverlay>
+}
+
+@code {
+    List<Survey> surveys = new List<Survey>();
+    Survey selectedSurvey;
+
+    private int iriMeter = 100;
+    private bool isRecalculating = false;
+    private bool isSettingRange = false;
+
+    protected override async void OnInitialized()
+    {
+        appState.OnIRIStatusNotified += RefreshUI;
+    }
+
+    private void Close()
+    {
+        selectedSurvey = null;
+        //selectedSurveys = new HashSet<Survey>();
+        appState.ClosePopupInMap();
+    }
+
+    // private void GetSurveys()
+    // {
+    //     selectedSurvey = null;
+    //     surveys.Clear();
+    //     if (appState.existingSurveys.Count() != 0)
+    //         surveys = appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty()).Result;
+    //     StateHasChanged();
+    // }
+
+    private async Task<IEnumerable<Survey>> SearchSurveys(string value, CancellationToken cancellationToken)
+    {
+        surveys = appState.ExistingSurveys.ToList();
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrEmpty(value))
+            return surveys;
+        return surveys.Where(x => x.SurveyName.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    private async void RecalculateIRI()
+    {
+        if (selectedSurvey == null)
+        {
+            Snackbar.Add("Please select a survey to recalculate.", Severity.Error);
+            return;
+        }
+        else if (iriMeter < 0)
+        {
+            Snackbar.Add("IRI meter value can not be smaller than 1.", Severity.Error);
+            return;
+        }
+
+        var response = await appEngine.RoughnessService.HasDataBySurvey(selectedSurvey.SurveyIdExternal);
+        if (response.Id == 0)
+        {
+            //Data not found
+            Snackbar.Add($"The survey '{selectedSurvey.SurveyName}' does not have IRI data. Please select surveys with valid data.", Severity.Error);
+            return;
+        }
+        isSettingRange = true;
+        //var selectedSurveyIds = selectedSurveys.Select(x => x.SurveyIdExternal).ToList();
+        appState.RequestIRIRecalculation(selectedSurvey.SurveyIdExternal, iriMeter);
+        StateHasChanged();
+    }
+
+    private void RefreshUI(bool isProcessing)
+    {
+        if (isProcessing)
+        {
+            //processing
+            isRecalculating = true;
+        }
+        else
+        {
+            //processed OR cancelled
+            selectedSurvey = null;
+            iriMeter = 100;
+            isRecalculating = false;
+            isSettingRange = false;
+        }
+        StateHasChanged();
+    }
+
+    private string GetMultiSelectionText(List<string> selectedValues)
+    {
+        return $"{selectedValues.Count} survey{(selectedValues.Count > 1 ? "s" : "")} selected";
+    }
+
+}

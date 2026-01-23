@@ -1,0 +1,215 @@
+﻿@page "/ImportDataset"
+
+@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Database_Tables;
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.States;
+@using DataView2.ViewModels;
+@using DataView2.Core.Helper;
+@using DataView2.Engines;
+@using Serilog;
+@using Google.Protobuf.WellKnownTypes;
+@using IFolderPicker = DataView2.Resources.Others.IFolderPicker;
+
+@inject ApplicationEngine appEngine
+@inject ISettingsService settingSerivce
+@inject ApplicationState appState
+@inject ISnackbar Snackbar;
+@inject IFolderPicker _folderPicker;
+@inject IDialogService DialogService
+
+<MudSnackbarProvider />
+
+<div class="page-background">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+        <MudPaper Elevation="1" Class="pa-8" Style="width: 100%;">
+
+            <MudText Typo="Typo.h4">Import Dataset</MudText>
+            <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+                Select and import a dataset.
+            </MudText>
+            <MudGrid Spacing="3">
+                <MudItem xs="11">
+                    <MudText Typo="Typo.subtitle2">Select Dataset File Name</MudText>
+                    <MudTextField @bind-Value="defaultProjectsFolderPath" Required="true" Variant="Variant.Outlined"/>
+                </MudItem>
+                    <MudItem xs="1" Class="d-flex align-end">
+                        <MudButton Variant="Variant.Outlined" Class="folder-button d-flex align-center justify-center" OnClick="PickFilePath">
+                            <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                        </MudButton>
+                    </MudItem>
+            </MudGrid>
+        <div class="d-flex justify-end mt-8">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="ImportSelectedDataset">Import</MudButton>
+        </div>
+        </MudPaper>
+    </MudContainer>
+</div>
+
+@code {
+    private string selectedDataSetName;
+    private string defaultProjectsFolderPath;
+    private string defaultProjectsDbPath;
+    private string filePath;
+    GeneralSetting generalSetting = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        appEngine = MauiProgram.AppEngine;
+        // Set the default project folder path
+
+        var response = settingSerivce.GetByName(new SettingName { name = "Dataset Path" }).Result;
+        if (response != null && response.Count > 0)
+        {
+            generalSetting = response.FirstOrDefault();
+            defaultProjectsFolderPath = generalSetting.Value;
+        }
+        else
+            defaultProjectsFolderPath = AppPaths.DefaultProjectFolder;
+
+    }
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    string genFileImage = "/images/download.gif";
+    string genFileText = string.Empty;
+    DialogParameters parameters;
+    private IDialogReference dialogImport;
+
+    private async Task ImportSelectedDataset()
+    {
+        try
+        {
+            genFileText = "Importing Datasets..";
+            parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+            var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true };
+            dialogImport = DialogService.Show<Charging>("", parameters, options);
+            await Task.Delay(1000);
+
+            var existResult = await appEngine.DatabaseRegistryService.CheckExistByName(selectedDataSetName);
+
+            if (existResult.Id == -1)
+            {
+                // Dataset with the same name already exists
+                await App.Current.MainPage.DisplayAlert(
+                    "Import Dataset",
+                    $"{selectedDataSetName} already exists!",
+                    "Ok");
+            }
+            else if (existResult.Id == 0)
+            {
+                // Prepare the import request
+                var importDatasetRequest = new ImportDatasetRequest
+                    {
+                        DatasetName = selectedDataSetName,
+                        SourceLocation = filePath,  // Original dataset file
+                        DestinationLocation = defaultProjectsFolderPath,  // Target directory
+                        ProjectId = appState.SelectedProject.Id
+                    };
+
+                // Send request (Copying happens inside the service)
+                var resultNewDataSet = await appEngine.DatabaseRegistryService.ImportDatasetAsync(importDatasetRequest);
+
+                Snackbar.Add($"The Dataset: {selectedDataSetName} was imported successfully.", Severity.Info);
+                Serilog.Log.Information($"The Dataset: {selectedDataSetName} was imported successfully.");
+
+                // Check if dataset creation was successful
+                if (resultNewDataSet != null && resultNewDataSet.Id > 0)
+                {
+                    IdRequest idRequest = new IdRequest { Id = resultNewDataSet.Id };
+                    DatabaseRegistryLocal datasetCreated = await appEngine.DatabaseRegistryService.GetById(idRequest);
+                    appState.UpdateDataset(datasetCreated);
+                }
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in importing dataset: {ex.Message}");
+        }
+        finally
+        {
+            dialogImport?.Close();
+        }
+    }
+
+
+    private async Task PickFilePath()
+    {
+        // var customFileType = new FilePickerFileType(
+        //      new Dictionary<DevicePlatform, IEnumerable<string>>
+        //         {
+        //         { DevicePlatform.WinUI, new[] { ".db"} }, // file extensions
+        //         });
+
+        // var result = await FilePicker.PickAsync(new PickOptions
+        //     {
+        //         PickerTitle = "Please select a db file",
+        //         FileTypes = customFileType,
+        //     });
+        string title = "Please select a db file";
+        string[] filesType = new[] { ".db" };
+
+        string result = await PickFilePath(defaultProjectsFolderPath, title, filesType);
+
+        if (result != null)
+        {
+            filePath = result;
+            defaultProjectsDbPath = appState.SelectedProject.DBPath;
+            defaultProjectsFolderPath = appState.SelectedProject.FolderPath;
+            defaultProjectsFolderPath = Path.Combine(defaultProjectsFolderPath, "Datasets", Path.GetFileName(filePath));
+            selectedDataSetName = Path.GetFileName(result);
+            selectedDataSetName = selectedDataSetName.Substring(0, selectedDataSetName.Length - 3); //remove suffix '.db'
+        }
+    }
+
+    private async Task<string> PickFilePath(string folderPath, string title, string[] filesType)
+    {
+        var folder = _folderPicker.PickFile(folderPath, title, filesType);
+        if (folder != null)
+        {
+            return await Task.FromResult(folder);
+        }
+        return await Task.FromResult<string>(null);
+    }
+
+    private async Task<bool> CopyDatasets(string folderDatasetsToChange, string targetDatasetsDirectory)
+    {
+
+        if (!Directory.Exists(folderDatasetsToChange))
+        {
+            Console.WriteLine("Origin folder does not exist: " + folderDatasetsToChange);
+            return false;
+        }
+        if (!Directory.Exists(targetDatasetsDirectory))
+        {
+            Directory.CreateDirectory(targetDatasetsDirectory);
+        }
+        string[] files = Directory.GetFiles(folderDatasetsToChange);
+        foreach (string file in files)
+        {
+            string fileName = Path.Combine(folderDatasetsToChange, Path.GetFileName(file));
+            string targetFilePath = Path.Combine(targetDatasetsDirectory, fileName);
+            string targetFileDsPath = Path.Combine(targetDatasetsDirectory, Path.GetFileName(file));
+
+            try
+            {
+                File.Copy(fileName, targetFileDsPath, overwrite: true);
+                //File.Delete(fileName);
+
+                Log.Information("DataSet copied: " + file + " -> " + targetFilePath);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Error copying the file " + file + ": " + ex.Message);
+            }
+        }
+        return true;
+    }
+}

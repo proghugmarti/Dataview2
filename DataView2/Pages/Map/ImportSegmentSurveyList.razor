@@ -1,0 +1,106 @@
+﻿@using CsvHelper
+@using DataView2.Core.Models
+@using DataView2.Engines
+@using DataView2.States
+@using System.Globalization
+@using Serilog
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:7px;" OnClick="Close"></MudIconButton>
+</div>
+
+<MudContainer>
+
+    <MudDataGrid T="Survey" MultiSelection="true" Items="@surveys" QuickFilter="@_quickFilter" @bind-SelectedItems="selectedSurveys">
+        <ToolBarContent>
+            <MudText Typo="Typo.h6">Select Survey for Segmentation</MudText>
+            <MudSpacer />
+            <MudTextField @bind-Value="_searchString" Placeholder="Search" Adornment="Adornment.Start" Immediate="true"
+                          AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+        </ToolBarContent>
+
+        <Columns>
+            <SelectColumn T="Survey" />
+            <PropertyColumn Property="@(x => x.SurveyIdExternal)" Title="Id" />
+            <PropertyColumn  Property="x => x.SurveyName" Title="Survey Name" />
+        </Columns>
+    </MudDataGrid>
+
+    <MudSpacer />
+
+    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SelectSurvey">Select Surveys for processing</MudButton>
+   
+</MudContainer>
+
+@code {
+    List<Survey> surveys = new List<Survey>();
+    private string _searchString;
+    HashSet<Survey> selectedSurveys = new HashSet<Survey>(); // Change to HashSet
+
+
+    protected override async void OnInitialized()
+    {
+        appState.OnImportSegmentation += GetSurveys;
+    }
+
+    private void Close()
+    {
+        appState.ClosePopupInMap();
+    }
+
+    private void GetSurveys()
+    {
+        surveys.Clear();
+        // Fetch all surveys
+        var allSurveys = appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty()).Result;
+
+        // Filter surveys where Lane is null which are not segmented 
+        surveys = allSurveys.Where(s => s.Lane == null).ToList();
+
+        StateHasChanged();
+    }
+
+    private void SelectSurvey()
+    {
+
+        if (selectedSurveys.Any())
+        {
+            // Handle selected surveys
+            appState.SelectedSurveysForSegmentation = selectedSurveys;
+            appState.ImportSegmentationCalled();
+
+            Snackbar.Add($"{selectedSurveys.Count} surveys selected for segmentation.", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add("No surveys found to apply segmentation.", Severity.Info);
+        }
+
+        appState.ClosePopupInMap();
+    }
+
+    private Func<Survey, bool> _quickFilter => x =>
+    {
+        if (string.IsNullOrWhiteSpace(_searchString))
+            return true;
+
+        if (x.SurveyName.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (x.SurveyIdExternal.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    };
+
+
+   
+}

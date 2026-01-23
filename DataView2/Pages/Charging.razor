@@ -1,0 +1,13 @@
+﻿<MudDialog DefaultFocus="DefaultFocus.None">
+    <DialogContent>
+        <div style="text-align: center">
+            <img src="@DialogImage" alt="Processing.." style="width: 100px; height: 100px;" />
+            <div class="text-center mt-2">@DialogText</div>
+        </div>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter] public string DialogImage { get; set; }
+    [Parameter] public string DialogText { get; set; }
+}

@@ -1,0 +1,829 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Serilog
+
+@using static DataView2.Pages.Map.AddNewTableLayer
+@using static DataView2.Core.Helper.TableNameHelper
+@inject ApplicationState appState;
+@inject ApplicationEngine appEngine;
+@inject ISnackbar Snackbar
+@inject LayerViewModel viewModel;
+
+<MudProviders />
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge">
+    <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-4 mb-3">
+        <MudText Typo="Typo.h6" Class="mx-2">@tableName</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+    </MudStack>
+    @if(outsideSegment)
+    {
+        <MudSelect T="string" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=100 LockScroll="false" Class="my-2" @bind-Value="selectedSurvey" >
+            @if (surveys.Count > 0)
+            {
+                @foreach (var survey in surveys)
+                {
+                    <MudSelectItem T="string" Value="@survey.SurveyIdExternal">@survey.SurveyName</MudSelectItem>
+                }
+
+            }
+        </MudSelect>
+    }
+    @if(isLCMSTable)
+    {
+        @if (tableName == LayerNames.ConcreteJoint || tableName == LayerNames.Rutting || tableName == LayerNames.Geometry)
+        {
+            <MudGrid>
+                @foreach (var header in numericHeaders)
+                {
+                    <MudItem xs="8" sm="4" md="3" lg="2">
+                        <MudStack>
+                            <table class="mud-table">
+                                <thead>
+                                    <tr>
+                                        <th>@header</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <MudTextField @bind-Value="numericFields[header]"
+                                            Variant="Variant.Outlined"
+                                            Margin="Margin.Dense" />
+                                        </td>                                        
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </MudStack>
+                    </MudItem>
+                }
+
+                @foreach (var header in stringHeaders)
+                {
+                    <MudItem xs="8" sm="4" md="3" lg="2">
+                        <MudStack>
+                            <table class="mud-table">
+                                <thead>
+                                    <tr>
+                                        <th>@header</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        @if (header == "JointDirection")
+                                        {
+                                            <td>
+                                                <MudSelect T="String" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                                    <MudSelectItem Value="@("Longitudinal")">@("Longitudinal")</MudSelectItem>
+                                                    <MudSelectItem Value="@("Transversal")">@("Transversal")</MudSelectItem>
+                                                </MudSelect>
+                                            </td>
+                                        }
+                                        else if (header == "PavementType")
+                                        {
+                                            <td>
+                                                <MudSelect T="String" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                                    <MudSelectItem Value="@("Concrete")" />
+                                                    <MudSelectItem Value="@("Asphalt")" />
+                                                </MudSelect>
+                                            </td>
+                                        }
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </MudStack>
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+        else
+        {
+            if (tableName == "Cracking")
+            {
+                <MudCheckBox T="bool" Value="isExistingCrack" Color="Color.Primary" Size="Size.Small" ValueChanged="CrackCheckBoxChanged" Label="Add to existing crack Id?"></MudCheckBox>
+            }
+            <table class="mud-table">
+                <thead>
+                    <tr>
+                        @if (tableName == "Cracking" && isExistingCrack)
+                        {
+                            <th>CrackId</th>
+                            <th>NodeId</th>
+                        }
+                        @foreach (var header in numericHeaders)
+                        {
+                            <th style="word-wrap: break-word; white-space: normal;">@header</th>
+                        }
+                        @foreach (var header in stringHeaders)
+                        {
+                            <th style="word-wrap: break-word; white-space: normal;">@header</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        @if (tableName == "Cracking" && isExistingCrack)
+                        {
+                            <td>
+                                <MudSelect T="double" Value="selectedCrackId" Variant="Variant.Outlined" Margin="Margin.Dense" ValueChanged="OnCrackIdChanged">
+                                    @foreach (var crackId in crackIds)
+                                    {
+                                        <MudSelectItem T="double" Value="crackId">@crackId</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </td>
+                            <td>
+                                <MudNumericField T="double" @bind-Value="@numericFields["NodeId"]"
+                                Variant="Variant.Outlined"
+                                Margin="Margin.Dense"
+                                Step="1" ReadOnly />
+                            </td>
+                        }
+
+                        @foreach (var header in numericHeaders)
+                        {
+                            <td>
+                                <MudNumericField T="double" @bind-Value="numericFields[header]"
+                                Variant="Variant.Outlined"
+                                Margin="Margin.Dense"
+                                Step="1" />
+                            </td>
+                        }
+
+                        @foreach (var header in stringHeaders)
+                        {
+                            @if (header == "Algorithm")
+                            {
+                                <td>
+                                    <MudSelect T="double" @bind-Value="numericFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem T="double" Value="0" />
+                                        <MudSelectItem T="double" Value="1" />
+                                    </MudSelect>
+                                </td>
+                            }
+                            else if (header.Contains("Severity"))
+                            {
+                                <td>
+                                    <MudSelect T="String" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        @if (tableName == LayerNames.Cracking || tableName == LayerNames.CrackSummary)
+                                        {
+                                            <MudSelectItem Value="@("Very Low")" />
+                                        }
+                                        @if (tableName == LayerNames.Potholes)
+                                        {
+                                            <MudSelectItem Value="@("Delamination")" />
+                                        }
+                                        @if (tableName == LayerNames.Bleeding)
+                                        {
+                                            <MudSelectItem Value="@("No Bleeding")" />
+                                        }
+                                        <MudSelectItem Value="@("Low")" />
+                                        <MudSelectItem Value="@("Medium")" />
+                                        <MudSelectItem Value="@("High")" />
+                                    </MudSelect>
+                                </td>
+                            }
+                            else if(header == "Type")
+                            {
+                                <td>
+                                    @if (tableName == LayerNames.CurbDropOff)
+                                    {
+                                        <MudSelect T="string" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                            <MudSelectItem Value="@("Curb")" />
+                                            <MudSelectItem Value="@("Dropoff")" />
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.MarkingContour)
+                                    {
+                                        <MudSelect T="string" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                            <MudSelectItem Value="@("Black")" />
+                                            <MudSelectItem Value="@("Bright")" />
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.MMO)
+                                    {
+                                        <MudSelect T="string" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                            <MudSelectItem Value="@("ManHole")" />
+                                            <MudSelectItem Value="@("StormDrain")" />
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.RumbleStrip)
+                                    {
+                                        <MudSelect T="string" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                            <MudSelectItem Value="@("milled strip")" />
+                                            <MudSelectItem Value="@("raised strip")" />
+                                        </MudSelect>
+                                    }
+                                    else if (tableName == LayerNames.SagsBumps)
+                                    {
+                                        <MudSelect T="string" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                            <MudSelectItem Value="@("Sags")" />
+                                            <MudSelectItem Value="@("Bumps")" />
+                                        </MudSelect>
+                                    }
+                                </td>
+                            }
+                            else if (header == "JointDirection")
+                            {
+                                <td>
+                                    <MudSelect T="String" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem Value="@("Longitudinal")">@("Longitudinal")</MudSelectItem>
+                                        <MudSelectItem Value="@("Transversal")">@("Transversal")</MudSelectItem>
+                                    </MudSelect>
+                                </td>
+                            }
+                            else if(header == "LaneSide")
+                            {
+                                <td>
+                                    <MudSelect T="String" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem Value="@("Left")" />
+                                        <MudSelectItem Value="@("Right")" />
+                                    </MudSelect>
+                                </td>
+                            }
+                            else if (header == "MTQ")
+                            {
+                                <td>
+                                    <MudSelect T="string" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem Value="@("Multiple")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Alligator")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Longitudinal")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Transversal")"></MudSelectItem>
+                                        <MudSelectItem Value="@("Unknown")"></MudSelectItem>
+                                    </MudSelect>
+                                </td>
+                            }
+                            else if(header == "PavementType")
+                            {
+                                <td>
+                                    <MudSelect T="String" @bind-Value="@stringFields[header]" Variant="Variant.Outlined" Margin="Margin.Dense">
+                                        <MudSelectItem Value="@("Concrete")" />
+                                        <MudSelectItem Value="@("Asphalt")" />
+                                    </MudSelect>
+                                </td>
+                            }
+                        }
+                    </tr>
+                </tbody>
+            </table>
+        }
+        <MudStack Row Justify="Justify.Center" Class="my-4">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveLCMSDefect">Save</MudButton>
+        </MudStack>
+    }
+    else if(isMetaTable)
+    {
+        <MudStack Row>
+            <MudNumericField T="double" @bind-Value="lrpNumber" Label="LRPNumber" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudNumericField T="double" @bind-Value="chainage" Label="Chainage" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudStack>
+        @if (metaTableFields.Count > 18)
+        {
+            <TableSelection TableFields="metaTableFields.Take(metaTableFields.Count / 3).ToList()" />
+            <TableSelection TableFields="metaTableFields.Skip(metaTableFields.Count / 3).Take(metaTableFields.Count / 3).ToList()" />
+            <TableSelection TableFields="metaTableFields.Skip(2 * metaTableFields.Count / 3).ToList()" />
+        }
+        else if (metaTableFields.Count > 10)
+        {
+            <TableSelection TableFields="metaTableFields.Take(metaTableFields.Count / 2).ToList()" />
+            <TableSelection TableFields="metaTableFields.Skip(metaTableFields.Count / 2).ToList()" />
+        }
+        else
+        {
+            <TableSelection TableFields="metaTableFields" />
+        }
+        <MudStack Row Justify="Justify.Center" Class="my-4">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveMetaTableDefect">Save</MudButton>
+        </MudStack>
+    }
+
+</MudContainer>
+
+<style>
+    .mud-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    }
+
+    .mud-table th, .mud-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+    }
+
+    .mud-table th {
+    background-color: #f4f4f4;
+    }
+</style>
+
+@code {
+    public string tableName { get; set; }
+    public string surveyId { get; set; }
+    public string segmentId { get; set; }
+    private List<string> numericHeaders = new List<string>();
+    private List<string> stringHeaders = new List<string>();
+    private Dictionary<string, double> numericFields = new Dictionary<string, double>();
+    private Dictionary<string, string> stringFields = new Dictionary<string, string>();
+
+    private bool isExistingCrack = false;
+    private List<double> crackIds = new();
+    private Dictionary<double, int> crackNodeCounts = new();
+    private double selectedCrackId = 0.0;
+
+    private bool outsideSegment = false;
+    private List<Survey> surveys = new List<Survey>();
+    private string selectedSurvey;
+
+    //MetaTable
+    private bool isMetaTable;
+    private List<FieldModel> metaTableFields = new();
+    private double lrpNumber = 0.0;
+    private double chainage = 0.0;
+
+    private bool isLCMSTable;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        appState.OnBottomMenuChanged += SetTableName;
+        appState.OnMeasurementCompleted += UpdateMeasurementValue;
+    }
+    private void InitializeVariables()
+    {
+        numericFields.Clear();
+        stringFields.Clear();
+        numericHeaders.Clear();
+        stringHeaders.Clear();
+        crackIds.Clear();
+        crackNodeCounts.Clear();
+        metaTableFields.Clear();
+        isExistingCrack = false;
+        selectedSurvey = null;
+        outsideSegment = false;
+        selectedCrackId = 0;
+        isMetaTable = false;
+        isLCMSTable = false;
+    }
+
+    private void SetTableName(string tableName, string surveyId, string segmentId, bool status)
+    {
+        if(status)
+        {
+            InitializeVariables();
+
+            this.tableName = tableName;
+
+            SetupHeaders();
+
+            if (surveyId != null && segmentId != null)
+            {
+                this.surveyId = surveyId;
+                this.segmentId = segmentId;
+            }
+            else
+            {
+                //Defect outside of the segment
+                this.surveyId = null;
+                this.segmentId = "-1";
+
+                outsideSegment = true;
+
+                //Get Survey
+                surveys.Clear();
+                selectedSurvey = null;
+                surveys = appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty()).Result;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private async void SetupHeaders()
+    {
+        numericHeaders = GetNumericHeaders().ToList();
+        stringHeaders = GetStringHeaders().ToList();
+
+        if(numericHeaders.Count > 0 || stringHeaders.Count > 0)
+        {
+            isLCMSTable = true;
+            foreach (var header in numericHeaders)
+            {
+                if (!numericFields.ContainsKey(header))
+                {
+                    numericFields[header] = 0.0;
+                }
+            }
+
+            stringHeaders.Add("PavementType");
+
+            foreach (var header in stringHeaders)
+            {
+                stringFields[header] = string.Empty;
+            }
+        }
+        else
+        {
+            //Existing metaTable
+            var metaTable = await appEngine.MetaTableService.GetByName(tableName);
+            if(metaTable != null)
+            {
+                isMetaTable = true;
+                for (int i = 1; i <= 25; i++)
+                {
+                    var columnName = metaTable.GetType().GetProperty($"Column{i}")?.GetValue(metaTable) as string;
+                    var columnType = metaTable.GetType().GetProperty($"Column{i}Type")?.GetValue(metaTable) as string;
+
+                    if (!string.IsNullOrEmpty(columnName))
+                    {
+                        var columnDefault = metaTable.GetType().GetProperty($"Column{i}Default")?.GetValue(metaTable) as string;
+
+                        var field = new FieldModel
+                        {
+                            FieldName = columnName,
+                            FieldType = columnType,
+                        };
+                        string fieldValue = string.Empty;
+
+                        // Determine field type based on ColumnType
+                        if (columnType == ColumnType.Number.ToString())
+                        {
+                            if(double.TryParse(columnDefault, out var result))
+                            {
+                                field.DefaultValue = columnDefault;
+                            }
+                        }
+                        else if (columnType == ColumnType.Text.ToString())
+                        {
+                            field.DefaultValue = columnDefault;
+                        }
+                        else if (columnType == ColumnType.Dropdown.ToString())
+                        {
+                            var dropdownValuesList = columnDefault.Split(',')
+                              .Select(value => value.Trim())
+                              .ToList();
+
+                            //add Dropdown list
+                            field.DropdownValues = dropdownValuesList;
+                        }
+
+                        metaTableFields.Add(field);
+                    }
+                }
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void UpdateMeasurementValue()
+    {
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        appState.InvokeCloseDrawingTool();
+    }
+
+    private IEnumerable<string> GetNumericHeaders()
+    {
+        var fields = viewModel.GetNumericProperties(tableName);
+        var fieldsList = fields.ToList();
+
+        if (tableName == LayerNames.Spalling)
+        {
+            fieldsList.Add("JointId");
+        }
+        else if (tableName == LayerNames.Grooves)
+        {
+            fieldsList.Add("ZoneId");
+        }
+        else if (tableName == LayerNames.Ravelling)
+        {
+            fieldsList.Add("SquareId");
+        }
+
+        return fieldsList;
+    }
+
+    private IEnumerable<string> GetStringHeaders()
+    {
+        var fields = viewModel.GetStringProperties(tableName);
+        return fields.ToList();
+    }
+
+
+    private async void SaveLCMSDefect()
+    {
+        if (stringFields.Values.Any(value => string.IsNullOrEmpty(value as string)))
+        {
+            // Show alert message if any value is empty
+            Snackbar.Add("All fields must be filled.", Severity.Error);
+            return;
+        }
+
+        if(outsideSegment)
+        {
+            if(!string.IsNullOrEmpty(selectedSurvey))
+            {
+                surveyId = selectedSurvey;
+                segmentId = "-1";
+            }
+            else
+            {
+                Snackbar.Add("All fields must be filled.", Severity.Error);
+                return;
+            }
+        }
+
+        var combinedFields = new Dictionary<string, object>();
+        var DBtable = TableNameHelper.GetDBTableName(tableName);
+        var sqlCommand = $"SELECT * from {DBtable} WHERE SurveyId = '{surveyId}' AND SegmentId = {segmentId} ";
+
+        //Set the DefectIds that doesn't exist in the db
+        switch (tableName)
+        {
+            case LayerNames.ConcreteJoint:
+                var cjResponse = await appEngine.ConcreteJointService.QueryAsync(sqlCommand);
+                if(cjResponse != null)
+                {
+                    var longitudinal = cjResponse.Where(cj => cj.JointDirection == "Longitudinal").ToList();
+                    var transversal = cjResponse.Where(cj => cj.JointDirection == "Transversal").ToList();
+
+                    var direction = stringFields["JointDirection"];
+                    var firstLetterOfDirection = direction.Substring(0, 1);
+
+                    if (direction == "Longitudinal")
+                    {
+                        var idNumber = longitudinal.Count + 1;
+                        combinedFields["JointId"] = $"{firstLetterOfDirection}{idNumber}";
+                    }
+                    else if (direction == "Transversal")
+                    {
+                        var idNumber = transversal.Count + 1;
+                        combinedFields["JointId"] = $"{firstLetterOfDirection}{idNumber}";
+                    }
+                }
+                break;
+            case LayerNames.CornerBreak:
+                var cbResponse = await appEngine.CornerBreakService.QueryAsync(sqlCommand);
+                if (cbResponse != null)
+                {
+                    combinedFields["CornerId"] = cbResponse.Count();
+                    combinedFields["QuarterId"] = 0;
+                }
+                break;
+            case LayerNames.Cracking:
+                if (isExistingCrack)
+                {
+                    combinedFields["CrackId"] = numericFields["CrackId"];
+                    combinedFields["NodeId"] = numericFields["NodeId"];
+                }
+                else
+                {
+                    var crackResponse = await appEngine.CrackingRawService.QueryAsync(sqlCommand);
+                    if (crackResponse != null)
+                    {
+                        var crackData = crackResponse.ToList(); // Convert the response to a list
+                        var crackIdList = crackData.Select(cd => Convert.ToDouble(cd.CrackId)).Distinct().ToList();
+                        combinedFields["CrackId"] = crackIdList.Count();
+                        combinedFields["NodeId"] = 0;
+                    }
+                }
+                break;
+            case LayerNames.CrackSummary:
+                var crackSummaryResponse = await appEngine.CrackSummaryService.QueryAsync(sqlCommand);
+                if (crackSummaryResponse != null)
+                {
+                    combinedFields["CrackId"] = crackSummaryResponse.Count();
+                }
+                break;
+            case LayerNames.Patch:
+                var patchResponse = await appEngine.PatchService.QueryAsync(sqlCommand);
+                if (patchResponse != null)
+                {
+                    combinedFields["PatchId"] = patchResponse.Count();
+                }
+                break;
+            case LayerNames.Pickout:
+                var pickoutResponse = await appEngine.PickOutRawService.QueryAsync(sqlCommand);
+                if (pickoutResponse != null)
+                {
+                    combinedFields["PickOutId"] = pickoutResponse.Count();
+                }
+                break;
+            case LayerNames.Potholes:
+                var potholeResponse = await appEngine.PotholesService.QueryAsync(sqlCommand);
+                if (potholeResponse != null)
+                {
+                    combinedFields["PotholeId"] = potholeResponse.Count();
+                }
+                break;
+            case LayerNames.Spalling:
+                var spallingResponse = await appEngine.SpallingService.QueryAsync(sqlCommand);
+                if (spallingResponse != null)
+                {
+                    var spallingCount = spallingResponse.Where(spalling => spalling.JointId == numericFields["JointId"]);
+                    combinedFields["SpallingId"] = spallingCount.Count();
+                }
+                break;
+            case LayerNames.MarkingContour:
+                var markingContourResponse = await appEngine.MarkingContourService.QueryAsync(sqlCommand);
+                if (markingContourResponse != null)
+                {
+                    combinedFields["MarkingId"] = markingContourResponse.Count();
+                }
+                break;
+            case LayerNames.MMO:
+                var mmoResponse = await appEngine.MMOService.QueryAsync(sqlCommand);
+                if (mmoResponse != null)
+                {
+                    combinedFields["MMOId"] = mmoResponse.Count();
+                }
+                break;
+            case LayerNames.Pumping:
+                var pumpingResponse = await appEngine.PumpingService.QueryAsync(sqlCommand);
+                if (pumpingResponse != null)
+                {
+                    combinedFields["PumpingId"] = pumpingResponse.Count();
+                }
+                break;
+            case LayerNames.RumbleStrip:
+                var rumbleStripResponse = await appEngine.RumbleStripService.QueryAsync(sqlCommand);
+                if (rumbleStripResponse != null)
+                {
+                    combinedFields["RumbleStripId"] = rumbleStripResponse.Count();
+                }
+                break;
+            case LayerNames.SealedCrack:
+                var sealedCrackResponse = await appEngine.SealedCrackService.QueryAsync(sqlCommand);
+                if (sealedCrackResponse != null)
+                {
+                    combinedFields["SealedCrackId"] = sealedCrackResponse.Count();
+                }
+                break;
+            case LayerNames.Shove:
+                var shoveResponse = await appEngine.ShoveService.QueryAsync(sqlCommand);
+                if (shoveResponse != null)
+                {
+                    combinedFields["ShoveId"] = shoveResponse.Count();
+                }
+                break;
+            case LayerNames.SagsBumps:
+                var sagbumpResponse = await appEngine.SagsBumpsService.QueryAsync(sqlCommand);
+                if (sagbumpResponse != null)
+                {
+                    combinedFields["SagBumpId"] = sagbumpResponse.Count();
+                }
+                break;
+            case LayerNames.Bleeding:
+                var bleedingResponse = await appEngine.BleedingService.QueryAsync(sqlCommand);
+                if (bleedingResponse != null)
+                {
+                    combinedFields["BleedingId"] = bleedingResponse.Count();
+                }
+                break;
+            case LayerNames.CurbDropOff:
+                var curbDropOffResponse = await appEngine.CurbDropOffService.QueryAsync(sqlCommand);
+                if (curbDropOffResponse != null)
+                {
+                    combinedFields["ProfileId"] = curbDropOffResponse.Count();
+                }
+                break;
+        }
+
+        foreach (var kvp in numericFields)
+        {
+            if (kvp.Key != "CrackId" && kvp.Key != "NodeId")
+            {
+                combinedFields[kvp.Key] = kvp.Value;
+            }
+        }
+        foreach (var kvp in stringFields)
+        {
+            combinedFields[kvp.Key] = kvp.Value;
+        }
+
+        if (outsideSegment)
+        {
+            //Dummy information
+            combinedFields["SurveyId"] = selectedSurvey;
+            combinedFields["SegmentId"] = -1;
+            combinedFields["ImageFileIndex"] = "dummy";
+            combinedFields["GPSTrackAngle"] = 0.0;
+            combinedFields["GPSAltitude"] = 0.0;
+        }
+        //Send formFields to the map side
+        appState.SetDefectFields(tableName, combinedFields, true);
+    }
+
+    private void SaveMetaTableDefect()
+    {
+        var logString = "Step 3: Save Polygon \n";
+        var combinedFields = new Dictionary<string, object>
+        {
+            { "LRPNumber", lrpNumber },
+            { "Chainage", chainage }
+        };
+
+        foreach(var field in metaTableFields)
+        {
+            if (string.IsNullOrEmpty(field.DefaultValue))
+            {
+                Snackbar.Add("All fields must be filled.", Severity.Error);
+                return;
+            }
+            var key = field.FieldName;
+            var value = field.DefaultValue;
+
+            if(field.FieldType == "Number" || field.FieldType == "Measurement")
+            {
+                if(double.TryParse(value, out double numericValue))
+                {
+                    combinedFields[key] = numericValue;             
+                }
+                else
+                {
+                    combinedFields[key] = value;
+                }
+            }
+            else
+            {
+                combinedFields[key] = value;
+            }
+            logString += $"{field.FieldType}: {value} \n";
+        }
+        Log.Information(logString);
+
+        if (outsideSegment)
+        {
+            if (!string.IsNullOrEmpty(selectedSurvey))
+            {
+                combinedFields["SurveyId"] = selectedSurvey;
+                combinedFields["SegmentId"] = -1;
+            }
+            else
+            {
+                Snackbar.Add("All fields must be filled.", Severity.Error);
+                return;
+            }
+        }
+
+        appState.SetDefectFields(tableName, combinedFields, false);
+    }
+
+    private async void CrackCheckBoxChanged(bool isChecked)
+    {
+        isExistingCrack = isChecked;
+        numericFields["CrackId"] = 0.0;
+        numericFields["NodeId"] = 0.0;
+        if (isChecked)
+        {
+            crackIds.Clear();
+            var sqlCommand = $"SELECT * from LCMS_Cracking_Raw WHERE SurveyId = '{surveyId}' AND SegmentId = {segmentId} ";
+            var response = await appEngine.CrackingRawService.QueryAsync(sqlCommand);
+
+            if (response != null)
+            {
+                // Assuming response is a list of objects with properties CrackId and NodeId
+                var crackData = response.ToList(); // Convert the response to a list
+
+                // Extract unique CrackIds
+                crackIds = crackData.Select(cd => Convert.ToDouble(cd.CrackId)).Distinct().ToList();
+
+                crackNodeCounts = crackData
+                   .GroupBy(cd => Convert.ToDouble(cd.CrackId))
+                   .ToDictionary(g => g.Key, g => g.Count());
+
+                if (crackIds.Any()) // Check if there are any crackIds
+                {
+                    var firstCrackId = crackIds.FirstOrDefault();
+                    selectedCrackId = firstCrackId;
+                    numericFields["CrackId"] = selectedCrackId;
+                    numericFields["NodeId"] = crackNodeCounts.ContainsKey(firstCrackId) ? crackNodeCounts[firstCrackId] : 0;
+                }
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnCrackIdChanged(double newCrackId)
+    {
+        selectedCrackId = newCrackId;
+        if (crackNodeCounts.ContainsKey(newCrackId))
+        {
+            numericFields["CrackId"] = selectedCrackId;
+            numericFields["NodeId"] = crackNodeCounts[newCrackId]; // Update NodeId to the count of nodes for the selected CrackId
+        }
+        else
+        {
+            numericFields["CrackId"] = selectedCrackId;
+            numericFields["NodeId"] = 0.0; // Reset NodeId if no nodes found for the selected CrackId
+        }
+        StateHasChanged();
+    }
+}

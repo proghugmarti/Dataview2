@@ -1,0 +1,24 @@
+﻿
+<MudDialog>
+    <DialogContent>
+        <!-- Asegúrate de que el campo UserInput esté correctamente vinculado -->
+        <MudTextField @bind-Value="UserInput"  Variant="Variant.Filled" />
+
+     </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Submit">OK</MudButton>
+        <MudButton Color="Color.Secondary" OnClick="Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private MudDialogInstance MudDialog { get; set; }
+    [Parameter] public string UserInput { get; set; }
+   
+    private void Cancel() => MudDialog.Close(DialogResult.Cancel()); 
+    private void Submit()
+    {
+        MudDialog.Close(DialogResult.Ok(UserInput)); // Retorna el valor del checkbox junto con UserInput.
+    }
+}

@@ -1,0 +1,56 @@
+﻿<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Processing...</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="m-2">
+            @if (!string.IsNullOrEmpty(CurrentStage))
+            {
+                <MudText Typo="Typo.button" Color="Color.Primary" Align="Align.Center">
+                    <b>Stage:</b> @CurrentStage
+                </MudText>
+            }
+            <MudProgressLinear Color="Color.Primary" Striped="true" Size="Size.Large"
+            Value="@Progress" Max="100" Class="my-5">
+                <MudText Typo="Typo.subtitle1" Color="Color.Dark">
+                    <b>@Progress %</b>
+                </MudText>
+            </MudProgressLinear>
+            @if (!string.IsNullOrEmpty(CurrentMessage))
+            {
+                <MudText Typo="Typo.body2" Class="mt-2">@((MarkupString)CurrentMessage)</MudText>
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Row="true">
+            <MudTooltip Text="Stop operation will cancel processing and not restore dataset backup"
+            Placement="Placement.Top" Arrow="true" Class="mx-auto">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                OnClick="@StopClicked" Class="mx-auto">Stop and Save</MudButton>
+            </MudTooltip>
+            <MudTooltip Text="Cancel operation will cancel processing and restore dataset backup"
+            Placement="Placement.Top" Arrow="true" Class="mx-auto">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                OnClick="@CancelClicked" Class="mx-auto">Cancel and Undo Processing</MudButton>
+            </MudTooltip>
+        </MudStack>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [Parameter] public EventCallback StopClicked { get; set; }
+    [Parameter] public EventCallback CancelClicked { get; set; }
+    public int Progress { get; private set; }
+    public string CurrentStage { get; private set; }
+    public string CurrentMessage { get; private set; }
+
+    public void Refresh(int progress, string stage, string message)
+    {
+        Progress = progress;
+        CurrentStage = stage;
+        CurrentMessage = message;
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,639 @@
+﻿@page "/ExportTemplateData"
+
+@using CommunityToolkit.Maui.Storage
+@using CsvHelper
+@using DataView2.Core.Helper
+@using DataView2.Engines
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Core.Models;
+@using DataView2.Core.Records.Contracts;
+@using Google.Protobuf.WellKnownTypes;
+@using System.Data
+@using Microsoft.Data.Sqlite
+@using Serilog
+@using System.ComponentModel
+@using System.Reflection
+@using System.Globalization
+@using System.Dynamic
+@using static DataView2.Core.Models.LCMS_Data_Tables.LCMS_PickOuts_Raw;
+
+@inject ApplicationEngine appEngine
+
+<MudPaper Class="pa-16 ma-2" Elevation="3">
+    <MudGrid>
+          <MudItem>
+            <MudStack>
+            <MudText Color="Color.Primary" ReadOnly="true" style="font-weight:600">Export Templated Data</MudText>
+
+            <MudExpansionPanels>
+                    <MudExpansionPanel Text="From Dataset" style="text-align: left; color: #472ac0; font-size: 20px;font-weight:bold;" IsExpandedChanged="DsOpted">
+                    <MudStack Row=true>
+                        <MudText Color="Color.Primary" ReadOnly="true" style="font-weight:500">Dataset : </MudText>
+                        <MudTextField ReadOnly="true" T="string" Lines=3 Style="width:350px;height:20px;" Text="@selectedDataset" Variant="Variant.Text"></MudTextField>
+                    </MudStack>
+                </MudExpansionPanel>
+
+                    <MudExpansionPanel Text="From Database File" style="text-align: left; color: #472ac0; font-size: 20px;font-weight:bold;">
+                    <MudStack Row=true>
+                        <MudText Color="Color.Primary" ReadOnly="true" style="font-weight:500">Directory : </MudText>
+                        <MudTextField ReadOnly="true" T="string" Lines=3 Style="width:350px;height:20px;" Text="@projectLocation" Variant="Variant.Text"></MudTextField>
+                        <MudButton Variant="Variant.Outlined" OnClick="PickFolder" Color="Color.Primary">Select Directory</MudButton>
+                    </MudStack>
+       
+                    <MudStack Row=true>
+                     <MudSelect T="string" @ref="Dbpicker" Style="width:350px;height:20px;">
+                            @foreach (var filepath in dbstrings)
+                            {
+                                <MudSelectItem T="string" Value="@filepath">@filepath</MudSelectItem>
+                            }
+                    </MudSelect>
+                    <MudButton Color="Color.Primary" Variant="Variant.Outlined" Style="margin:5px" OnClick="btnExportDb_Clicked">Select Database</MudButton>
+                    </MudStack>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
+            <MudPaper Outlined=true>
+                    <MudStack Row=true Style="margin:5px">
+                        <MudText Color="Color.Primary" ReadOnly="true" style="font-weight:500">Save Directory : </MudText>
+                        <MudTextField ReadOnly="true" T="string" Lines=3 Style="width:350px;height:20px;" Text="@saveFilepath" Variant="Variant.Text"></MudTextField>
+                        <MudButton Variant="Variant.Outlined" OnClick="PickSaveFolder" Color="Color.Primary">Select Directory</MudButton>
+                    </MudStack>
+            </MudPaper>
+
+            <MudPaper Outlined=true>
+                <MudStack>
+                        <MudText Color="Color.Primary" ReadOnly="true" style="font-weight:500;margin:10px">Select Surveys : </MudText>
+                            <MudTable HorizontalScrollbar=true RowClass="cursor-pointer" style="max-height: 250px; overflow: scroll;padding:2px;" Items="surveyIds">
+                            <RowTemplate>
+                                <MudTd>
+                                    <MudPaper Class="d-flex align-start flex-grow-1 gap-1" Elevation="0">
+                                        <MudCheckBox T="bool" style="margin:3px" Label="@context" Color="Color.Primary" Dense=false CheckedChanged="(e=> SurveySelected(e,context))" />
+                                    </MudPaper>
+                                </MudTd>
+                            </RowTemplate>
+                            </MudTable>
+                    </MudStack>
+            </MudPaper>
+
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="btnExportData_Clicked">Export Templated Data</MudButton>
+        </MudStack>
+        </MudItem>
+
+        <MudItem xs="12" Style="width:350px;height:20px;text-overflow: ellipsis">
+            @lblMessage
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@code {
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    public string connString = string.Empty;
+
+    private string projectLocation, selectedDataset, saveFilepath;
+    static private string _configAppPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    static private string _userFiles = "User_CSV_Files";
+    static private string _configPath = $"{_configAppPath}\\Downloads\\{_userFiles}".Replace("\\", "/");
+    private string lblMessage;
+    private MudSelect<string> Dbpicker;
+    private List<string> dbstrings = new List<string>();
+    private List<string> surveyIds = new List<string>();
+    List<string> selectedSurveys = new List<string>();
+    //private bool[] selectedSurveys;
+
+    protected override void OnInitialized()
+    {
+        appEngine = MauiProgram.AppEngine;
+
+        //select default dataset option 
+        selectedDataset = appEngine.DatabaseRegistryService.GetActualDatabasePath().Result;
+        connString = connString = $"Data Source={selectedDataset};";
+
+        saveFilepath = _configPath;
+    }
+
+    public void DsOpted(bool newExpansionState)
+    {
+        connString = string.Empty;
+        surveyIds.Clear();
+
+        if (newExpansionState)
+        {
+            selectedDataset = appEngine.DatabaseRegistryService.GetActualDatabasePath().Result;
+            connString = connString = $"Data Source={selectedDataset};";
+
+            surveyIds = GetSurveys();
+        }
+        else
+        {
+            projectLocation = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Data View 2 Projects");
+            ListAllDBFiles(projectLocation);
+        }
+        StateHasChanged();
+    }
+
+    private void ListAllDBFiles(string directoryPath)
+    {
+        string[] files = Directory.GetFiles(directoryPath, "*.db");
+
+
+        if (files.Length > 0)
+        {
+            dbstrings = files.ToList();
+            lblMessage = "Please select database";
+        }
+        else
+        {
+            dbstrings.Add("Select File");
+            lblMessage = "No project database is found";
+        }
+        StateHasChanged();
+    }
+
+    //formats of JPO files : usecase will be upcoming
+    public List<string> GetTables()
+    {
+        List<string> listFormats = new List<string>();
+        try
+        {
+            DataTable formats = GetDataTable("SELECT Name,Format from OutputTemplate");
+            if (formats == null) { lblMessage = "No formats found to export!"; StateHasChanged(); }
+            else
+                foreach (DataRow row in formats.Rows)
+                {
+                    listFormats.Add(string.Concat(row.ItemArray[0].ToString(), ':', row.ItemArray[1].ToString()));
+                }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+        }
+        return listFormats;
+    }
+
+    public List<string> GetSurveys()
+    {
+        List<string> surveys = new List<string>();
+        try
+        {
+            DataTable SurveyIds = GetDataTable("SELECT DISTINCT SurveyId from LCMS_Segment;");
+            if (SurveyIds == null || SurveyIds.Rows.Count == 0) { lblMessage = "No Survey found!"; }
+            else
+            {
+                foreach (DataRow row in SurveyIds.Rows)
+                {
+                    surveys.Add(string.Concat(row.ItemArray[0].ToString()));
+                }
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Error in getting surveys : {e.Message}");
+        }
+        return surveys;
+    }
+
+    public DataTable GetDataTable(string sql)
+    {
+        try
+        {
+            DataTable dt = new DataTable();
+            using (var c = new SqliteConnection(connString))
+            {
+                c.Open();
+                using (SqliteCommand cmd = new SqliteCommand(sql, c))
+                {
+                    using (SqliteDataReader rdr = cmd.ExecuteReader())
+                    {
+                        dt.Load(rdr);
+                        return dt;
+                    }
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+            return null;
+        }
+    }
+
+    public async void CreateDataTable(List<ExportQueries> exportQueries)
+    {
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Generating CSV Files...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+        var dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+        await Task.Delay(2000);
+        DateTime dateTimeStart = DateTime.Now;
+
+        //backup the database i.e. in the local one
+        SqliteConnection m_dbConnection = new SqliteConnection(connString);
+        m_dbConnection.Open();
+
+        try
+        {
+            string whereClause = string.Empty;
+
+            if (selectedSurveys.Count > 0)
+                whereClause = @" WHERE Survey_ID in (" + string.Join(',', selectedSurveys) + ");";
+
+            foreach (ExportQueries eq in exportQueries)
+            {
+                await Task.Run(async () =>
+                {
+                    //delete table prior create new if exists
+                    try
+                    {
+                        //drop table from the database
+                        SqliteCommand commandDrop = new SqliteCommand("DROP table IF EXISTS " + eq.TableName, m_dbConnection);
+                        commandDrop.ExecuteNonQuery();
+                    }
+                    catch (Exception) { }
+
+                    SqliteCommand command = new SqliteCommand(eq.CreateTable, m_dbConnection);
+                    int rowsAffected = command.ExecuteNonQuery();
+
+                    var list = new List<ExpandoObject>();
+                    using (SqliteCommand cmd = new SqliteCommand("SELECT * from " + eq.TableName + whereClause, m_dbConnection))
+                    {
+                        using (SqliteDataReader rdr = cmd.ExecuteReader())
+                        {
+                            while (rdr.Read())
+                            {
+                                var expandoObject = new ExpandoObject();
+                                for (var i = 0; i < rdr.FieldCount; i++)
+                                {
+                                    ((IDictionary<string, object>)expandoObject).Add(rdr.GetName(i), rdr[i]);
+                                }
+                                list.Add(expandoObject);
+                            }
+
+                            //save to csv
+                            if (list.Count > 0)
+                                SaveToCsvDynamic(list, eq.SourceTable + "_" + DateTime.Now.ToFileTime() + ".csv");
+
+                            try
+                            {
+                                //drop table from the database
+                                command = new SqliteCommand("DROP table IF EXISTS " + eq.TableName, m_dbConnection);
+                                rowsAffected = command.ExecuteNonQuery();
+                            }
+                            catch (Exception) { }
+                        }
+                    }
+                });
+            }
+
+
+            lblMessage = $"Data is exported successfully at {saveFilepath}!";
+        }
+        catch (Exception e)
+        {
+            lblMessage = $"Export Failed : {e.Message}";
+        }
+        finally
+        {
+            m_dbConnection.Close();
+            dialog.Close();
+            TimeSpan dateTimeTotal = DateTime.Now - dateTimeStart;
+            Console.WriteLine("END ===============> " + dateTimeTotal.ToString());
+            StateHasChanged();
+        }
+    }
+
+    private void SaveToCsvDynamic(List<ExpandoObject> reportData, string filename)
+    {
+        try
+        {
+            string filepath = saveFilepath + $"\\{filename}".Replace("\\", "/");
+
+            if (!Directory.Exists(_configPath))
+                Directory.CreateDirectory(_configPath);
+
+            using var writer = new StreamWriter(filepath);
+            using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
+
+            //Exit when not results
+            if (!reportData.Any()) { lblMessage = "No data found to save for" + filename; StateHasChanged(); return; }
+
+            var firstResult = reportData.First();
+            var headers = ((IDictionary<string, object>)firstResult).Keys.ToList();
+
+            // Write Headers
+            foreach (var header in headers)
+            {
+                csv.WriteField(header);
+            }
+            csv.NextRecord();
+
+            // Write data
+            foreach (var result in reportData)
+            {
+                foreach (var header in headers)
+                {
+                    if (header == "Survey_Date")
+                    {
+                        object objDate = ((IDictionary<string, object>)result)[header];
+                        string strDate = convertToUtcDateTime(objDate);
+                        ((IDictionary<string, object>)result)[header] = strDate;
+                        var value = ((IDictionary<string, object>)result)[header];
+                        csv.WriteField(value);
+                    }
+                    else
+                    {
+                        var value = ((IDictionary<string, object>)result)[header];
+                        csv.WriteField(value);
+                    }
+                }
+                csv.NextRecord();
+            }
+            lblMessage = filename + " CSV generated"; StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to save CSV of " + filename + " " + ex.Message);
+        }
+    }
+
+    private static DateTime convertToDateTime(object date)
+    {
+        return Convert.ToDateTime(date);
+    }
+
+    private static string convertToDateTimeString(object date)
+    {
+        return Convert.ToDateTime(date).ToString();
+    }
+
+    private static string convertToUtcDateTime(object date)
+    {
+        DateTime dateTime = TimeZoneInfo.ConvertTimeToUtc(Convert.ToDateTime(date));
+        string strIsoDate = dateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        return strIsoDate;
+    }
+
+    private void btnExportData_Clicked()
+    {
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Generating CSV Files...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+
+        var dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+        Task.Delay(100);
+
+        try
+        {
+            if (string.IsNullOrEmpty(connString))
+            {
+                lblMessage = "Please select database";
+            }
+            else
+            {
+                lblMessage = string.Empty;
+                List<ExportDatabase> exportDatabases = new List<ExportDatabase>();
+                DataTable dtExport = GetDataTable("SELECT \"Table\",\"Column\",\"Source\",Grouped,GroupedBy,Operation,\"DataType\" from OutputColumnTemplate;");
+                TemplatedDataSchema templatedDataSchema = new TemplatedDataSchema();
+
+                if (dtExport == null || dtExport.Rows.Count == 0 || (dtExport.Rows.Count > 0 && dtExport.Rows.Count != templatedDataSchema.TemplateSchema.Count))
+                {
+                    lblMessage = "Initializing..";
+
+                    SqliteConnection m_dbConnection = new SqliteConnection(connString);
+                    m_dbConnection.Open();
+
+                    //check for outputtemplate
+                    DataTable dtOutputTemplate = GetDataTable("SELECT * from OutputTemplate;");
+                    long OutputTemplateId = 0;
+                    if (dtOutputTemplate == null || dtOutputTemplate.Rows.Count == 0)
+                    {
+                        SqliteCommand command = new SqliteCommand("INSERT INTO OutputTemplate(Name, Format, CreatedDate, Active) VALUES ('JPO_CSV', 'CSV', datetime('now'), 1);", m_dbConnection);
+                        object obj = command.ExecuteScalar();
+                        if (obj != null)
+                            OutputTemplateId = (long)obj;
+                    }
+                    else
+                    {
+                        DataRow dataRow = dtOutputTemplate.Rows[0];
+                        OutputTemplateId = (long)dataRow.ItemArray[0];
+                    }
+
+                    //clear output column template data if found updated in the schema
+                    if(dtExport.Rows.Count > 0 && dtExport.Rows.Count != templatedDataSchema.TemplateSchema.Count)
+                    {
+                        SqliteCommand command = new SqliteCommand("DELETE from OutputColumnTemplate;", m_dbConnection);
+                        var rowsAffected = command.ExecuteNonQuery();
+                    }
+
+                    //insert data into the output column template for access
+                    foreach (string query in templatedDataSchema.TemplateSchema)
+                    {
+                        try
+                        {
+                            SqliteCommand command = new SqliteCommand(query.Replace("otid", OutputTemplateId.ToString()), m_dbConnection);
+                            var rowsAffected = command.ExecuteNonQuery();
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error($"Error in Templated Schema : {ex.Message}");
+                        }
+                    }
+
+
+                    m_dbConnection.Close();
+                    dtExport = GetDataTable("SELECT \"Table\",\"Column\",\"Source\",Grouped,GroupedBy,Operation,\"DataType\" from OutputColumnTemplate;");
+                }
+
+                foreach (DataRow row in dtExport.Rows)
+                {
+                    string[] sources = !string.IsNullOrEmpty(row[2].ToString()) ? row[2].ToString().Split('.') : null;
+                    exportDatabases.Add(new ExportDatabase
+                    {
+                        Table = row[0].ToString(),
+                        Column = row[1].ToString(),
+                        SourceTable = sources != null ? sources[0] : string.Empty,
+                        SourceColumn = sources != null ? sources[1] : string.Empty,
+                        Grouped = row[3].ToString(),
+                        GroupedBy = row[4].ToString(),
+                        Operation = row[5].ToString(),
+                        DataType = row[6].ToString()
+                    });
+                }
+
+                if (exportDatabases.Count > 0)
+                {
+                    List<List<ExportDatabase>> groupedCustomerList = exportDatabases
+                        .GroupBy(e => e.Table)
+                        .Select(grp => grp.ToList())
+                        .ToList();
+
+                    DataTable orgTables = GetDataTable("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY 1");
+                    List<string> orgTablesList = new List<string>();
+                    foreach (DataRow row in orgTables.Rows)
+                    {
+                        orgTablesList.Add(row[0].ToString());
+                    }
+
+                    List<ExportQueries> exportQueries = new List<ExportQueries>();
+                    if (groupedCustomerList.Count > 0)
+                    {
+                        foreach (List<ExportDatabase> exports in groupedCustomerList)
+                        {
+                            //CREATE TABLE 'test_LCMS_Ravelling_Raw' AS SELECT SurveyId as Survey_ID, SurveyDate as Survey_Date FROM 'LCMS_Ravelling_Raw';
+                            string sourceTable = string.Empty, destTable = string.Empty;
+                            string copytablequery = "CREATE TABLE 'destTable' AS SELECT data FROM 'sourcetable';";
+                            string copytablepartquery = string.Empty;
+
+                            foreach (ExportDatabase exportdb in exports)
+                            {
+                                if (destTable == string.Empty)
+                                    destTable = exportdb.Table;
+
+                                if (sourceTable == string.Empty)
+                                    sourceTable = exportdb.SourceTable;
+
+
+                                copytablepartquery += string.Concat(exportdb.SourceColumn, " AS ", exportdb.Column, ",");
+                            }
+
+                            copytablequery = copytablequery.Replace("destTable", destTable);
+                            copytablequery = copytablequery.Replace("sourcetable", sourceTable);
+                            copytablequery = copytablequery.Replace("data", copytablepartquery.TrimEnd(','));
+
+
+                            //check source table is exist in the main database, else discard the addition
+                            if (orgTablesList.Contains(sourceTable))
+                            {
+                                exportQueries.Add(new ExportQueries { CreateTable = copytablequery, SourceTable = sourceTable, TableName = destTable });
+                            }
+                        }
+                    }
+
+                    if (exportQueries.Count > 0)
+                    {
+                        CreateDataTable(exportQueries);
+                    }
+                }
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Information($"Error in ExportData : {ex.Message}");
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    private void Picker_Loaded(object sender, EventArgs e)
+    {
+        //get location of refernce database
+        string folderpath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Data View 2 Projects");
+        string[] files = Directory.GetFiles(folderpath, "*.db");
+
+        dbstrings = files.ToList();
+        if (files.Length > 0) { lblMessage = "Please select database"; }
+        else lblMessage = "No project database is found";
+        StateHasChanged();
+    }
+
+    private void btnExportDb_Clicked()
+    {
+        surveyIds.Clear();
+        if (!string.IsNullOrEmpty(Dbpicker.Text))
+        {
+            string filepath = Dbpicker.Text;
+
+            connString = $"Data Source={filepath};";
+            surveyIds = GetSurveys();
+            lblMessage = "Database Selected for CSVs";
+        }
+        else
+        {
+            connString = string.Empty;
+            lblMessage = "Please select database";
+        }
+        StateHasChanged();
+    }
+
+    private async Task PickFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+            projectLocation = folderPath;
+            dbstrings.Clear();
+            StateHasChanged();
+
+            ListAllDBFiles(projectLocation);
+        }
+
+    }
+    
+    private async Task PickSaveFolder()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+            saveFilepath = folderPath;
+           
+            StateHasChanged();
+        }
+
+    }
+
+    private void SurveySelected(bool value, string survey)
+    {
+        if (value == true)
+        {
+            selectedSurveys.Add(survey);
+        }
+        else
+        {
+            selectedSurveys.Remove(survey);
+        }
+    }
+
+    public class ExportDatabase
+    {
+        public string Table { get; set; }
+        public string Column { get; set; }
+        public string SourceTable { get; set; }
+        public string SourceColumn { get; set; }
+        public string Grouped { get; set; }
+        public string GroupedBy { get; set; }
+        public string Operation { get; set; }
+        public string DataType { get; set; }
+    }
+
+    public class ExportQueries
+    {
+        public string SourceTable { get; set; }
+        public string TableName { get; set; }
+        public string CreateTable { get; set; }
+    }
+
+}

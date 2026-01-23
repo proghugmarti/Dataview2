@@ -1,0 +1,404 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes
+
+@inject LayerViewModel viewModel;
+@inject ApplicationState appState;
+@inject ApplicationEngine appEngine;
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<MudStack>
+    <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-3">
+        <MudText Typo="Typo.h6" Align="Align.Center">Delete Layers</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:0;" OnClick="Close"></MudIconButton>
+    </MudStack>
+    <MudPaper Outlined="true" Class="p-2 m-2" MaxHeight="300">
+        <MudGrid>
+            <MudItem xs="6" Class="custom-border-right mt-4" >
+                <MudText Typo="Typo.subtitle2" Align="Align.Center" Color="Color.Primary" style="margin-bottom:10px;">SURVEY</MudText>
+                @if(surveys != null && surveys.Count > 0)
+                {
+                    <MudCheckBox Dense T="bool" Value="selectAllSurveys" ValueChanged="OnSelectAllSurveysChecked" Label="Select All" Class="mb-1" />
+
+                    <MudList T="string" Dense Style="max-height:300px; overflow-y: auto;">
+                        @foreach (var survey in surveys)
+                        {
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedSurveys.Contains(survey)" ValueChanged="@((bool isChecked) => OnSelectedSurveysChanged(survey, isChecked))">@survey.SurveyName</MudCheckBox>
+                        }
+                    </MudList>
+                }
+                else
+                {
+                    <MudText>No surveys found</MudText>
+                }
+            </MudItem>
+            <MudItem xs="6" Class="mt-4">
+                <MudText Typo="Typo.subtitle2" Align="Align.Center" Color="Color.Primary" style="margin-bottom:10px;">LAYER</MudText>
+
+                @if (lcmsLayers.Count > 0 || metaTableLayers.Count > 0 || shapefileLayers.Count > 0 || summariesLayers.Count > 0 || pciDefectLayers.Count > 0 || videoLayers.Count > 0)
+                {
+                    <MudCheckBox Dense T="bool" Value="selectAllLayers" ValueChanged="OnSelectAllLayersChecked" Label="Select All" Class="mb-1"/>
+                    <MudList T="string" Dense Style="max-height:250px; overflow-y: auto;">
+                        @foreach (var layer in lcmsLayers)
+                        {
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedLayers.Contains(layer)" ValueChanged="@((bool isChecked) => OnSelectedLayersChanged(layer,isChecked))">@layer</MudCheckBox>
+                        }
+                        @foreach (var layer in metaTableLayers)
+                        {
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedLayers.Contains(layer)" ValueChanged="@((bool isChecked) => OnSelectedLayersChanged(layer,isChecked))">@layer</MudCheckBox>
+                        }
+                        @foreach (var layer in shapefileLayers)
+                        {
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedLayers.Contains(layer)" ValueChanged="@((bool isChecked) => OnSelectedLayersChanged(layer,isChecked))">@layer</MudCheckBox>
+                        }
+                        @foreach (var layer in summariesLayers)
+                        {
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedLayers.Contains(layer)" ValueChanged="@((bool isChecked) => OnSelectedLayersChanged(layer,isChecked))">@layer</MudCheckBox>
+                        }
+                        @foreach (var layer in pciDefectLayers)
+                        {
+                            var newName = layer.pciRating + "-" + layer.pciDefect;
+
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedLayers.Contains(newName)" ValueChanged="@((bool isChecked) => OnSelectedLayersChanged(newName,isChecked))">@(newName)</MudCheckBox>
+                        }
+                        @foreach (var layer in videoLayers)
+                        {
+                            <MudCheckBox Dense Size="Size.Small" Value="selectedLayers.Contains(layer)" ValueChanged="@((bool isChecked) => OnSelectedLayersChanged(layer,isChecked))">@layer</MudCheckBox>
+                        }
+                    </MudList>
+                }
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="DeleteSelectedLayers">Delete</MudButton>
+    </MudStack>
+</MudStack>
+<style>
+    .custom-border-right {
+    border-right: 1px solid rgba(0, 0, 0, 0.12); 
+    }
+
+    .custom-border-bottom {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12); 
+    }
+</style>
+
+@code {
+    private List<Survey> surveys = new List<Survey>();
+    private HashSet<string> lcmsLayers = new HashSet<string>();
+    private HashSet<string> metaTableLayers = new HashSet<string>();
+    private HashSet<string> shapefileLayers = new HashSet<string>();
+    private HashSet<string> summariesLayers = new HashSet<string>();
+    private HashSet<(string pciRating, string pciDefect)> pciDefectLayers = new HashSet<(string, string)>();
+    private HashSet<string> videoLayers = new HashSet<string>();
+
+    private List<Survey> selectedSurveys = new List<Survey>();
+    private List<string> selectedLayers = new List<string>();
+
+    private bool selectAllSurveys = false;
+    private bool selectAllLayers = false;
+
+    protected override void OnInitialized()
+    {
+        GetSurveys();
+        UpdateLayersWithoutSurvey();
+    }
+
+    private async void GetSurveys()
+    {
+        surveys.Clear();
+        surveys = await appEngine.SurveyService.GetAll(new Empty());
+        StateHasChanged();
+    }
+
+    private void OnSelectedSurveysChanged(Survey survey, bool isChecked)
+    {
+        if(isChecked)
+        {
+            selectedSurveys.Add(survey);
+        }
+        else
+        {
+            selectedSurveys.Remove(survey);
+        }
+
+        // Check if all surveys are selected or not
+        selectAllSurveys = selectedSurveys.Count == surveys.Count;
+
+        UpdateLayerFromSelectedSurveys();
+    }
+
+    private async void UpdateLayerFromSelectedSurveys()
+    {
+        lcmsLayers.Clear();
+        metaTableLayers.Clear();
+        summariesLayers.Clear();
+        videoLayers.Clear();
+
+        // Create a list of SurveyIdRequest from the selectedSurveys
+        var surveyIdRequests = selectedSurveys
+            .Select(s => new SurveyIdRequest
+                {
+                    SurveyId = s.Id,
+                    SurveyExternalId = s.SurveyIdExternal// or however you access it
+                })
+            .ToList();
+
+        foreach (var selected in surveyIdRequests)
+        {
+            var lcms = await appEngine.SurveyService.FetchLCMSTablesBySurvey(selected);
+            if (lcms != null && lcms.Count > 0)
+            {
+                foreach (var layer in lcms)
+                {
+                    lcmsLayers.Add(layer);
+                }
+            }
+
+            var metaTables = await appEngine.MetaTableService.GetExistingMetaTableNamesBySurvey(selected.SurveyExternalId);
+            if (metaTables != null && metaTables.Count > 0)
+            {
+                foreach (var metaTable in metaTables)
+                {
+                    metaTableLayers.Add(metaTable);
+                }
+            }
+
+            var summaryNames = await appEngine.SummaryService.GetSummaryNameBySurvey(selected);
+            if (summaryNames != null && summaryNames.Count > 0)
+            {
+                foreach (var summaryName in summaryNames)
+                {
+                    summariesLayers.Add(summaryName);
+                }
+            }
+
+            var videoFrames = await appEngine.VideoFrameService.GetBySurveyId(selected);
+            if (videoFrames != null && videoFrames.Count > 0)
+            {
+                var distincNames = videoFrames.Select(x => x.CameraName).ToList();
+                foreach (var name in distincNames)
+                {
+                    videoLayers.Add(name);
+                }
+            }
+
+            var _360CameraFrames = await appEngine.Camera360FrameService.GetBySurveyId(selected);
+            if (_360CameraFrames != null && _360CameraFrames.Count > 0)
+            {
+                videoLayers.Add("360 Video");
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private async void UpdateLayersWithoutSurvey()
+    {
+        var shapefiles = await appEngine.ShapefileService.GetAll(new Empty());
+        if (shapefiles != null && shapefiles.Count > 0)
+        {
+            var distinctNames = shapefiles.Select(shp => shp.ShapefileName).Distinct().ToList();
+            foreach (var name in distinctNames)
+            {
+                shapefileLayers.Add(name);
+            }
+        }
+
+
+        var pciDefects = await appEngine.PCIDefectsService.GetAll(new Empty());
+        if (pciDefects != null && pciDefects.Count > 0)
+        {
+            foreach (var pciDefect in pciDefects)
+            {
+                pciDefectLayers.Add((pciDefect.PCIRatingName, pciDefect.DefectName));
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void OnSelectedLayersChanged(string layer, bool isChecked)
+    {
+        if (isChecked)
+        {
+            selectedLayers.Add(layer);
+        }
+        else
+        {
+            selectedLayers.Remove(layer);
+        }
+
+        var layerCount = lcmsLayers.Count + metaTableLayers.Count + shapefileLayers.Count + summariesLayers.Count ;
+
+        if (selectedLayers.Count == layerCount)
+        {
+            selectAllLayers = true;
+        }
+        else
+        {
+            selectAllLayers = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnSelectAllSurveysChecked(bool isChecked)
+    {
+        selectAllSurveys = isChecked;
+        if (selectAllSurveys)
+        {
+            selectedSurveys = surveys.ToList();
+        }
+        else
+        {
+            selectedSurveys.Clear();
+        }
+
+        UpdateLayerFromSelectedSurveys();
+        StateHasChanged();
+    }
+
+    private void OnSelectAllLayersChecked(bool isChecked)
+    {
+        selectAllLayers = isChecked;
+        if(selectAllLayers)
+        {
+            selectedLayers = lcmsLayers.Concat(metaTableLayers).Concat(shapefileLayers).Concat(summariesLayers).Concat(videoLayers).ToList();
+            // Convert pciDefectLayers to string format and add to selectedLayers
+            var pciDefectNames = pciDefectLayers.Select(layer => $"{layer.pciRating}-{layer.pciDefect}");
+            selectedLayers.AddRange(pciDefectNames);
+        }
+        else
+        {
+            selectedLayers.Clear();
+        }
+        StateHasChanged();
+    }
+
+    private async void DeleteSelectedLayers()
+    {
+        List<string> sqlCommands = new List<string>();
+
+        if (selectedSurveys.Count > 0 && selectedLayers.Count > 0)
+        {
+            foreach (var survey in selectedSurveys)
+            {
+                var surveyId = survey.SurveyIdExternal;
+                var surveyDBId = survey.Id;
+
+                foreach(var layer in selectedLayers)
+                {
+                    //sql command
+                    if(lcmsLayers.Contains(layer))
+                    {
+                        var dbTable = TableNameHelper.GetDBTableName(layer);
+                        var deletesqlString = $"DELETE FROM {dbTable} WHERE SurveyId = '{surveyId}'";
+                        sqlCommands.Add(deletesqlString);
+
+                        var lasfiles = await appEngine.LASfileService.GetAllLASFilesBySurvey(surveyId);
+                        if (lasfiles != null && lasfiles.Count > 0 && layer != "LasRutting")
+                        {
+                            foreach(var lasfile in lasfiles)
+                            {
+                                var deleteLasPoint = $"DELETE FROM LASPoint WHERE LASfileId = '{lasfile.Id}'";
+                                sqlCommands.Add(deleteLasPoint);
+
+                            }
+                        }
+                    }
+                    else if(metaTableLayers.Contains(layer))
+                    {
+                        var deletesqlString = $"DELETE FROM MetaTableValue WHERE SurveyId = '{surveyId}' AND TableName = '{layer}'";
+                        sqlCommands.Add(deletesqlString);
+                    }
+                    else if(summariesLayers.Contains(layer))
+                    {
+                        //delete both summary and its summarydefect
+                        var deleteDefectsSql = $"DELETE FROM SummaryDefect WHERE SummaryId IN (" +
+                        $"SELECT Id FROM Summary WHERE SurveyId = '{surveyId}' AND Name = '{layer}')";
+                        var deleteSummariesSql = $"DELETE FROM Summary WHERE SurveyId = '{surveyId}' AND Name = '{layer}'";
+
+                        sqlCommands.Add(deleteDefectsSql);
+                        sqlCommands.Add(deleteSummariesSql);
+                    }
+                    else if (CheckPCIDefectLayerName(layer, out var pciRating, out var pciDefect))
+                    {
+                        if(pciRating != null && pciDefect != null)
+                        {
+                            var deletesqlString = $"DELETE FROM PCIDefects WHERE DefectName = '{pciDefect}' AND PCIRatingName = '{pciRating}'";
+                            sqlCommands.Add(deletesqlString);
+                        }
+                    }
+                    else if (videoLayers.Contains(layer))
+                    {
+                        string deletesqlString = null;
+                        if (layer == "360 Video")
+                        {
+                            deletesqlString = $"DELETE FROM Camera360Frame WHERE SurveyId = '{surveyDBId}'";
+                        }
+                        else
+                        {
+                            deletesqlString = $"DELETE FROM VideoFrame WHERE SurveyId = '{surveyDBId}' AND CameraName = '{layer}'";
+                        }
+                        sqlCommands.Add(deletesqlString);
+                    }
+                }
+            }
+        }
+
+        foreach (var layer in selectedLayers)
+        {
+            if (shapefileLayers.Contains(layer))
+            {
+                var deletesqlString = $"DELETE FROM Shapefile WHERE ShapefileName = '{layer}'";
+                sqlCommands.Add(deletesqlString);
+            }
+        }
+
+        if(sqlCommands.Count > 0)
+        {
+            var response = await appEngine.SegmentService.ExecuteSQlQueries(sqlCommands);
+            if(response.Id == 0)
+            {
+                await App.Current.MainPage.DisplayAlert("Success", "Layers have been successfully deleted.", "OK");
+            }
+            else
+            {
+                await App.Current.MainPage.DisplayAlert("Error", "Something went wrong. Please try again.", "OK");
+            }
+        }
+        appState.RefreshTableNames();
+        Close();
+    }
+
+    private bool CheckPCIDefectLayerName(string layer, out string pciRating, out string pciDefect)
+    {
+        foreach(var pciDefectLayer in pciDefectLayers)
+        {
+            var layerName = pciDefectLayer.pciRating + "-" + pciDefectLayer.pciDefect;
+            if(layerName == layer)
+            {
+                pciRating = pciDefectLayer.pciRating;
+                pciDefect = pciDefectLayer.pciDefect;
+                return true;
+            }
+        }
+        // If no match is found, assign default values
+        pciRating = null;
+        pciDefect = null;
+        return false;
+    }
+
+    private void Close()
+    {
+        viewModel.ClosePopup();
+    }
+}

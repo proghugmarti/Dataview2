@@ -1,0 +1,32 @@
+﻿{
+  "_comments": {
+    "Feature status and their icons for using them as a type in features-release-icons": {
+      "New": "🆕",
+      "Fixed": "🛠️",
+      "Modified": "✏️",
+      "Improved": "🔧",
+      "Removed": "❌",
+      "Item": "🔹"
+    },
+    "Note": "This block is for user reference only and is not processed by the script"
+  }, 
+  "features-release-icons": [
+    {
+      "type": "Feature",
+      "description": "Fixed coordinate system transformation in export."
+    },
+    {
+      "type": "Improvement",
+      "description": "Improve Export metatable (RUT) with coordinates."
+    },
+    {
+      "type": "Removed",
+      "description": "Fixed layer menu colours after being reset to black."
+    }
+  ],
+  "Icon": 0,
+  "Tag": {
+    "visible": 0,
+    "value": "380 Row Camera"
+  }
+}

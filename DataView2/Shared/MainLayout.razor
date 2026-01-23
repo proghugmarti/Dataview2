@@ -1,0 +1,27 @@
+﻿@inherits LayoutComponentBase
+
+<MudProviders />
+
+<MudLayout >
+ @*   <MudAppBar Elevation="1">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer" />
+    </MudAppBar>
+    <MudDrawer @bind-Open="@open" Elevation="1">
+        <MudDrawerHeader>
+            <MudText Typo="Typo.h6">DataView</MudText>
+        </MudDrawerHeader>
+        <NavMenu />
+    </MudDrawer>*@
+    <MudMainContent   >
+                @Body
+           
+    </MudMainContent>
+</MudLayout>
+@code {
+    bool open = true;
+
+    void ToggleDrawer()
+    {
+        open = !open;
+    }
+}

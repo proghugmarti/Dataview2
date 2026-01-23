@@ -1,0 +1,932 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using Newtonsoft.Json.Linq
+@using static DataView2.States.ApplicationState
+@using static DataView2.Core.Helper.GeneralHelper
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+@inject WindowManager WindowManager
+
+<MudProviders />
+
+<MudContainer Class="my-3">
+    @if (PCIRatingEntity != null)
+    {
+        <MudStack Row Justify="Justify.SpaceBetween" Class="mt-2">
+            <MudTooltip Text="Previous Sample Unit">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="MoveBack"></MudIconButton>
+            </MudTooltip>
+            <MudText Typo="Typo.h6" Align="Align.Center">PCI Rating (@PCIRatingEntity?.RatingName) Defects</MudText>
+            <MudTooltip Text="Next Sample Unit">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" OnClick="MoveNext"></MudIconButton>
+            </MudTooltip>
+        </MudStack>
+        <MudStack Justify="Justify.SpaceBetween" Style="height:90vh;">
+            <MudStack>
+                <MudText Typo="Typo.body2" Color="Color.Primary" Class="mx-2 my-0" Align="Align.Center">
+                    Sample Unit : <b>@currentSampleUnit?.Name</b> <br />
+                    Area : <b>@(Math.Round((decimal)(currentSampleUnit?.Area_m2 ?? 0.0), 2)) m²</b> <br />
+                    @if (PCIRatingEntity.Surface == "Concrete")
+                    {
+                        <span style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                            <span>Number of Slab:</span>
+                            <MudNumericField T="int?" Margin="Margin.Dense" @bind-Value="NumberOfSlab" style="width:80px;" Variant="Variant.Outlined" />
+                        </span>
+                    }
+                </MudText>
+
+                <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                    <MudCheckBox Value="IsOverlayVisible" ValueChanged="@((bool state)=>ToggleOverlayVisibility(state))"><MudText Typo="Typo.caption">LAYER VISIBILITY</MudText></MudCheckBox>
+                </MudStack>
+                @if (defectLists.Count > 0)
+                {
+                    <MudSimpleTable Hover="true" Bordered="true" Dense Outlined>
+                        <thead class="mud-header">
+                            <tr>
+                                <th style="width:40%">Defect</th>
+                                <th>Qty</th>
+                                <th>Severity</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var defect in defectLists)
+                            {
+                                <tr>
+                                    <td style="padding: 7px 10px;">
+                                        @if (defect.isAutoCalculated)
+                                        {
+                                            <MudStack Row Spacing="1" Justify="Justify.SpaceEvenly">
+                                                <MudChip T="string" Color="Color.Primary" Size="Size.Small" Style="font-size:10px; padding: 7px;">Auto</MudChip>
+                                                <MudSelect @bind-Value="@defect.Defect" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Disabled></MudSelect>
+                                            </MudStack>
+                                        }
+                                        else
+                                        {
+                                            <MudAutocomplete Value="@defect.Defect"
+                                            ValueChanged="@((string newValue) => DefectSelected(defect, newValue))"
+                                            SearchFunc="Search"
+                                            Variant="Variant.Outlined"
+                                            Margin="Margin.Dense"
+                                            Dense="true"
+                                            Clearable="true"
+                                            ShowProgressIndicator="true"
+                                            ResetValueOnEmptyText="true" 
+                                            MaxItems="50"/>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (defect.Defect == "Popouts (Pickouts)")
+                                        {
+                                            <MudNumericField @bind-Value="@defect.Qty" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="1"></MudNumericField>
+                                        }
+                                        else
+                                        {
+                                            <MudTextField @bind-Value="@defect.Qty" Variant="Variant.Outlined" Margin="Margin.Dense" ReadOnly></MudTextField>
+                                        }
+                                    </td>
+                                    <td>
+                                        <MudSelect T="string" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="@defect.Severity" Disabled="@(defect.isAutoCalculated? true : false)">
+                                            <MudSelectItem T="string" Value="@("N/A")"></MudSelectItem>
+                                            <MudSelectItem T="string" Value="@("Low")"></MudSelectItem>
+                                            <MudSelectItem T="string" Value="@("Medium")"></MudSelectItem>
+                                            <MudSelectItem T="string" Value="@("High")"></MudSelectItem>
+                                        </MudSelect>
+                                    </td>
+                                    <td>
+                                        <MudStack Row Spacing="0" AlignItems="AlignItems.Center">
+                                            @if (defect.Defect != null)
+                                            {
+                                                <MudTooltip Text="Click to view detailed information about the selected defect">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Info" OnClick="@(() => ShowDescription(defect))" />
+                                                </MudTooltip>
+
+                                                @if (!string.IsNullOrEmpty(defect.GeoJSON))
+                                                {
+                                                    <MudTooltip Text="Defect graphic is mapped. Click to redraw if needed.">
+                                                        <MudIconButton Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle" OnClick="@(() => RedrawDefectOnMap(defect))" />
+                                                    </MudTooltip>
+                                                }
+                                                else if (TableNameHelper.PCIAutoCalculatedDefects.Contains(defect.Defect))
+                                                {
+                                                    <MudTooltip Text="This defect is auto calculated. Click here if you want to add or delete this defect from the existing layer.">
+                                                        <MudMenu Icon="@Icons.Material.Filled.Map">
+                                                            <MudMenuItem OnClick="@(() => AddLCMSGraphic(defect.Defect))">Add a new graphic</MudMenuItem>
+                                                            <MudMenuItem OnClick="@(() => DeleteLCMSGraphic(defect.Defect))">Delete an existing graphic</MudMenuItem>
+                                                        </MudMenu>
+                                                    </MudTooltip>
+                                                }
+                                                else
+                                                {
+                                                    <MudTooltip Text="Enable and draw the defect graphic on the map.">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.Map" OnClick="@(() => DrawDefectOnMap(defect))" />
+                                                    </MudTooltip>
+                                                }
+                                            }
+                                            <MudTooltip Text="Remove the defect from the list.">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => RemoveDefectFromList(defect))"  />
+                                            </MudTooltip>
+                                        </MudStack>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+                <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center">
+                    <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="RecalculateAutoDefects">Recalculate</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="AddDefectList">Add</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveSampleUnitDefect">Save</MudButton>
+                </MudStack>
+            </MudStack>
+            <MudStack Spacing="0" Class="my-1">
+                @if (selectedDefectDescription != null)
+                {
+                    <MudStack Row>
+                        <MudSpacer />
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="HideDescription" Size="Size.Small" />
+                    </MudStack>
+                    <MudSimpleTable Hover="true" Bordered="true" Outlined Dense>
+                        <tbody>
+                            <tr>
+                                <td><b>Defect</b></td>
+                                <td>@selectedDefectDescription.Name</td>
+                            </tr>
+                            <tr>
+                                <td><b>Unit Of Measure</b></td>
+                                <td>@selectedDefectDescription.UnitOfMeasure</td>
+                            </tr>
+                            @if (!string.IsNullOrEmpty(selectedDefectDescription.LowSeverityDefinition) && !string.IsNullOrEmpty(selectedDefectDescription.MediumSeverityDefinition) && !string.IsNullOrEmpty(selectedDefectDescription.HighSeverityDefinition))
+                            {
+                                <tr>
+                                    <td><b>Low Severity</b></td>
+                                    <td>
+                                        <div>
+                                            @((MarkupString)selectedDefectDescription.LowSeverityDefinition)
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><b>Medium Severity</b></td>
+                                    <td>
+                                        <div>
+                                            @((MarkupString)selectedDefectDescription.MediumSeverityDefinition)
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><b>High Severity</b></td>
+                                    <td>
+                                        <div>
+                                            @((MarkupString)selectedDefectDescription.HighSeverityDefinition)
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            else if (selectedDefectDescription.GeneralDefinition != null)
+                            {
+                                <tr>
+                                    <td><b>Definition</b></td>
+                                    <td>@((MarkupString)selectedDefectDescription.GeneralDefinition)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudStack>
+        </MudStack>
+    }
+
+    @if (isLoading)
+    {
+        <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                <MudText Typo="Typo.caption" Align="Align.Center" Style="background-color:white">@loadingMessage</MudText>
+            </MudStack>
+        </MudOverlay>
+    }
+</MudContainer>
+
+<style>
+    .mud-button-root.mud-icon-button.mud-ripple.mud-ripple-icon {
+    padding: 5px;
+    }
+</style>
+
+@code {
+    [Parameter] 
+    public PCIRatings PCIRatingEntity { get; set; }
+    private SampleUnit_Set sampleUnitSet;
+    private List<SampleUnit> sampleUnits = new List<SampleUnit>();
+    private SampleUnit currentSampleUnit;
+    private bool isLoading = false;
+    private int currentUnitIndex = 0;
+    private List<PCIDefectDescription> pciDefectDescriptions = new List<PCIDefectDescription>();
+    private PCIDefectDescription selectedDefectDescription;
+
+    private int? NumberOfSlab = null;
+    private double qantity = 0.0;
+    private string pciDefectSeverityValue = null;
+    private PCIRatingDefectList currentDefect;
+    private List<PCIRatingDefectList> defectLists = new List<PCIRatingDefectList>();
+    public class PCIRatingDefectList
+    {
+        public Guid Id { get; set; } = Guid.NewGuid(); //unique identifier for graphic
+        public string Defect;
+        public double Qty;
+        public string Severity;
+        public string GeoType;
+        public string UnitOfMeasure = string.Empty;
+        public string GeoJSON = string.Empty;
+        public bool isAutoCalculated = false;
+    }
+    private List<PCIRatingStatus> currentRatingStatus = new List<PCIRatingStatus>();
+    private string loadingMessage = string.Empty;
+    private bool IsOverlayVisible = true;
+    [Inject] private IDialogService Dialog { get; set; }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        appState.IsPopupOpen = true;
+        LoadDatainitially();
+
+        appState.DefectGraphicInfoSent += SaveDefectInfoIntoDefectList;
+        appState.PCIRatingModeUpdated += UpdateCurrentSampleUnit;
+        appState.DisposalRequested += Dispose;
+        appState.OnPCISampleUnitsRedrawRequested += RedrawSampleUnits;
+    }
+
+    private async void LoadDatainitially()
+    {
+        try
+        {
+            if (PCIRatingEntity != null)
+            {
+                var ratingSurface = PCIRatingEntity.Surface;
+                var ratingStatus = await appEngine.PCIRatingService.GetRatingStatus(new Core.Models.LCMS_Data_Tables.IdRequest { Id = PCIRatingEntity.Id });
+                if (ratingStatus != null && ratingStatus.Count > 0)
+                {
+                    currentRatingStatus = ratingStatus;
+                }
+
+                var allPciDefects = Core.Helper.PCIDefectJSON.ConvertJsonToPCIDefectDescription();
+                if (allPciDefects != null && allPciDefects.Count > 0)
+                {
+                    pciDefectDescriptions = allPciDefects.Where(p => p.Surface == ratingSurface).ToList();
+                }
+
+                var response = await appEngine.SampleUnitSetService.GetById(new Core.Models.LCMS_Data_Tables.IdRequest { Id = PCIRatingEntity.SampleUnitSetId });
+                if (response != null)
+                {
+                    sampleUnitSet = response;
+                    sampleUnits = response.SampleUnits.ToList();
+
+                    var mapCoordinates = await GetMapCoordinateDetails(sampleUnits);
+                    if (mapCoordinates.Count == 0) return;
+
+                    appState.FetchCoordinatesDetails(mapCoordinates); //draw on the map
+
+                    // Find the first sample unit that is NOT completed (Status == false)
+                    var firstIncompleteSU = sampleUnits
+                    .Select((su, index) => new { SampleUnit = su, Index = index }) // Capture index with sample unit
+                    .FirstOrDefault(su => currentRatingStatus
+                        .FirstOrDefault(x => x.SampleUnitId == su.SampleUnit.Id)?.Status == false);
+
+                    if (firstIncompleteSU != null)
+                    {
+                        currentSampleUnit = firstIncompleteSU.SampleUnit;
+                        currentUnitIndex = firstIncompleteSU.Index; // Update the index
+                    }
+                    else
+                    {
+                        // If all sample units are completed, show the first one
+                        currentSampleUnit = sampleUnits.FirstOrDefault();
+                        currentUnitIndex = 0; // Default to the first index
+                    }
+                    HighlightSampleUnit(currentSampleUnit);
+                    await UpdateDefectList();
+                }
+            }
+            else
+            {
+                Snackbar.Add("No PCIRating found.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error in LoadDatainitially" + ex.Message);
+        }
+    }
+
+    private async void RedrawSampleUnits()
+    {
+        if (sampleUnits != null && sampleUnits.Count > 0)
+        {
+            appState.HandleSurveyTemplate();
+            var mapCoordinates = await GetMapCoordinateDetails(sampleUnits);
+            if (mapCoordinates.Count == 0) return;
+
+            appState.FetchCoordinatesDetails(mapCoordinates); //draw on the map
+
+            if (currentSampleUnit != null)
+            {
+                HighlightSampleUnit(currentSampleUnit);
+            }
+        }
+    }
+
+    private async Task AutoFillDefects(SampleUnit sampleUnit)
+    {
+        //Automatic calculation within the sample units
+        var request = new PCIAutofillDefectRequest
+        {
+            Coordinates = sampleUnit.Coordinates,
+            PavementType = PCIRatingEntity.Surface
+        };
+        var defects = await appEngine.SegmentService.CalculateAutofillPCIDefects(request);
+        if (defects.Count > 0)
+        {
+            foreach(var defect in defects)
+            {
+                var (geoType, unitOfMeasure) = GetGeoTypeAndMeasure(defect.DefectName);
+                var newDefectList = new PCIRatingDefectList
+                {
+                    Defect = defect.DefectName,
+                    Qty = defect.Qty,
+                    Severity = defect.Severity,
+                    GeoType = geoType,
+                    UnitOfMeasure = unitOfMeasure,
+                    isAutoCalculated = true
+                };
+                defectLists.Add(newDefectList);
+            }
+        }
+    }
+
+    private async void RecalculateAutoDefects()
+    {
+        isLoading = true;
+        loadingMessage = "Auto calculating PCI defects...";
+
+        StateHasChanged();
+
+        var autoCalculatedDefects = defectLists.Where(x => x.isAutoCalculated).ToList();
+        foreach(var defect in autoCalculatedDefects)
+        {
+            defectLists.Remove(defect);
+        }
+
+        await AutoFillDefects(currentSampleUnit);
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task<List<MapCoordinateDetails>> GetMapCoordinateDetails(List<SampleUnit> sampleUnits)
+    {
+        var mapCoordinateDetails = new List<MapCoordinateDetails>();
+
+        foreach (var sampleUnit in sampleUnits)
+        {
+            var boundaryCoordinates = System.Text.Json.JsonSerializer.Deserialize<List<double[]>>(sampleUnit.Coordinates);
+            // Convert List<double[]> to List<List<double>>
+            var geometryList = boundaryCoordinates
+                .Select(coord => coord.ToList())
+                .ToList();
+
+            bool status = false;
+            var currentStatus = currentRatingStatus.FirstOrDefault(x => x.SampleUnitId == sampleUnit.Id);
+            if (currentStatus != null)
+            {
+                status = currentStatus.Status;
+            }
+            var mapCoordinate = new MapCoordinateDetails
+            {
+                Coordinates = geometryList,
+                FileName = sampleUnit.Name,
+                GeometryType = "Polygon",
+                IsFirst = false,
+                SampleUnitStatus = status,
+                SurveyStatus = null
+            };
+            mapCoordinateDetails.Add(mapCoordinate);
+        }
+        return mapCoordinateDetails;
+    }
+
+    private void HighlightSampleUnit(SampleUnit sampleUnit)
+    {
+        appState.HighlightGraphic(sampleUnit.Name, "Click");
+    }
+
+    private async void MoveBack()
+    {
+        if (sampleUnits != null && sampleUnits.Count > 1)
+        {
+            // Decrement the current index and wrap around if needed
+            currentUnitIndex = (currentUnitIndex - 1 + sampleUnits.Count) % sampleUnits.Count;
+            currentSampleUnit = sampleUnits[currentUnitIndex]; // Update the current sample unit
+            HighlightSampleUnit(currentSampleUnit); // Highlight the new sample unit
+            await UpdateDefectList(); // Update the defect list for the new sample unit
+        }
+        else
+        {
+            Snackbar.Add("No other sample unit found.", Severity.Error);
+        }
+    }
+
+    private async void MoveNext()
+    {
+        if (sampleUnits != null && sampleUnits.Count > 1)
+        {
+            // Increment the current index and wrap around if needed
+            currentUnitIndex = (currentUnitIndex + 1) % sampleUnits.Count;
+            currentSampleUnit = sampleUnits[currentUnitIndex]; // Update the current sample unit
+            HighlightSampleUnit(currentSampleUnit); // Highlight the new sample unit
+            await UpdateDefectList(); // Update the defect list for the new sample unit
+        }
+        else
+        {
+            Snackbar.Add("No other sample unit found.", Severity.Error);
+        }
+    }
+
+    private void ShowDescription(PCIRatingDefectList defect)
+    {
+        selectedDefectDescription = pciDefectDescriptions.FirstOrDefault(d => d.Name == defect.Defect);
+        StateHasChanged();
+    }
+
+    private void HideDescription()
+    {
+        selectedDefectDescription = null;
+        StateHasChanged();
+    }
+
+    private void AddDefectList()
+    {
+        defectLists.Add(new PCIRatingDefectList());
+    }
+
+    private void DrawDefectOnMap(PCIRatingDefectList defect)
+    {
+        //draw defect graphic on the map
+        currentDefect = defect;
+        appState.SetDrawingToolVisibility(defect.Defect, defect.GeoType, true, defect.Id);
+    }
+
+    private async void RedrawDefectOnMap(PCIRatingDefectList defect)
+    {
+        bool? result = await Dialog.ShowMessageBox("Confirmation", "Are you sure you want to redraw the defect? This will delete the current graphic.", "Yes", "Cancel");
+
+        if(result == true)
+        {
+            DeleteDefectOnMap(defect);
+            DrawDefectOnMap(defect);
+        }
+    }
+
+    private void DeleteDefectOnMap(PCIRatingDefectList defect)
+    {
+        appState.RemovePCIDefect(defect.Id);
+    }
+
+    private void RemoveDefectFromList(PCIRatingDefectList defect)
+    {
+        defectLists.Remove(defect);
+        DeleteDefectOnMap(defect);
+        StateHasChanged();
+    }
+
+    private void DefectSelected(PCIRatingDefectList defect, string selectedDefect)
+    {
+        defect.Defect = selectedDefect;
+
+        var (geoType, unitOfMeasure) = GetGeoTypeAndMeasure(selectedDefect);
+        if (geoType != null && unitOfMeasure != null)
+        {
+            defect.GeoType = geoType;
+            defect.UnitOfMeasure = unitOfMeasure;
+        }
+    }
+
+    private (string geoType, string measure) GetGeoTypeAndMeasure(string defectName)
+    {
+        var matchingDefect = pciDefectDescriptions.FirstOrDefault(x => x.Name == defectName);
+        if (matchingDefect != null)
+        {
+            var surface = matchingDefect.Surface;
+            var unitOfMeasure = matchingDefect.UnitOfMeasure;
+            if (surface == "Concrete")
+            {
+                return ("Point", unitOfMeasure);
+            }
+            else if (unitOfMeasure.StartsWith("Area"))
+            {
+                return ("Polygon", unitOfMeasure);
+            }
+            else if (unitOfMeasure.StartsWith("Length"))
+            {
+                return ("Polyline", unitOfMeasure);
+            }
+        }
+        return (null, null);
+    }
+
+    private void SaveDefectInfoIntoDefectList(double qty, JToken coordinateToken)
+    {
+        if(currentDefect != null)
+        {
+            GeoType? geoType = Enum.TryParse(currentDefect.GeoType, out GeoType parsedType) ? parsedType : null;
+            if(geoType != null)
+            {
+                var geojson = GeneralHelper.CreateNewGeoJson(geoType.Value, coordinateToken, null, null, currentDefect.Defect);
+                currentDefect.GeoJSON = geojson;
+                currentDefect.Qty = qty;
+            }
+        }
+        StateHasChanged();
+        WindowManager.FocusWindow();
+    }
+
+    private async void SaveSampleUnitDefect()
+    {
+        bool concreteSurface = PCIRatingEntity.Surface == "Concrete";
+        if (concreteSurface)
+        {
+            if (NumberOfSlab == null)
+            {
+                Snackbar.Add("Please enter the number of slabs", Severity.Error);
+                return;
+            }
+            else if(NumberOfSlab <= 0)
+            {
+                Snackbar.Add("The number of slabs must be greater than zero. Please check it again", Severity.Error);
+                return;
+            }
+        }
+
+        //Save pci defects
+        if (defectLists.Count == 0 || defectLists.All(defect =>
+            string.IsNullOrWhiteSpace(defect.Defect) &&
+            string.IsNullOrWhiteSpace(defect.Severity) &&
+            string.IsNullOrWhiteSpace(defect.GeoType) &&
+            (defect.isAutoCalculated || string.IsNullOrWhiteSpace(defect.GeoJSON))))
+        {
+            bool? confirmation = await Dialog.ShowMessageBox("Confirmation", "Do you want to save without any defects?", "Yes", "Cancel");
+
+            if (confirmation == true)
+            {
+                UpdateStatusAndMoveNext();
+            }
+        }
+        else
+        {
+            var pciDefectList = new List<PCIDefects>();
+
+            foreach (var defect in defectLists)
+            {
+                if (string.IsNullOrEmpty(defect.Defect) ||
+                    string.IsNullOrEmpty(defect.Severity) ||
+                    string.IsNullOrEmpty(defect.GeoType))
+                {
+                    Snackbar.Add("All defect fields must be filled.", Severity.Error);
+                    return; // Stop execution as soon as we find an invalid entry
+                }
+                else if ((!defect.isAutoCalculated && string.IsNullOrEmpty(defect.GeoJSON)) && defect.Defect != "Popouts (Pickouts)")
+                {
+                    Snackbar.Add($"Please draw the {defect.Defect} graphic on the map.", Severity.Error);
+                    return;
+                }
+
+                if (defect.Qty == 0)
+                {
+                    Snackbar.Add($"Defect can not be 0. Please check the qty of {defect.Defect}", Severity.Error);
+                    return; //Skip if qty is 0
+                }
+
+                //Save all PCI defects
+                var newPCIDefect = new PCIDefects
+                    {
+                        DefectName = defect.Defect,
+                        Qty = defect.Qty,
+                        PCIRatingId = PCIRatingEntity.Id,
+                        PCIRatingName = PCIRatingEntity.RatingName,
+                        SampleUnitId = currentSampleUnit.Id,
+                        SampleUnitName = currentSampleUnit.Name,
+                        SampleUnitSetId = sampleUnitSet.Id,
+                        SampleUnitSetName = sampleUnitSet.Name,
+                        Severity = defect.Severity,
+                        UnitOfMeasure = defect.UnitOfMeasure,
+                        GeoJSON = defect.GeoJSON
+                    };
+
+                pciDefectList.Add(newPCIDefect);
+
+                //if it is has severity level, create color coding
+                if (newPCIDefect.Severity == "Low" || newPCIDefect.Severity == "Medium" || newPCIDefect.Severity == "High")
+                {
+                    var colorCodeList = new List<ColorCodeInformation>
+                    {
+                        new ColorCodeInformation
+                        {
+                            TableName = $"{PCIRatingEntity.RatingName}-{defect.Defect}",
+                            Property = "Severity",
+                            IsStringProperty = true,
+                            StringProperty = "Low",
+                            Thickness = 5,
+                            HexColor = "#00FF0096"
+                        },
+                        new ColorCodeInformation
+                        {
+                            TableName = $"{PCIRatingEntity.RatingName}-{defect.Defect}",
+                            Property = "Severity",
+                            IsStringProperty = true,
+                            StringProperty = "Medium",
+                            Thickness = 5,
+                            HexColor = "#FFFF0096"
+                        },
+                        new ColorCodeInformation
+                        {
+                            TableName = $"{PCIRatingEntity.RatingName}-{defect.Defect}",
+                            Property = "Severity",
+                            IsStringProperty = true,
+                            StringProperty = "High",
+                            Thickness = 5,
+                            HexColor = "#FF000096"
+                        }
+                    };
+
+                    foreach (var colorCode in colorCodeList)
+                    {
+                        //Add the color code information only if it is new
+                        var existingColorCode = appState.ColorCodeInfo.FirstOrDefault(x => x.TableName == colorCode.TableName &&
+                                        x.StringProperty == colorCode.StringProperty &&
+                                        x.Property == colorCode.Property);
+                        if (existingColorCode == null)
+                        {
+                            appState.ColorCodeInfo.Add(colorCode);
+                        }
+                    }
+                    var createResponse = await appEngine.ColorCodeInformationService.CreateRange(colorCodeList); //update db
+                }
+                else
+                {
+                    //create non severity graphic color
+                    var nonSeverityGraphicColor = new MapGraphicData
+                        {
+                            Name = $"{PCIRatingEntity.RatingName}-{defect.Defect}",
+                            Red = 255,
+                            Green = 0,
+                            Blue = 255,
+                            Thickness = 5,
+                            Alpha = 150,
+                            SymbolType = defect.GeoType
+                        };
+
+                    var createResponse = await appEngine.MapGraphicDataService.Create(nonSeverityGraphicColor);
+                }
+            }
+
+            if (pciDefectList.Any())
+            {
+                var response = await appEngine.PCIDefectsService.CreateRange(pciDefectList);
+
+                if (response != null)
+                {
+                    if (response.Id == 0)
+                    {
+                        UpdateStatusAndMoveNext();
+                    }
+                    else if (response.Id == -1)
+                    {
+                        Snackbar.Add("Something went wrong. Failed saving the PCI Defects.", Severity.Error);
+                    }
+                    else
+                    {
+                        //should update overlay if graphics are loaded
+                        var pciRatingId = response.Id;
+                        appState.UpdatePCIRatingLayerVisibility(pciRatingId);
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("Something went wrong. Failed saving the PCI Defects.", Severity.Error);
+                }
+            }
+        }
+
+        if (concreteSurface)
+        {
+            //Update NumberOfSlab in sample unit if changes made
+            if (currentSampleUnit.NumOfSlabs != NumberOfSlab)
+            {
+                currentSampleUnit.NumOfSlabs = NumberOfSlab;
+                var response = await appEngine.SampleUnitService.EditValue(currentSampleUnit);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async void UpdateStatusAndMoveNext()
+    {
+        //Update PCI Rating Status
+        var status = new PCIRatingStatus
+        {
+            PCIRatingId = PCIRatingEntity.Id,
+            SampleUnitId = currentSampleUnit.Id,
+            Status = true
+        };
+        await appEngine.PCIRatingService.UpdateRatingStatus(status);
+        var updateStatus = currentRatingStatus.FirstOrDefault(x => x.SampleUnitId == currentSampleUnit.Id);
+        if (updateStatus != null)
+        {
+            updateStatus.Status = true;
+        }
+
+        // Update Sample Unit Colour
+        appState.HighlightGraphic(currentSampleUnit.Name, "PCISampleUnit");
+
+        //Show success message
+        await Dialog.ShowMessageBox("Success", $"PCI Defect for {currentSampleUnit.Name} successfully saved.");
+        //Move to the next one
+        var firstIncompleteSU = sampleUnits
+           .FirstOrDefault(su => currentRatingStatus
+               .FirstOrDefault(x => x.SampleUnitId == su.Id)?.Status == false);
+
+        if (firstIncompleteSU != null)
+        {
+            defectLists.Clear();
+            currentSampleUnit = firstIncompleteSU;
+            currentUnitIndex = sampleUnits.IndexOf(firstIncompleteSU);
+
+            HighlightSampleUnit(firstIncompleteSU);
+
+            await UpdateDefectList(); // Update the defect list for the new sample unit
+            StateHasChanged();
+            WindowManager.FocusWindow();
+        }
+    }
+
+    private async void UpdateCurrentSampleUnit(string sampleUnitName)
+    {
+        var su = sampleUnits.FirstOrDefault(x => x.Name == sampleUnitName);
+        if (su != null)
+        {
+            currentSampleUnit = su;
+            currentUnitIndex = sampleUnits.IndexOf(su);
+            await UpdateDefectList();
+        }
+    }
+
+    private async Task UpdateDefectList()
+    {
+        try
+        {
+            NumberOfSlab = currentSampleUnit.NumOfSlabs;
+            isLoading = true;
+
+            var ratingStatus = currentRatingStatus.FirstOrDefault(x => x.SampleUnitId == currentSampleUnit.Id);
+            if (ratingStatus == null || ratingStatus.Status == false)
+            {
+                loadingMessage = "Auto calculating PCI defects...";
+            }
+            else
+            {
+                loadingMessage = "Loading existing PCI defects...";            
+            }
+            StateHasChanged();
+            WindowManager.FocusWindow();
+
+            await Task.Run(async () =>
+            {
+                defectLists.Clear();
+                if (ratingStatus == null || ratingStatus.Status == false)
+                {
+                    //Auto calculate defects only if it hasn't been processed
+                    await AutoFillDefects(currentSampleUnit);                    
+                }
+                var defectRequest = new PCIDefectRequest
+                    {
+                        PCIRatingId = PCIRatingEntity.Id,
+                        SampleUnitId = currentSampleUnit.Id
+                    };
+
+                var newDefects = await appEngine.PCIDefectsService.GetByPCIRatingAndSampleUnit(defectRequest);
+                if (newDefects != null && newDefects.Count > 0)
+                {
+                    foreach (var defect in newDefects)
+                    {
+                        var (geoType, unitOfMeasure) = GetGeoTypeAndMeasure(defect.DefectName);
+                        var newDefectList = new PCIRatingDefectList
+                            {
+                                Defect = defect.DefectName,
+                                Qty = defect.Qty,
+                                GeoJSON = defect.GeoJSON,
+                                Severity = defect.Severity,
+                                GeoType = geoType,
+                                UnitOfMeasure = unitOfMeasure
+                            };
+
+                        if(string.IsNullOrEmpty(defect.GeoJSON))
+                        {
+                            newDefectList.isAutoCalculated = true;
+                        }
+                        defectLists.Add(newDefectList);
+                    }
+                }
+
+                if (defectLists.Count == 0)
+                {
+                    AddDefectList();
+                }
+
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<IEnumerable<string>> Search(string value, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(5, token);
+
+            // if text is null or empty, show complete list
+            if (string.IsNullOrEmpty(value))
+                return pciDefectDescriptions.Select(x => x.Name).AsEnumerable();
+
+            return pciDefectDescriptions.Select(x => x.Name).Where(x => x.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            return new List<string>();
+        }
+    }
+
+    private void AddLCMSGraphic(string pciDefectName)
+    {
+        var layerName = ConvertDefectName(pciDefectName);
+        if(layerName == "Crack Classification")
+        {
+            Snackbar.Add("The defect from Crack Classification can not be added as of yet.", Severity.Error);
+        }
+        else
+        {
+            appState.AddOrRemoveDefectFromPCIRating(layerName, true);            
+        }
+    }
+
+    private void DeleteLCMSGraphic(string pciDefectName)
+    {
+        var layerName = ConvertDefectName(pciDefectName);
+        appState.AddOrRemoveDefectFromPCIRating(layerName, false);
+    }
+
+    private string ConvertDefectName(string pciDefectName)
+    {
+        switch(pciDefectName)
+        {
+            case "Alligator cracking (Fatigue)":
+            case "Joint Reflection Cracking":
+            case "Longitudinal & Transverse Cracking":
+                return "Crack Classification";
+
+            case "Popouts (Pickouts)":
+                return "Pickout";
+
+            default:
+                return pciDefectName;
+        }
+    }
+
+    private void ToggleOverlayVisibility(bool value)
+    {
+        IsOverlayVisible = value;
+
+        appState.ToggleOverlayVisibility("surveySetOverlay");
+    }
+
+    private void Dispose()
+    {
+        //IDisposable never works when window closes so use another even handler to dispose existing event hanlders to avoid duplicate error
+        appState.DefectGraphicInfoSent -= SaveDefectInfoIntoDefectList;
+        appState.PCIRatingModeUpdated -= UpdateCurrentSampleUnit;
+        appState.DisposalRequested -= Dispose;
+        appState.OnPCISampleUnitsRedrawRequested -= RedrawSampleUnits;
+    }
+}

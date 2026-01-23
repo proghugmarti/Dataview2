@@ -1,0 +1,939 @@
+﻿@page "/CrackClassificationSetting"
+@using System.Xml
+
+@using DataView2.Core.Helper
+@using DataView2.Core.Models.CrackClassification;
+@using DataView2.Core.Protos
+@using Grpc.Core
+@using Microsoft.VisualBasic;
+
+
+@using CommunityToolkit.Maui.Storage;
+@using System.Text;
+@using System.Text.RegularExpressions;
+
+
+@using DataView2.Core.Models.Setting;
+@using Google.Protobuf.WellKnownTypes;
+@using DataView2.Core.Models;
+@using DataView2.Engines;
+@using ProtoBuf.Grpc
+@using System.Reflection
+@using static DataView2.Core.Helper.crackClassificationImage
+@inject ICrackClassificationConfiguration crackConfiguration
+@inject ICrackClassification crackClassificationService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@inject ApplicationEngine appEngine;
+@inject SurveyProcessing.SurveyProcessingClient surveyProcessing;
+
+<style>
+    table, th, td {
+    border: 1px solid;
+    border-color: aqua
+    }
+
+    td {
+    }
+
+    .tableImage {
+    /*    background-image: url("@(jpgfileName)"); */
+
+    background-repeat: no-repeat;
+    background-size: 1029px 2500px;
+    }
+
+</style>
+
+<MudContainer>
+    <div class="text-center my-5">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-2">Crack Classification Setting</MudText>
+    </div>
+
+    <MudPaper Class="mx-auto">
+        <MudCard Class="m-4" Elevation="0">
+
+            <MudCardContent>
+                <MudNumericField @bind-Value="minSizeToStraight" Label="Minimun Size Straight Cracks" Variant="Variant.Outlined" Step="1" Class="my-2" />
+                <MudNumericField T="int" @bind-Value="minSizeToAvoidMerge" Label="Minimun Size to avoid Merging" Variant="Variant.Outlined" Step="1" Class="my-2" />
+                <MudNumericField T="double" Value="@straightness" ValueChanged="@(v => straightness = Math.Round(v, 1))" Label="Straightness" Variant="Variant.Outlined" Step="0.1" Class="my-2" />
+                <MudNumericField T="double" Value="@minDeep" ValueChanged="@(v => minDeep = Math.Round(v, 1))" Label="Minimun Deep (mm)" Variant="Variant.Outlined" Step="0.1" Class="my-2" />
+
+                <div class="d-flex justify-center align-items-center">
+                    <MudNumericField T="double" Value="@lowLimit" ValueChanged="@(v => lowLimit = Math.Round(v, 1))" Label="Low Limit(mm)" Variant="Variant.Outlined" Step=".1" Class="my-2" />
+                    <MudNumericField T="double" Value="@lowMedLimit" ValueChanged="@(v => lowMedLimit = Math.Round(v, 1))" Label="Low Medium Limit(mm)" Variant="Variant.Outlined" Step=".1" Class="my-2" />
+                    <MudNumericField T="double" Value="@medHighLimit" ValueChanged="@(v => medHighLimit = Math.Round(v, 1))" Label="Medium High Limit(mm)" Variant="Variant.Outlined" Step=".1" Class="my-2" />
+                    <MudNumericField T="double" Value="@highLimit" ValueChanged="@(v => highLimit = Math.Round(v, 1))" Label="High Limit(mm)" Variant="Variant.Outlined" Step=".1" Class="my-2" />
+                </div>
+
+                <MudCheckBox T="bool" @bind-Value="@ignoreOutLanes" Color="Color.Primary">Ignore Cracks Out of Lanes</MudCheckBox>
+                <MudStack Row=true>
+                    <MudCheckBox T="bool" @bind-Value="@reprocessFisFiles" Color="Color.Primary">Reprocess Fis Files</MudCheckBox>
+
+                    @if(reprocessFisFiles)
+                    {
+                        @if (cfgFolderPath != null)
+                        {
+                            <MudSelect T="string" Label="Cfg file" Variant="Variant.Outlined" Value="@selectedCfg" ValueChanged="@((string newValue) => UpdateSelectedObjects(newValue))" Required Style="width:230px">
+                                @if (cfgFiles != null && cfgFiles.Any())
+                                {
+                                    @foreach (var cfgFile in cfgFiles)
+                                    {
+                                        <MudSelectItem Value="@cfgFile">@cfgFile</MudSelectItem>
+                                    }
+                                }
+                            </MudSelect>
+                        }
+                        else
+                        {
+                            <MudSelect T="string" Label="No cfg file path found" Variant="Variant.Outlined" Disabled></MudSelect>
+                        }
+                    }
+                </MudStack>
+            </MudCardContent>
+
+            <div class="d-flex justify-center align-items-center">
+                <MudButton Class="m-3" Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveButtonClicked">Save</MudButton>
+            </div>
+        </MudCard>
+    </MudPaper>
+</MudContainer>
+
+<MudContainer Class="mt-16 px-8" MaxWidth="MaxWidth.False">
+    <div id="another_unique_identifier" class="ma-0" style="height:900px;overflow-y: scroll;">
+        <MudGrid>
+            <MudItem md="12" xs="12">
+                <MudGrid>
+                    <MudItem xs="12" md="12">
+
+                        <MudCard Elevation=4>
+                            <MudCardContent>
+
+                                <MudButton Icon="@Icons.Material.Filled.CloudUpload" Variant="Variant.Filled" Color="Color.Primary" HtmlTag="label" OnClick="@UploadFiles">
+                                    Upload Files
+                                </MudButton>
+
+                                @if (fisFiles != null)
+                                {
+                                    <MudText Typo="@Typo.h6">@fisFiles.Count() File@(fisFiles.Count() == 1 ? "" : "s"):</MudText>
+                                    <MudList T="string">
+                                        @foreach (var file in fisFiles)
+                                        {
+
+                                            <MudListItem Icon="@Icons.Material.Filled.AttachFile" @key="@file" @onclick="() => OnFileClick(file)">
+                                                @file.Name <code>@file.Size bytes</code>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+
+                            </MudCardContent>
+
+
+                            <MudCardActions Class="justify-end mt-2">
+                                @if (fisFiles.Count() != 0) // Only visible when files are uploaded.
+                                {
+                                    @* <MudButton Variant="Variant.Filled" Color="Color.Primary" @onclick="ReclassifyBatch" style="margin:5px">Reclassify</MudButton> *@
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" @onclick="(() => ProcessResults(true))" style="margin:5px">Get Summary</MudButton>
+                                }
+                            </MudCardActions>
+                        </MudCard>
+
+                    </MudItem>
+
+                    @if (showResult == 1)
+                    {
+                        <MudItem xs="12" sm="12" md="12">
+                            <MudCard Elevation=4>
+                                <MudCardContent>
+                                    <MudTable Items="@listCrackCounters" Dense="true" Bordered="true">
+                                        <ToolBarContent>
+                                            <MudText Typo="Typo.h6" Align="Align.Center" Style="width: 100%;">
+                                                Selected File: @fisFileName
+                                            </MudText>
+                                        </ToolBarContent>
+                                        <HeaderContent>
+                                            <MudTh>Crack Type</MudTh>
+                                            <MudTh>Count</MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            <MudTd DataLabel="Id">
+                                                <MudChip T="string" Icon="@dicCrackIcons[@context.CrackType]" Color="@dicCrackColors[@context.CrackType]">@dicCrackNames[@context.CrackType]</MudChip>
+                                            </MudTd>
+                                            <MudTd DataLabel="MinX">@context.Count</MudTd>
+                                        </RowTemplate>
+                                    </MudTable>
+                                </MudCardContent>
+                            </MudCard>
+                        </MudItem>
+
+                    }
+                </MudGrid>
+            </MudItem>
+            @if (showResult == 1 && xmlFound && imageFound)
+            {
+                <MudItem md="12" xs="12">
+                    <MudItem sm="12" md="12">
+                        <MudPaper Elevation="2" Class="pa-4">
+
+                            <MudScrollToTop TopOffset="100"
+                            Selector="#unique_id_scroll_section"
+                            VisibleCssClass="visible absolute"
+                            HiddenCssClass="invisible">
+                            </MudScrollToTop>
+
+
+                            <table cellspacing="0" class="tableImage" background="@(_userAvatar)" style="width:1029px;height:2500px" align="center">
+                                @for (int i = 0; i < matrixHeight; i++)
+                                {
+                                    <tr>
+                                        @for (int j = 0; j < matrixWidth; j++)
+                                        {
+                                            <td>
+                                                <MudBadge Icon="@dicCrackIcons[arrayDisplay[i, j].ToString()]" Color="@dicCrackColors[arrayDisplay[i, j].ToString()]" Overlap="true" Bordered="true" class="mx-4">
+                                                </MudBadge>
+                                            </td>
+                                        }
+                                    </tr>
+
+                                }
+                            </table>
+
+                            <MudScrollToTop TopOffset="100" Selector="#another_unique_identifier" Style="z-index:2001;">
+                                <div class="mud-theme-secondary px-3 py-6 mud-elevation-16 rounded-xl fixed" style="bottom:20px;right:20px;">Scroll to top</div>
+                            </MudScrollToTop>
+                        </MudPaper>
+                    </MudItem>
+                </MudItem>
+            }
+
+            @if (showResult == 2)
+            {
+                <MudItem md="12" xs="12">
+                    @{
+                        var bytes = System.Text.Encoding.UTF8.GetBytes(data);
+                        var base64 = Convert.ToBase64String(bytes);
+                        var url = $"data:text/csv;base64,{base64}";
+                    }
+                    <MudButton Href="@url" Download="data.csv" Variant="Variant.Filled" Color="Color.Primary">Download CSV</MudButton>
+                </MudItem>
+
+                <MudItem md="12" xs="12">
+                    <MudTable Items="@summaries" Dense="true" Bordered="true">
+                        <HeaderContent>
+                            <MudTh>Ch. start (m)</MudTh>
+                            <MudTh>Ch. end (m)</MudTh>
+                            <MudTh>Lane Width (mm)</MudTh>
+                            <MudTh>Sample Area (m2)</MudTh>
+                            <MudTh>Long Crack Very LOW (m2)</MudTh>
+                            <MudTh>Long Crack LOW (m2)</MudTh>
+                            <MudTh>Long Crack MED (m2)</MudTh>
+                            <MudTh>Long Crack HIGH (m2)</MudTh>
+                            <MudTh>Long Crack Very HIGH (m2)</MudTh>
+                            <MudTh>Trans Crack Very LOW (m2)</MudTh>
+                            <MudTh>Trans Crack LOW (m2)</MudTh>
+                            <MudTh>Trans Crack MED (m2)</MudTh>
+                            <MudTh>Trans Crack HIGH (m2)</MudTh>
+                            <MudTh>Trans Crack Very HIGH (m2)</MudTh>
+                            <MudTh>Alligator Crack Very LOW (m2)</MudTh>
+                            <MudTh>Alligator Crack LOW (m2)</MudTh>
+                            <MudTh>Alligator Crack MED (m2)</MudTh>
+                            <MudTh>Alligator Crack HIGH (m2)</MudTh>
+                            <MudTh>Alligator Crack Very HIGH (m2)</MudTh>
+                            <MudTh>Other Crack Very LOW (m2)</MudTh>
+                            <MudTh>Other Crack LOW (m2)</MudTh>
+                            <MudTh>Other Crack MED (m2)</MudTh>
+                            <MudTh>Other Crack HIGH (m2)</MudTh>
+                            <MudTh>Other Crack Very HIGH (m2)</MudTh>
+
+                            <MudTh>Longitudinal Cracking(mm)</MudTh>
+                            <MudTh>Transverse Cracking(mm)</MudTh>
+                            <MudTh>Cracking in wheelpaths(m2)</MudTh>
+                            <MudTh>Wheelpaths Area(m2)</MudTh>
+
+                            <MudTh>Square Fatigue Area(m2)</MudTh>
+
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Chstart">@context.Chstart</MudTd>
+                            <MudTd DataLabel="Chend">@context.Chend</MudTd>
+                            <MudTd DataLabel="LaneWidth">@context.LaneWidth</MudTd>
+                            <MudTd DataLabel="SampleArea">@context.SampleArea.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackVeryLOW">@context.LongCrackVeryLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackLOW">@context.LongCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackMED">@context.LongCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackHIGH">@context.LongCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackVeryHIGH">@context.LongCrackVeryHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackVeryLOW">@context.TransCrackVeryLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackLOW">@context.TransCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackMED">@context.TransCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackHIGH">@context.TransCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackVeryHIGH">@context.TransCrackVeryHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackVeryLOW">@context.AlligatorCrackVeryLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackLOW">@context.AlligatorCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackMED">@context.AlligatorCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackHIGH">@context.AlligatorCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackVeryHIGH">@context.AlligatorCrackVeryHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackVeryLOW">@context.OtherCrackVeryLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackLOW">@context.OtherCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackMED">@context.OtherCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackHIGH">@context.OtherCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackVeryHIGH">@context.OtherCrackVeryHIGH.ToString("F2")</MudTd>
+
+                            <MudTd DataLabel="LongitudinalCracking">@context.LongitudinalCracking.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransverseCracking">@context.TransverseCracking.ToString("F2")</MudTd>
+                            <MudTd DataLabel="crackingWheelpaths">@context.crackingWheelpaths.ToString("F2")</MudTd>
+                            <MudTd DataLabel="WheelpathsArea">@context.WheelpathsArea.ToString("F2")</MudTd>
+                            <MudTd DataLabel="FatigueArea">@context.FatigueArea.ToString("F2")</MudTd>
+
+                        </RowTemplate>
+
+                    </MudTable>
+
+                </MudItem>
+
+            }
+
+        </MudGrid>
+    </div>
+</MudContainer>
+
+@code
+{
+    private string cfgFolderPath;
+    private string selectedCfg;
+    private List<string> cfgFiles = new();
+
+    int minSizeToStraight = 4;
+    int minSizeToAvoidMerge = 6;
+    double straightness = 0.7;
+    double minDeep = 0.0;
+    double lowLimit = 0.0;
+    double lowMedLimit = 0.0;
+    double medHighLimit = 0.0;
+    double highLimit = 0.0;
+    bool ignoreOutLanes = true;
+    bool reprocessFisFiles = false;
+    bool filesSelected = false;
+
+    public CrackClassificationConfiguration crackClassification = new CrackClassificationConfiguration();
+
+    public string error;
+    [Inject] private IDialogService DialogService { get; set; }
+
+    bool imageFound = false, xmlFound = false;
+    static string appDataFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    string fileName = Path.Combine(appDataFolderPath, "temData.xml");
+
+    string data = "";
+    private string _spinnerClass = "";
+    private string _userAvatar = "images/user.png";
+    private string _imageBase64Data;
+
+    static int matrixWidth = 30;
+    static int matrixHeight = 60;
+    static int MAXALLOWEDSIZE = 40240000;
+
+    resultType[,] array = new resultType[matrixHeight, matrixWidth];
+    resultType[,] arrayDisplay = new resultType[matrixHeight, matrixWidth];
+
+    int[,] arrayId = new int[matrixHeight, matrixWidth];
+    int[,] arrayIdDisplay = new int[matrixHeight, matrixWidth];
+
+    int[,] crackCounter = new int[matrixHeight, matrixWidth];
+
+    Dictionary<string, int> dicCrackCounter = new Dictionary<string, int>();
+    Dictionary<string, string> dicCrackIcons = new Dictionary<string, string>();
+    Dictionary<string, string> dicCrackNames = new Dictionary<string, string>();
+    Dictionary<string, Color> dicCrackColors = new Dictionary<string, Color>();
+
+    IList<IBrowserFile> files = new List<IBrowserFile>();
+
+    List<CrackCounter> listCrackCounters = new List<CrackCounter>();
+    List<SummaryCrackClasification> summaries = new List<SummaryCrackClasification>();
+
+    int showResult = 0;
+    string jpgfileName = "images/temData.jpg?ts=";
+
+    // Crack Classification Fis file Preview:
+    IList<IBrowserFile> fisFiles = new List<IBrowserFile>();
+    string fullPath = "";
+    string fisFileName = "";
+
+    bool isLaneMarkedFromData = true;
+
+    // Crack Classification Fis file Preview:
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+
+    // Crack Classification Fis file Preview:
+    private static readonly Dictionary<string, string> MimeTypes = new()
+    {
+        { ".jpg", "image/jpeg" },
+        { ".png", "image/png" },
+        { ".txt", "text/plain" },
+        { ".xml", "application/xml" },
+        { ".fis", "application/fis" },
+    };
+
+    public class FileAsBrowserFile : IBrowserFile
+    {
+        private readonly string _filePath;
+
+        public FileAsBrowserFile(string filePath)
+        {
+            _filePath = filePath;
+            Name = Path.GetFileName(filePath);
+            Size = new FileInfo(filePath).Length;
+            LastModified = File.GetLastWriteTime(filePath);
+            string extension = Path.GetExtension(filePath).ToLowerInvariant();
+            ContentType = MimeTypes.ContainsKey(extension) ? MimeTypes[extension] : "application/octet-stream";
+        }
+        public string Name { get; }
+        public long Size { get; }
+        public DateTimeOffset LastModified { get; }
+        public string ContentType { get; }
+
+        public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default)
+        {
+            if (new FileInfo(_filePath).Length > maxAllowedSize)
+            {
+                throw new IOException("File size exceeds the allowed limit.");
+            }
+
+            return new FileStream(_filePath, FileMode.Open, FileAccess.Read);
+        }
+    }
+
+    private IBrowserFile selectedFile;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetClassification();
+        await GetConfigFiles();
+
+        // Processing XML Crack File:
+        await StartDictionaries();
+    }
+
+    private async Task GetClassification()
+    {
+        var response2 = await crackConfiguration.GetClassification(new Empty());
+
+        minSizeToStraight = response2.MinSizeToStraight;
+        minSizeToAvoidMerge = response2.MinSizeToAvoidMerge;
+        straightness = response2.Straightness;
+        minDeep = response2.MinimumDeep;
+        lowLimit = response2.LowThreshold;
+        lowMedLimit = response2.LowMediumThreshold;
+        medHighLimit = response2.MediumHighThreshold;
+        highLimit = response2.HighThreshold;
+        ignoreOutLanes = response2.IgnoreOutLanes;
+        selectedCfg = response2.ConfigFilePath;
+    }
+
+    public async Task GetConfigFiles()
+    {
+        var response = await appEngine.SettingsService.GetByName(new SettingName { name = "Cfg Folder Path" });
+        GeneralSetting generalSetting = response.FirstOrDefault();
+        if (generalSetting != null && Path.Exists(generalSetting.Value))
+        {
+            cfgFolderPath = generalSetting.Value;
+            var files = Directory.GetFiles(cfgFolderPath, "*.cfg");
+            foreach (var file in files)
+            {
+                var fileName = Path.GetFileName(file);
+                cfgFiles.Add(fileName);
+            }
+            StateHasChanged();
+        }
+        await Task.CompletedTask;
+    }
+
+    private async void UpdateSelectedObjects(string selectedCfg)
+    {
+        this.selectedCfg = selectedCfg;
+        await Task.CompletedTask;
+    }
+
+    private async void SaveButtonClicked()
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Confirm",
+            "Are you sure you want to save changes?",
+            yesText: "Save",
+            cancelText: "Cancel");
+
+        if (result == true)
+        {
+            try
+            {
+                crackClassification = new CrackClassificationConfiguration
+                    {
+                        Id = 1,
+                        MinSizeToStraight = minSizeToStraight,
+                        MinSizeToAvoidMerge = minSizeToAvoidMerge,
+                        Straightness = Convert.ToDouble(straightness),
+                        MinimumDeep = Convert.ToDouble(minDeep),
+                        LowThreshold = Convert.ToDouble(lowLimit),
+                        LowMediumThreshold = Convert.ToDouble(lowMedLimit),
+                        MediumHighThreshold = Convert.ToDouble(medHighLimit),
+                        HighThreshold = Convert.ToDouble(highLimit),
+                    // IgnoreOutLanes = ignoreOutLanes,
+                        ConfigFilePath = selectedCfg
+                    };
+                var updatedSetting = await crackConfiguration.EditClassification(crackClassification);
+                Snackbar.Add("Changes saved successfully.", Severity.Normal);
+                await Task.Delay(3000);
+
+                //await JSRuntime.InvokeVoidAsync("location.reload");
+            }
+            catch (Exception e)
+            {
+                error = "Error Occured: " + e.Message;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private Task StartDictionaries()
+    {
+        dicCrackNames.Add("Unknown", "No Cracks");
+        dicCrackNames.Add("Alligator", "Alligator");
+        dicCrackNames.Add("Offroad", "Off Road");
+        dicCrackNames.Add("WheelPath", "Wheel Path");
+        dicCrackNames.Add("Transversal", "Transversal");
+        dicCrackNames.Add("Longitudinal", "Longitudinal");
+        dicCrackNames.Add("Multiple", "Multiple");
+        dicCrackNames.Add("Other", "Other");
+
+
+        dicCrackCounter.Add("Unknown", 0);
+        dicCrackCounter.Add("Alligator", 0);
+        dicCrackCounter.Add("Offroad", 0);
+        dicCrackCounter.Add("WheelPath", 0);
+        dicCrackCounter.Add("Transversal", 0);
+        dicCrackCounter.Add("Longitudinal", 0);
+        dicCrackCounter.Add("Multiple", 0);
+        dicCrackCounter.Add("Other", 0);
+
+        dicCrackIcons.Add("Unknown", Icons.Material.Filled.Check);
+        dicCrackIcons.Add("Alligator", Icons.Material.Filled.Air);
+        dicCrackIcons.Add("Offroad", Icons.Material.Filled.Grass);
+        dicCrackIcons.Add("WheelPath", Icons.Material.Filled.AddRoad);
+        dicCrackIcons.Add("Transversal", Icons.Material.Filled.HorizontalRule);
+        dicCrackIcons.Add("Longitudinal", Icons.Material.Filled.ArrowUpward);
+        dicCrackIcons.Add("Multiple", Icons.Material.Filled.AlignHorizontalCenter);
+        dicCrackIcons.Add("Other", Icons.Material.Filled.FullscreenExit);
+
+        dicCrackColors.Add("Unknown", Color.Success);
+        dicCrackColors.Add("Alligator", Color.Error);
+        dicCrackColors.Add("Offroad", Color.Primary);
+        dicCrackColors.Add("WheelPath", Color.Warning);
+        dicCrackColors.Add("Transversal", Color.Error);
+        dicCrackColors.Add("Longitudinal", Color.Error);
+        dicCrackColors.Add("Multiple", Color.Error);
+        dicCrackColors.Add("Other", Color.Error);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ReclassifyBatch()
+    {
+        summaries.Clear();
+
+        foreach (var file in files)
+        {
+            if (file.Name.Contains(".jpg"))
+            {
+                byte[] imageBytes;
+                await using MemoryStream ms = new MemoryStream();
+                await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(ms);
+                imageBytes = ms.ToArray();
+
+                _imageBase64Data = Convert.ToBase64String(imageBytes);
+                _userAvatar = string.Format("data:image/png;base64,{0}", _imageBase64Data);
+                this.StateHasChanged();
+                imageFound = true;
+            }
+
+            if (file.Name.Contains(".xml"))
+            {
+                await using FileStream fs = new(fileName, FileMode.Create);
+                await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(fs);
+                fs.Close();
+                xmlFound = true;
+
+                DateTime date1 = DateTime.UtcNow;
+                jpgfileName = "images/temData.jpg?ts=" + date1.Ticks.ToString();
+
+                XmlDocument doc = new XmlDocument();
+
+                if (xmlFound)
+                {
+                    CalssifyXML(fileName);
+                }
+            }
+        }
+
+        PrepareCVSFile();
+    }
+
+    private void ProcessResults(bool calledFromButton = true)
+    {
+        if (calledFromButton)
+        {
+            if (fisFiles.Count() != 0)
+            {
+                if (fisFileName != "")
+                {
+                    PrepareCVSFile();
+                    showResult = 2;
+                }
+                else
+                    Snackbar.Add("Please select an FIS file.", Severity.Error);
+            }
+            else
+                Snackbar.Add("Please upload an FIS file.", Severity.Error);
+        }
+    }
+
+    private async void UploadFiles()
+    {
+        imageFound = xmlFound = false;
+        fisFiles.Clear();
+        files.Clear();
+        summaries.Clear();
+        listCrackCounters.Clear();
+
+        fisFileName = "";
+
+        var dialog = ShowGIF("Loading Files...");
+        try
+        {
+            string fileName = "";
+            var customFileType = new FilePickerFileType(
+                  new Dictionary<DevicePlatform, IEnumerable<string>>
+                                                                                                  {
+                       { DevicePlatform.iOS, new[] { "public.text" } }, // UTType values
+                       { DevicePlatform.Android, new[] { "application/octet-stream", "text/plain", "application/fis" } }, // MIME type
+                       { DevicePlatform.WinUI, new[] { ".fis" } }, // file extension
+                       { DevicePlatform.macOS, new[] { "fis" } },
+                                                                                                  });
+
+            var result = await FilePicker.PickMultipleAsync(new PickOptions
+                {
+                    PickerTitle = "Please select a fis file",
+                    FileTypes = customFileType,
+                });
+
+            if (result != null && result.Any())
+            {
+                fullPath = Path.GetDirectoryName(result.First().FullPath);
+                xmlFound = imageFound = false;
+            }
+
+            foreach (var file in result)
+            {
+                string fileFISPath = file.FullPath;
+                fileName = Path.GetFileName(fileFISPath);
+
+                if (XML_IMG_Validation(fullPath, fileName))
+                {
+                    FileAsBrowserFile browserFile = new FileAsBrowserFile(fileFISPath);
+                    fisFiles.Add(browserFile);
+                    xmlFound = imageFound = true;
+                }
+            }
+
+            showResult = 0;
+            if (result.Count() == 1)
+            {
+                if (reprocessFisFiles)
+                {
+                    await ProcessFisSurvey(result.First().FileName);
+                }
+                else
+                    ViewFile(result.First().FullPath);
+                fisFileName = fileName;
+            }
+            this.StateHasChanged();
+
+            Snackbar.Add($"{result.Count()} Files Loaded..", Severity.Normal);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in UploadFiles: {ex.Message}");
+        }
+        finally { if (dialog != null) dialog.Close(); }
+    }
+
+    private string GetMimeType(string filePath)
+    {
+        string extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return MimeTypes.ContainsKey(extension) ? MimeTypes[extension] : "application/octet-stream";
+    }
+
+    private async void OnFileClick(IBrowserFile selectedFile)
+    {  
+        try
+        {
+            if (reprocessFisFiles)
+            {
+                await ProcessFisSurvey(selectedFile.Name);
+            }
+            else
+                ViewFile(Path.Combine(fullPath, selectedFile.Name));
+        }
+        catch (Exception ex) { Serilog.Log.Error($"Error in OnFileClick "); }
+    }
+
+    private async Task ProcessFisSurvey(string fisFileName)
+    {
+        try
+        {
+            var dialogFis = ShowGIF("Processing selected fis file...");
+            await Task.Delay(2000);
+
+            var request = new SurveyProcessingRequest
+                {
+                    FolderPath = fullPath,
+                    ProcessingObjects = { "Cracking" },
+                    DataviewVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString(),
+                    CfgFolder = cfgFolderPath,
+                    CfgFileName = selectedCfg
+                };
+
+            request.SelectedFiles.Add(Path.Combine(fullPath, fisFileName));
+
+            CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+            using (var call = surveyProcessing.ProcessSurvey(request, cancellationToken: cancellationTokenSource.Token))
+            {
+                while (await call.ResponseStream.MoveNext())
+                {
+                    if (cancellationTokenSource.Token.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var currentResponse = call.ResponseStream.Current;
+                    dialogFis.Close();
+
+                    if (call.ResponseStream.Current.DetailLogs != null && call.ResponseStream.Current.DetailLogs.Count > 0) // processed
+                    {
+                        var jsonLog = call.ResponseStream.Current.DetailLogs.FirstOrDefault(); 
+                        if (!string.IsNullOrEmpty(jsonLog))
+                        {
+                            var detailLog = Newtonsoft.Json.JsonConvert.DeserializeObject<DetailLogViewHelper>(jsonLog);
+                            if (detailLog.Status == "PASS")
+                            {
+                                ViewFile(Path.Combine(fullPath, fisFileName));
+                            }
+                            else
+                            {
+                                Snackbar.Add($"fis file processing failed : {detailLog.LogDetails}. Can't process further", Severity.Error);
+                            }
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(call.ResponseStream.Current.Error))
+                    {
+                        Snackbar.Add(call.ResponseStream.Current.Error, Severity.Error);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in ProcessFisFile : {ex.Message}");
+        }
+    }
+
+    private bool XML_IMG_Validation(string fullPath, string fileName)
+    {
+        if (!File.Exists(Path.Combine(fullPath, $"ImageResult\\{fileName.Replace(".fis", "_Overlay.jpg")}")))
+        {
+            return false;
+        }
+        if (!File.Exists(Path.Combine(fullPath, $"XMLResult\\{fileName.Replace("fis", "xml")}")))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private IDialogReference ShowGIF(string imageMsg)
+    {
+        string genFileImage = "/images/download.gif";
+        string genFileText = imageMsg;
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+        var dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+        return dialog;
+    }
+
+    private async void ViewFile(string fisFile)
+    {
+        var dialog = ShowGIF("Generating Image grid.....");
+        await Task.Delay(2000);
+
+        files.Clear();
+        summaries.Clear();
+
+        try
+        {
+            string fullPath = Path.GetDirectoryName(fisFile);
+            fisFileName = Path.GetFileName(fisFile);
+
+            //Prepare JPG file:
+            string fileJPGPath = Path.Combine(fullPath, $"ImageResult\\{fisFileName.Replace(".fis", "_Overlay.jpg")}");
+            FileAsBrowserFile file = new FileAsBrowserFile(fileJPGPath);
+            files.Add(file);
+
+            byte[] imageBytes;
+
+            await using MemoryStream ms = new MemoryStream();
+            await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(ms);
+            imageBytes = ms.ToArray();
+
+            _imageBase64Data = Convert.ToBase64String(imageBytes);
+            _userAvatar = string.Format("data:image/png;base64,{0}", _imageBase64Data);
+
+            //Prepare XML file:
+            string fileXMLPath = Path.Combine(fullPath, $"XMLResult\\{fisFileName.Replace("fis", "xml")}");
+            FileAsBrowserFile fileXML = new FileAsBrowserFile(fileXMLPath);
+            files.Add(fileXML);
+
+            DateTime date1 = DateTime.UtcNow;
+            jpgfileName = "images/temData.jpg?ts=" + date1.Ticks.ToString();
+            XmlDocument doc = new XmlDocument();
+            if (xmlFound)
+            {
+                CalssifyXML(fileXMLPath);
+            }
+
+            PrepareCVSFile();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in ViewFile: {ex.Message}");
+        }
+        finally { dialog.Close(); }
+    }
+
+    public async void CalssifyXML(string fileXMLPath)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            CancellationToken token = cts.Token;
+
+            IdReply idReply = await crackClassificationService.ReclassifyBatch(new XmlFilesRequest { XmlFilesPath = new List<string> { fileXMLPath }, CallFromUI = true }, new CallContext(new CallOptions(cancellationToken: token)));
+            if (idReply != null)
+            {
+                string[] receivedData = idReply.Message.Split('&');
+                if (receivedData != null && receivedData.Length > 0 && !string.IsNullOrEmpty(receivedData[0]))
+                    array = Newtonsoft.Json.JsonConvert.DeserializeObject<resultType[,]>(receivedData[0]);
+                if (receivedData != null && receivedData.Length > 1 && !string.IsNullOrEmpty(receivedData[1]))
+                    summaries = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SummaryCrackClasification>>(receivedData[1]);
+
+                matrixHeight = array.GetLength(0);
+                matrixWidth = array.GetLength(1);
+
+                await countCells();
+                await ShowMatrix();
+                showResult = 1;
+                StateHasChanged();
+                ProcessResults(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error received in CalssifyXML : {ex.Message}");
+        }
+    }
+
+    public async void PrepareCVSFile()
+    {
+        data = "Ch. start (m),Ch. end (m),Lane Width (mm),Sample Area (m2),Long Crack Very LOW (m2),Long Crack LOW (m2),Long Crack MED (m2),Long Crack HIGH (m2),Long Crack Very HIGH (m2),Trans Crack Very LOW (m2),Trans Crack LOW (m2),Trans Crack MED (m2),Trans Crack HIGH (m2),Trans Crack Very HIGH (m2),Alligator Crack Very LOW (m2),Alligator Crack LOW (m2),Alligator Crack MED (m2),Alligator Crack HIGH (m2),Alligator Crack Very HIGH (m2),Other Crack Very LOW (m2),Other Crack LOW (m2),Other Crack MED (m2),Other Crack HIGH (m2),Other Crack Very HIGH (m2),Longitudinal Cracking(mm),Transverse Cracking(mm),Cracking in wheelpaths(m2),Wheelpaths Area(m2),Square Fatigue Area(m2)\n";
+        foreach (var item in summaries)
+        {
+
+            data = data +
+            item.Chstart + ',' +
+            item.Chend + ',' +
+            item.LaneWidth + ',' +
+            item.SampleArea.ToString("F2") + ',' +
+            item.LongCrackVeryLOW.ToString("F2") + ',' +
+            item.LongCrackLOW.ToString("F2") + ',' +
+            item.LongCrackMED.ToString("F2") + ',' +
+            item.LongCrackHIGH.ToString("F2") + ',' +
+            item.LongCrackVeryHIGH.ToString("F2") + ',' +
+            item.TransCrackVeryLOW.ToString("F2") + ',' +
+            item.TransCrackLOW.ToString("F2") + ',' +
+            item.TransCrackMED.ToString("F2") + ',' +
+            item.TransCrackHIGH.ToString("F2") + ',' +
+            item.TransCrackVeryHIGH.ToString("F2") + ',' +
+            item.AlligatorCrackVeryLOW.ToString("F2") + ',' +
+            item.AlligatorCrackLOW.ToString("F2") + ',' +
+            item.AlligatorCrackMED.ToString("F2") + ',' +
+            item.AlligatorCrackHIGH.ToString("F2") + ',' +
+            item.AlligatorCrackVeryHIGH.ToString("F2") + ',' +
+            item.OtherCrackVeryLOW.ToString("F2") + ',' +
+            item.OtherCrackLOW.ToString("F2") + ',' +
+            item.OtherCrackMED.ToString("F2") + ',' +
+            item.OtherCrackHIGH.ToString("F2") + ',' +
+            item.OtherCrackVeryHIGH.ToString("F2") + ',' +
+            item.LongitudinalCracking.ToString("F2") + ',' +
+            item.TransverseCracking.ToString("F2") + ',' +
+            item.crackingWheelpaths.ToString("F2") + ',' +
+            item.WheelpathsArea.ToString("F2") + ',' +
+            item.FatigueArea.ToString("F2") + ",\n";
+        }
+    }
+
+    private Task countCells()
+    {
+        for (int i = 0; i < matrixHeight; i++)
+        {
+            for (int j = 0; j < matrixWidth; j++)
+            {
+                dicCrackCounter[array[i, j].ToString()]++;
+            }
+        }
+
+        listCrackCounters = new List<CrackCounter>();
+        foreach (var elem in dicCrackCounter)
+        {
+            CrackCounter crackCounter = new CrackCounter()
+                {
+                    CrackType = elem.Key,
+                    Count = elem.Value
+                };
+            listCrackCounters.Add(crackCounter);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task ShowMatrix()
+    {
+        arrayId = new int[matrixHeight, matrixWidth];
+        arrayIdDisplay = new int[matrixHeight, matrixWidth];
+
+        for (int i = 0; i < matrixHeight; i++)
+        {
+            for (int j = 0; j < matrixWidth; j++)
+            {
+                arrayDisplay[i, j] = array[i, j];
+
+                arrayIdDisplay[i, j] = arrayId[i, j];
+            }
+        }
+        return Task.CompletedTask;
+    }
+}

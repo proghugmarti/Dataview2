@@ -1,0 +1,469 @@
+﻿@using CommunityToolkit.Maui.Storage
+@using CsvHelper
+@using CsvHelper.Configuration
+@using DataView2.Core.Helper
+@using DataView2.Core.Models.Other;
+@using DataView2.States;
+@using System.Text.Json;
+@using DataView2.ViewModels;
+@using NetTopologySuite.Geometries;
+@using NetTopologySuite.IO;
+@using ProjNet.CoordinateSystems;
+@using ProjNet.CoordinateSystems.Transformations;
+@using System.Diagnostics
+@using System.Globalization
+@using static DataView2.States.ApplicationState
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<MudProviders />
+
+<MudStack Class="m-2">
+    <div class="d-flex justify-content-between">
+        <MudIconButton Icon="@Icons.Material.Filled.ExitToApp" OnClick="ExitSurveySetMode"/>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" Size="Size.Small" Style="margin:10px" OnClick="StartGeneratingOfflineMap">Offline Map</MudButton>
+    </div>
+    <div class="my-1 d-flex flex-column justify-content-center">
+        <MudText Typo="Typo.h6" Align="Align.Center">Survey List</MudText>
+        <MudText Typo="Typo.caption" Align="Align.Center">@surveyTemplateFilePath</MudText>
+    </div>
+
+    <div class="mb-3 d-flex flex-column justify-content-center">
+        <MudTextField @bind-Value="SearchString" Label="Search Survey ID & Status" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mb-2" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="SearchButton_Clicked">Search</MudButton>
+    </div>
+
+    <MudTable T="GeoJsonMetadataCsv" Hover="true" Bordered="true" Striped="true" Class="mx-2" Height="55vh" FixedHeader="true"
+    @ref=_tableCsv RowClass="cursor-pointer" Outlined="true" ServerData="@LoadServerDataCsv" RowsPerPage="@rowsPerPage" RowClassFunc="@SelectedRowClassFuncCSV" OnRowClick="OnRowClickedCSV"
+    RowsPerPageChanged="@((int newSize) => rowsPerPage = newSize)" Page="page" PageChanged="@((int newPage) => page = newPage)">
+        <HeaderContent>
+            <MudTh><MudTableSortLabel SortLabel="surveyId" T="GeoJsonMetadataCsv">Survey ID</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortLabel="startChainage" T="GeoJsonMetadataCsv">Chainage</MudTableSortLabel></MudTh>
+            <MudTh>Direction</MudTh>
+            <MudTh>Lane</MudTh>
+            <MudTh>Modules</MudTh>
+            <MudTh>GPS Auto</MudTh>
+            <MudTh><MudTableSortLabel SortLabel="Status" T="GeoJsonMetadataCsv">Status</MudTableSortLabel></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Survey ID">@context.Properties.surveyId</MudTd>
+            <MudTd DataLabel="Chainage">@context.Properties.startChainage</MudTd>
+            <MudTd DataLabel="Direction">
+                @if (@context.Properties.direction == 0)
+                {
+                    <span>Decrement</span>
+                }
+                else if (@context.Properties.direction == 1)
+                {
+                    <span>Increment</span>
+                }
+            </MudTd>
+            <MudTd DataLabel="Lane">@context.Properties.lane</MudTd>
+            <MudTd DataLabel="Modules">@string.Join(", ", @context.Properties.modules)</MudTd>
+            <MudTd DataLabel="GPS Auto"><MudCheckBox T="bool"  Value="@(@context.Properties.gpsAutoStart == 1)" Disabled="true" /></MudTd>
+            <MudTd DataLabel="Status">@context.Properties.Status</MudTd>
+        </RowTemplate>
+        <PagerContent>
+            <MudTablePager PageSizeOptions="@_pageSizeOption" RowsPerPageString="Rows Per Page"/>
+        </PagerContent>
+    </MudTable>
+
+    <div class="d-flex justify-content-center align-content-center gap-3">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddButton_Clicked">Add</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="EditButton_Clicked">Edit</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="DeleteButton_Clicked">Delete</MudButton>
+    </div>
+</MudStack>
+<style>
+    .selected {
+    background-color: var(--mud-palette-primary) !important;
+    }
+
+    .selected > td {
+    color: white !important;
+    }
+
+    .selected > td .mud-input {
+    color: white !important;
+    }
+
+    div.mud-table-container {
+    scroll-behavior: smooth;
+    }
+</style>
+@code {
+    private MudTable<GeoJsonMetadataCsv> _tableCsv;
+    List<GeoJsonMetadataCsv> metadataListCsv = new List<GeoJsonMetadataCsv>();
+
+    [Inject] private IDialogService DialogService { get; set; }
+    private string surveyTemplateFilePath;
+    private string surveySetName;
+    [Parameter] public bool first  { get; set; }
+
+    private PagingParameters _pagingParameters = new PagingParameters();
+    private readonly int[] _pageSizeOption = { 5, 10, 25, 50, 100 };
+    private int rowsPerPage = 5, page = 0;
+    private string SearchString = "";
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        appState.IsPopupOpen = true;
+
+        appState.PolygonPathPassed += HighlightTable;
+    }
+
+    //Validate Geojson file
+    private bool IsValidGeoJson(GeoJsonObject geoJsonObject)
+    {
+        return geoJsonObject.type != null
+            && geoJsonObject.properties != null
+            && geoJsonObject.geometry != null
+            && geoJsonObject.geometry.coordinates != null;
+    }
+
+    private async Task<TableData<GeoJsonMetadataCsv>> LoadServerDataCsv(TableState state, CancellationToken cancellationToken)
+    {
+        try
+        {
+            appState.ClearSurveySetGraphic();
+            rowsPerPage = state.PageSize;
+            int skip = state.Page * state.PageSize;
+            int take = state.PageSize;
+
+            surveyTemplateFilePath = appState.SurveyCsvObjFilePath;
+            appState.CurrentPath = Path.GetDirectoryName(appState.SurveyCsvObjFilePath);
+
+            if (!File.Exists(surveyTemplateFilePath))
+            {
+                Snackbar.Add("Survey template file not found. Please check it again.", Severity.Warning);
+                return new TableData<GeoJsonMetadataCsv>
+                    {
+                        Items = metadataListCsv,
+                        TotalItems = 0
+                    };
+            }
+            else
+            {
+                using var reader = new StreamReader(surveyTemplateFilePath);
+                var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+                    {
+                        MissingFieldFound = null,
+                        HeaderValidated = null,
+                        IgnoreBlankLines = true,
+                        HasHeaderRecord = true,
+                    };
+                using var csv = new CsvReader(reader, config);
+                metadataListCsv.Clear();
+
+                var enumerable = csv.GetRecords<GeoJsonMetadataCsv>().ToList();
+                if (!string.IsNullOrWhiteSpace(SearchString))
+                {
+                    string term = SearchString.ToLower();
+                    enumerable = enumerable.Where(x =>
+                        (!string.IsNullOrWhiteSpace(x.Properties.surveyId) && x.Properties.surveyId.ToLower().Contains(term)) ||
+                        (!string.IsNullOrWhiteSpace(x.Properties.Status) && x.Properties.Status.ToLower() == term)
+                    ).ToList();
+                }
+
+                if (!string.IsNullOrEmpty(state.SortLabel))
+                {
+                    switch (state.SortLabel)
+                    {
+                        case "surveyId":
+                            enumerable = enumerable.OrderByDirection(state.SortDirection, o => o.Properties.surveyId).ToList();
+                            break;
+                        case "Status":
+                            enumerable = enumerable.OrderByDirection(state.SortDirection, o => o.Properties.Status).ToList();
+                            break;
+                        case "startChainage":
+                            enumerable = enumerable.OrderByDirection(state.SortDirection, o => o.Properties.startChainage).ToList();
+                            break;
+                    }
+                }
+
+                var total = enumerable.Count();
+                if (total == 0)
+                {
+                    Snackbar.Add($"No survey data is found to show."); //this will show when they create a new csv as well. so shouldn't be a error message.
+                    return new TableData<GeoJsonMetadataCsv>
+                        {
+                            Items = metadataListCsv,
+                            TotalItems = 0
+                        };
+                }
+
+                metadataListCsv = enumerable.Skip(skip).Take(take).ToList();
+                var mapCoordinateDetails = new List<MapCoordinateDetails>();
+                foreach (var item in metadataListCsv)
+                {
+                    item.FilePath = item.Properties.surveyId;
+
+                    var mapCoordinate = new MapCoordinateDetails
+                    {
+                        Coordinates = JsonSerializer.Deserialize<List<List<double>>>(item.Properties.coordinates),
+                        FileName = item.Properties.surveyId,
+                        GeometryType = item.Properties.type,
+                        IsFirst = item == metadataListCsv.First() ? true : false,
+                        SampleUnitStatus = null,
+                        SurveyStatus = item.Properties.Status
+                    };
+                    mapCoordinateDetails.Add(mapCoordinate);
+                }
+
+                if(mapCoordinateDetails.Any())
+                {
+                    appState.FetchCoordinatesDetails(mapCoordinateDetails);
+                }
+
+                return new TableData<GeoJsonMetadataCsv>
+                    {
+                        Items = metadataListCsv,
+                        TotalItems = total
+                    };
+            }
+        }
+        catch(Exception ex)
+        {
+            if (ex.HResult == -2147024864) //this is the exception due to being used by another process
+            {
+                Snackbar.Add("The CSV file is currently being used by another process. Please check if it is open and try again.", Severity.Error);
+            }
+            else
+            {
+                // Handle other IOExceptions
+                Snackbar.Add("Failed to load survey data : " + ex.Message, Severity.Error);
+            }
+            return new TableData<GeoJsonMetadataCsv>
+                {
+                    Items = metadataListCsv,
+                    TotalItems = 0
+                };
+        }
+    }
+
+    private object GetPropertyValue(object obj, string propName)
+    {
+        return obj.GetType().GetProperty(propName)?.GetValue(obj, null) ?? "";
+    }
+
+    private void OnRowClickedCSV()
+    {
+        var path = _tableCsv.SelectedItem.FilePath;
+        appState.HighlightGraphic(path, "Click");
+    }
+
+    private string SelectedRowClassFuncCSV(GeoJsonMetadataCsv metadata, int rowNumber)
+    {
+        if (_tableCsv.SelectedItem != null && _tableCsv.SelectedItem.Equals(metadata))
+        {
+            return "selected";
+        }
+        else
+        {
+            return string.Empty;
+        }
+    }
+
+    private async void HighlightTable(string path, string status)
+    {
+        var selectedItem = metadataListCsv.FirstOrDefault(item => item.FilePath == path);
+        if (selectedItem != null)
+        {
+            _tableCsv.SetSelectedItem(selectedItem);
+            _tableCsv.UpdateSelection();
+            var selectedIndex = metadataListCsv.IndexOf(selectedItem);
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("scrollMudTableToRow", selectedIndex);
+            }
+            catch (Exception ex)
+            {
+                await App.Current.MainPage.DisplayAlert("Alert",ex.Message,"Ok");
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void AddButton_Clicked()
+    {
+        appState.EditSurveyCsvObj = null;
+        appState.HighlightGraphic(null, "Click");
+        appState.ChangeSurveySetPage("SurveySet", null);
+        Dispose();
+        StateHasChanged();
+    }
+
+    private void SearchButton_Clicked()
+    {
+        _tableCsv.ReloadServerData();
+        StateHasChanged();
+    }
+
+    private async void EditButton_Clicked()
+    {
+        if (_tableCsv.SelectedItem != null)
+        {
+            if (_tableCsv.SelectedItem.FilePath != null)
+            {
+                GeoJsonObject geoJsonObject = new GeoJsonObject();
+                geoJsonObject.type = "Feature";
+                geoJsonObject.geometry = new GeoJsonGeometry
+                    {
+                        type = _tableCsv.SelectedItem.Properties.type,
+                        coordinates = JsonSerializer.Deserialize<double[][]>(_tableCsv.SelectedItem.Properties.coordinates)
+                    };
+                geoJsonObject.properties = new GeoJsonProperties
+                    {
+                        acquisitionCfgFile = _tableCsv.SelectedItem.Properties.acquisitionCfgFile,
+                        analyserCfgFile = _tableCsv.SelectedItem.Properties.analyserCfgFile,
+                        completedDate = _tableCsv.SelectedItem.Properties.completedDate,
+                        direction = _tableCsv.SelectedItem.Properties.direction,
+                        gpsAutoStart = _tableCsv.SelectedItem.Properties.gpsAutoStart,
+                        gpsAutoStartType = _tableCsv.SelectedItem.Properties.gpsAutoStartType,
+                        lane = _tableCsv.SelectedItem.Properties.lane,
+                        modules = JsonSerializer.Deserialize<List<string>>(_tableCsv.SelectedItem.Properties.modules),
+                        operatorName = _tableCsv.SelectedItem.Properties.analyserCfgFile,
+                        startChainage = _tableCsv.SelectedItem.Properties.startChainage,
+                        Status = _tableCsv.SelectedItem.Properties.Status,
+                        surveyDescription = _tableCsv.SelectedItem.Properties.surveyDescription,
+                        surveyId = _tableCsv.SelectedItem.Properties.surveyId,
+                        surveyInstruction = _tableCsv.SelectedItem.Properties.surveyInstruction,
+                        userDefinedFields = JsonSerializer.Deserialize<string[][]>(_tableCsv.SelectedItem.Properties.userDefinedFields),
+                        vehicleId = _tableCsv.SelectedItem.Properties.vehicleId,
+                        vehicleOdoCalibration = _tableCsv.SelectedItem.Properties.vehicleOdoCalibration
+                    };
+
+                appState.EditSurveyCsvObj = JsonSerializer.Serialize(geoJsonObject);
+                appState.ChangeSurveySetPage("SurveySet", null);
+                Dispose();
+            }
+        }
+        else
+        {
+            await App.Current.MainPage.DisplayAlert("Alert", "Please select a record to edit.", "OK");
+        }
+    }
+
+    private async void DeleteButton_Clicked()
+    {
+        //Delete data from the survey set
+        if (_tableCsv != null && _tableCsv.SelectedItem != null)
+        {
+            string surveyId = _tableCsv.SelectedItem.Properties.surveyId;
+            bool userConfirmed = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure you want to delete the record for '{surveyId}'?", "Yes", "No");
+
+            if (userConfirmed)
+            {
+                var filePath = appState.SurveyCsvObjFilePath;
+
+                if (filePath != null && Path.Exists(filePath))
+                {
+                    try
+                    {
+                        RemoveCsvDataBySurveyId(filePath, surveyId);
+                        await _tableCsv.ReloadServerData();
+
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error deleting record: {ex.Message}");
+                        await App.Current.MainPage.DisplayAlert("Error", "An error occurred while deleting the record.", "OK");
+                    }
+                }
+            }
+        }
+        else
+        {
+            await App.Current.MainPage.DisplayAlert("Alert", "Please select a record to delete.", "OK");
+        }
+    }
+
+    public void RemoveCsvDataBySurveyId(string filePath, string surveyId)
+    {
+        try
+        {
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+                {
+                    HasHeaderRecord = true,
+                    MissingFieldFound = null,
+                    HeaderValidated = null
+                };
+
+            //Read
+            List<GeoJsonObjectCSV> csvData;
+            using (var reader = new StreamReader(filePath))
+            using (var csv = new CsvReader(reader, config))
+            {
+                csvData = csv.GetRecords<GeoJsonObjectCSV>().ToList();
+            }
+
+            //Remove
+            csvData = csvData.Where(p => p.surveyId != surveyId).ToList();
+
+            //Rewrite
+            using (var writer = new StreamWriter(filePath, false)) // overwrite
+            using (var csv = new CsvWriter(writer, config))
+            {
+                csv.WriteHeader<GeoJsonMetadataCsv>();
+                csv.NextRecord();
+                foreach (var data in csvData)
+                {
+                    csv.WriteRecord(data);
+                    csv.NextRecord();
+                }
+            }
+        }
+        catch(Exception ex)
+        {
+            if (ex.HResult == -2147024864)
+            {
+                Snackbar.Add("Failed to delete the survey record because the CSV file is currently being used by another process.", Severity.Error);
+            }
+            else
+            {
+                Snackbar.Add("Error in deleting survey record.", Severity.Error);
+            }
+            Serilog.Log.Error($"Error in deleting survey record {ex.Message}");
+        }
+    }
+
+    private void StartGeneratingOfflineMap()
+    {
+        appState.EnableRectangleDrawing();
+        if (_tableCsv != null)
+        {
+            _tableCsv.SelectedItem = null;
+        }
+        appState.HighlightGraphic(null, "Click");
+        StateHasChanged();
+    }
+    
+    private async void ExitSurveySetMode()
+    {
+        try
+        {
+            bool userConfirmed = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure to exit survey set mode?", "Yes", "No");
+            if (userConfirmed)
+            {
+                appState.ExitSurveySet();
+                //appState.RefreshingBoundary();
+                appState.IsPopupOpen = false;
+                appState.ShowHideSurveyTemplate(false);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error existing surveyset mode: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        // Unsubscribe from the event
+        appState.PolygonPathPassed -= HighlightTable;
+    }
+}

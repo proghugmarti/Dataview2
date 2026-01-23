@@ -1,0 +1,18 @@
+﻿<MudThemeProvider Theme="@MyCustomTheme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@code {
+    MudTheme MyCustomTheme = new MudTheme()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            Primary = new MudBlazor.Utilities.MudColor("#CB1C01"),
+            Secondary = new MudBlazor.Utilities.MudColor("#202123"),
+            Tertiary = new MudBlazor.Utilities.MudColor("#FFFFFF"),
+            Dark = new MudBlazor.Utilities.MudColor("#202123"),
+            AppbarBackground = MudBlazor.Colors.Red.Default
+        }
+    };
+}

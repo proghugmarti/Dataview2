@@ -1,0 +1,183 @@
+﻿@page "/ExportSetting"
+@using DataView2.Core.Helper
+@using DataView2.Core.Models;
+@using Google.Protobuf.WellKnownTypes;
+
+@inject ISettingsService setting
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+
+<MudContainer>
+    <div class="text-center my-5">
+        <MudText Typo="Typo.h5" Style="font-weight:500;" Class="mx-auto mb-2">Export Setting</MudText>
+    </div>
+
+
+    <MudTable Items="@outputs" Hover="true" CommitEditTooltip="Commit Edit" Class="ma-6" HeaderClass="mud-header">
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Description</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Value</MudTh>
+            <MudTh>Category</MudTh>
+            <MudTh>Coord.System Type</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Description">@context.Description</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="Value">@context.Value</MudTd>
+            <MudTd DataLabel="Category">@context.Category</MudTd>
+            <MudTd DataLabel="CoordinateSystemType">@context.CoordinateSystemType</MudTd>
+            <MudTd>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" Size="Size.Small" OnClick="() => OpenEditModal(context)" />
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+
+    @*  <div class="d-flex justify-center align-items-center mt-5">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveButtonClicked">Save Changes</MudButton>
+    </div> *@
+</MudContainer>
+
+@code {
+    public List<GeneralSetting> outputs = new List<GeneralSetting>();
+    public string error;
+    [Inject] private IDialogService DialogService { get; set; }
+    public List<string> cstFormats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetOutputs();
+        var exportUrlSetting = outputs.FirstOrDefault(s => s.Name == "ExportURL");
+
+        if (exportUrlSetting == null)
+        {
+            var newGeneralSetting = new GeneralSetting
+                {
+                    Name = "ExportURL",
+                    Description = "URL for exporting",
+                    Type = SettingType.String,
+                    Value = "https://dvwebservice20240808112104.azurewebsites.net",
+                    Category = "Networking",
+                    CoordinateSystemType = ""
+                };
+
+            IdReply reply = await setting.Create(newGeneralSetting);
+            outputs.Add(newGeneralSetting);
+        }
+
+    }
+
+    private async Task GetOutputs()
+    {
+        try
+        {
+            var exportUrlSetting = await setting.GetByName(new SettingName { name = "ExportURL" });
+
+            outputs = exportUrlSetting;
+        }
+        catch (Exception e)
+        {
+            error = "Error Occured: " + e.Message;
+        }
+    }
+
+    // // Save the changes all together at once
+    // private async void SaveButtonClicked()
+    // {
+    //     bool? result = await DialogService.ShowMessageBox(
+    //         "Confirm",
+    //         "Are you sure you want to save changes?",
+    //         yesText: "Save",
+    //         cancelText: "Cancel");
+
+    //     if (result == true)
+    //     {
+    //         try
+    //         {
+    //             foreach (var output in outputs)
+    //             {
+    //                 await setting.EditValue(output);
+    //             }
+    //             Snackbar.Add("Changes saved successfully.", Severity.Normal);
+    //             await Task.Delay(3000);
+
+    //             await JSRuntime.InvokeVoidAsync("location.reload");
+    //         }
+    //         catch (Exception e)
+    //         {
+    //             error = "Error Occured: " + e.Message;
+    //         }
+    //     }
+
+    //     StateHasChanged();
+    // }
+
+}
+
+
+@code {
+    [Inject] private IDialogService Dialog { get; set; }
+    private bool isEditModalOpen = false;
+    private GeneralSetting selectedSetting = null;
+
+    private async Task OpenEditModal(GeneralSetting setting)
+    {
+        bool res;
+        GeneralSetting resultSetting=null;
+        var parameters = new DialogParameters
+            {
+                ["Setting"] = setting,
+                ["Title"] = "Edit General Setting"
+            };
+
+        var options = new DialogOptions
+            {
+                CloseOnEscapeKey = true,
+                MaxWidth = MaxWidth.Small,
+                FullWidth = true
+            };
+
+        var dialog = DialogService.Show<EditSettingDialog>("", parameters, options);
+        var result = await dialog.Result;       
+
+        if (!result.Canceled && result.Data != null)
+        {
+            selectedSetting = (GeneralSetting)result.Data;
+            SaveButtonClicked();
+        }
+        
+        
+    }
+
+    private void CloseEditModal()
+    {
+        isEditModalOpen = false;
+        selectedSetting = null;
+    }
+
+    // Save the General Setting chose at once
+    private async void SaveButtonClicked()
+    {       
+            try
+            {
+                await setting.EditValue(selectedSetting);
+                Snackbar.Add("Changes saved successfully.", Severity.Normal);
+                await Task.Delay(3000);
+
+                //await JSRuntime.InvokeVoidAsync("location.reload");
+            }
+            catch (Exception e)
+            {
+                error = "Error Occured: " + e.Message;
+            }
+        }
+      
+    }
+
+}

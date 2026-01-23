@@ -1,0 +1,146 @@
+﻿@using CsvHelper
+@using DataView2.Core.Models
+@using DataView2.Engines
+@using DataView2.States
+@using System.Globalization
+@using Serilog
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:7px;" OnClick="Close"></MudIconButton>
+</div>
+
+<MudContainer>
+
+
+    <MudStack>
+        <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="mb-1">Manual Survey Segmentation</MudText>
+        <MudAutocomplete T="Survey" Label="Select a Survey to Segment" @bind-Value="selectedSurvey" SearchFunc="@SearchSurveys"
+        CoerceText="true" SelectValueOnTab="@true"
+        AdornmentIcon="@Icons.Material.Filled.Search" AdornmentColor="Color.Primary" 
+        ToStringFunc="@(survey => survey != null ? survey.SurveyName : string.Empty)" Margin="Margin.None" />
+
+        <MudTextField T="string" Label="New Survey Name" @bind-Value="@newSurveyName" Variant="Variant.Text" Margin="Margin.None" ></MudTextField>
+
+        <MudTextField T="string" Label="New Survey Description" @bind-Value="@newSurveyDescription" Variant="Variant.Text" Margin="Margin.None"></MudTextField>
+
+        <MudNumericField Label="New Survey Lane" @bind-Value="@newSurveyLane" Variant="Variant.Text" Min="0" Max="10" Margin="Margin.None"></MudNumericField>
+
+        <MudNumericField Label="New Survey Direction" @bind-Value="@newSurveyDirection" Variant="Variant.Text" Min="0" Max="2" Margin="Margin.None"></MudNumericField>
+
+        <MudNumericField Label="New Start Chainage" @bind-Value="@newSurveyStartChainage" Variant="Variant.Text" Margin="Margin.None"></MudNumericField>
+
+        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" OnClick="RecalculateSegment">Start Survey Segmentation</MudButton>
+
+
+    </MudStack>
+
+
+
+</MudContainer>
+
+@code {
+
+
+    List<Survey> surveys = new List<Survey>();
+    Survey selectedSurvey;
+    IEnumerable<Survey> selectedSurveys = new HashSet<Survey>();
+
+    private string[] surveysString;
+
+
+    string newSurveyName = string.Empty;
+    string newSurveyDescription = string.Empty;
+    int newSurveyLane = 0;
+    int newSurveyDirection = 0;
+    double newSurveyStartChainage = 0.0;
+
+
+    protected override async void OnInitialized()
+    {
+        //appState.OnManualSegmentationSelected += GetSurveys;
+    }
+
+
+    private async Task<IEnumerable<Survey>> SearchSurveys(string value, CancellationToken cancellationToken)
+    {
+        surveys = appState.ExistingSurveys.ToList();
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrEmpty(value))
+            return surveys;
+        return surveys.Where(x => x.SurveyName.Contains(value, StringComparison.InvariantCultureIgnoreCase));
+    }
+
+    // private void GetSurveys()
+    // {
+    //     selectedSurveys = new HashSet<Survey>();
+    //     surveys.Clear();
+    //     if (appState.existingSurveys.Count() != 0)
+    //         surveys = appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty()).Result;
+    //     StateHasChanged();
+    //     appState.OnManualSegmentationSelected -= GetSurveys;
+    // }
+
+
+    private async void RecalculateSegment()
+    {
+        if (selectedSurvey == null)
+        {
+            Snackbar.Add("Please select a survey", Severity.Error);
+            return;
+        }
+        if (newSurveyName == string.Empty || newSurveyDescription == string.Empty)
+        {
+            Snackbar.Add("Please fill out the name and description", Severity.Error);
+            return;
+        }
+
+        //save new survey in the database
+        IdReply response = await appEngine.SurveySegmentationService.Create(new SurveySegmentation
+            {
+                Name = newSurveyName,
+                Description = newSurveyDescription,
+                EndPoint = string.Empty,
+                StartPoint = string.Empty,
+                Lane = newSurveyLane,
+                Direction = newSurveyDirection,
+                StartChainage = newSurveyStartChainage,
+
+            });
+
+        if (response != null && response.Id > 0)
+        {
+            //load survey on the map
+            appState.UpdateCoordinates(selectedSurvey.GPSLatitude, selectedSurvey.GPSLongitude);
+            //show segments on the map without defects
+            appState.CheckBoxChanged(new List<string> { "Segment" });
+            //segmentation call with newly created survey
+            appState.StartSegmentation(selectedSurvey, response.Id);
+        }
+        else
+        {
+            Snackbar.Add("Survey name already exists", Severity.Error);
+            return;
+        }
+
+    }
+   
+    private void Close()
+    {
+        selectedSurvey = null;
+        selectedSurveys = new HashSet<Survey>();
+        newSurveyName = string.Empty;
+        newSurveyDescription = string.Empty;
+        appState.ClosePopupInMap();
+        //appState.OnManualSegmentationSelected -= StateHasChanged;
+    }
+}

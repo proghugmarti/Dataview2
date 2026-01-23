@@ -1,0 +1,499 @@
+﻿@page "/EditProject"
+@using DataView2.Core.Models.Database_Tables;
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Engines;
+@using DataView2.Core.Models;
+@using DataView2.Core.Helper;
+@using DataView2.ViewModels;
+@using Google.Protobuf.WellKnownTypes;
+@using DataView2.States;
+@using System.Text.Json;
+@using Serilog;
+@using System;
+@using System.IO;
+@using System.Security.AccessControl;
+@using System.Diagnostics;
+@using MudBlazor
+@inherits LayoutComponentBase
+
+
+@inject ApplicationState _appState;
+@inject ApplicationEngine _appEngine;
+@inject Microsoft.AspNetCore.Components.NavigationManager NavManager;
+@inject IProjectRegistryService projectService;
+@inject ProjectViewModel projectViewModel;
+@inject ISnackbar Snackbar
+
+
+@if (isLoading)
+{
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 200px;">
+        <MudProgressCircular Size="Size.Small" Color="@Color.Primary" Indeterminate="true" Style="width:80px; height:80px;" />
+        <MudText Typo="Typo.subtitle1" Style="margin-top: 10px; font-weight: 600;">Loading...</MudText>
+    </div>
+}
+
+<div class="page-background">
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex justify-center">
+        <MudPaper Elevation="1" Class="pa-8" Style="width: 100%; max-height: 600px;">
+    <MudText Typo="Typo.h4" Style="  font-size: 35px;">  Edit Project  </MudText>
+            <MudText Typo="Typo.subtitle1" Color="Color.Secondary" Class="mb-6">
+                Rename or Delete your projects
+            </MudText>
+    @if (Projects != null)
+    {
+        <MudList T="string" Class="mud-cards">
+            @foreach (var item in Projects)
+            {
+                <MudCard Outlined="true">
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudGrid spacing="3">
+                                <MudItem xs="12">
+                                    <MudStack Row="true" Spacing="5">
+                                        <MudStack Row AlignItems="AlignItems.Center" Spacing="4" Class="flex-grow-1">
+                                            <MudIcon Icon="@Icons.Material.Outlined.Folder" Color="Color.Primary" />
+                                            @if (item.IsEditing)
+                                            {
+                                                <MudTextField T="string" @bind-Value="item.EntredName" Variant="Variant.Text" FullWidth="true" />
+                                            }
+                                            else
+                                            {
+                                                <MudText ReadOnly="true" Class="project-name" >@item.Project.Name</MudText>
+                                            }
+                                        </MudStack>
+
+                                        <MudStack Row AlignItems="AlignItems.Center" Style="margin-left: auto;" Spacing="1">
+                                            @if (item.IsEditing)
+                                            {
+                                                <MudTooltip Text="Done" Arrow="true">
+                                                    <MudIconButton Color="Color.Primary" Size="Size.Small" OnClick="@(e => ProjectNameEdited(item))" Icon="@Icons.Material.Outlined.Done" />
+                                                </MudTooltip>
+                                                <MudTooltip Text="Delete" Arrow="true">
+                                                    <MudIconButton Size="Size.Small" OnClick="@(e => DeleteProject(item))" Icon="@Icons.Material.Outlined.Delete" />
+                                                </MudTooltip>
+                                            }
+                                            else
+                                            {
+                                                <MudTooltip Text="Rename" Arrow="true">
+                                                    <MudIconButton Size="Size.Small" OnClick="@(e => EditProjectName(item))" Icon="@Icons.Material.Outlined.Edit" />
+                                                </MudTooltip>
+                                                <MudTooltip Text="Delete" Arrow="true">
+                                                    <MudIconButton Size="Size.Small" OnClick="@(e => DeleteProject(item))" Icon="@Icons.Material.Outlined.Delete" />
+                                                </MudTooltip>
+                                            }
+                                        </MudStack>
+                                    </MudStack>
+                                </MudItem>
+                            </MudGrid>
+                        </CardHeaderContent>
+                    </MudCardHeader>
+                </MudCard>
+
+
+            }
+        </MudList>
+    }
+    else
+    {
+        <p>Loading projects...</p>
+    }
+    </MudPaper>
+</MudContainer>
+</div>
+
+<style>
+    .overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(255, 255, 255, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    }
+</style>
+
+@code {
+    class ProjectData
+    {
+        public ProjectRegistry Project { get; set; }
+        public string EntredName { get; set; }
+        public bool IsEditing = false;
+        // public bool DeleteFromLocalStorage { get; set; } = false; New property
+
+    }
+    private bool deleteFromLocalStorage = false;
+    private List<ProjectData> Projects;
+    ProjectRegistry _selectedProject;
+    Project _selectedLocalProject;
+    string dataBasePath = "";
+    NewDatabaseRequest requestDataBase = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Metadata) };
+    private bool isLoading = false;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        _appEngine = MauiProgram.AppEngine;
+        GetProjects();
+    }
+
+    private async void GetProjects()
+    {
+        Projects = new List<ProjectData>(); // Clear old data
+
+        var projects = await projectService.GetAll(new Empty());
+
+        // Filter out projects whose database files no longer exist
+        var existingProjects = projects.Where(p => File.Exists(p.DBPath)).ToList();
+
+        Projects = existingProjects.Select(p => new ProjectData()
+            {
+                Project = p,
+                EntredName = p.Name,
+                IsEditing = false
+            }).ToList();
+        if (Projects != null && Projects.Count > 0)
+        {
+            if (_appState.SelectedBaseProject != null)
+                _selectedProject = _appState.SelectedBaseProject;
+            else
+                _selectedProject = existingProjects[0];
+        }
+        StateHasChanged();
+    }
+
+    private async void UpdateToNewProject()
+    {
+        var projects = await projectService.GetAll(new Empty());
+
+        if (projects != null && projects.Count > 0)
+        {
+            _selectedProject = projects[0];
+
+            dataBasePath = _selectedProject.DBPath;
+            requestDataBase.NewDatabasePath = dataBasePath;
+            await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+            IdRequestGUID requestGuid = new IdRequestGUID { Id = _selectedProject.IdProject };
+            _selectedLocalProject = await _appEngine.LocalProjectService.GetByIdProject(requestGuid);
+
+            if (_selectedProject != null && _selectedLocalProject != null)
+            {
+                projectViewModel.ChangeProjectAsync(_selectedProject, _selectedLocalProject);
+            }
+
+            StateHasChanged();
+        }
+        else
+        {
+            _selectedProject = null;
+            _appState.UpdateProject(null);
+            StateHasChanged();
+        }
+    }
+    private async void EditProjectName(ProjectData projectData)
+    {
+        try
+        {
+            projectData.IsEditing = true;
+            //_selectedProject = projectData.Project;
+            //dataBasePath = _selectedProject.DBPath;
+            //requestDataBase.NewDatabasePath = dataBasePath;
+            //await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+            //IdRequestGUID requestGuid = new IdRequestGUID { Id = _selectedProject.IdProject };
+            //_selectedLocalProject = await _appEngine.LocalProjectService.GetByIdProject(requestGuid);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Error in EditProjectName: " + ex.Message);
+            Snackbar.Add("Failed to prepare project for editing.", Severity.Error);
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async void ProjectNameEdited(ProjectData projectData)
+    {
+        projectData.IsEditing = false;
+        string newName = projectData.EntredName?.Trim();
+
+        if (string.IsNullOrEmpty(newName))
+        {
+            Snackbar.Add("The project name can't be empty. Please enter a name.", Severity.Error);
+            projectData.IsEditing = true; // Keep editing mode active so user can retry
+            return;
+        }
+
+        if (projectData.Project.Name == newName)
+        {
+            Snackbar.Add("Please enter a different name if you want to rename it.", Severity.Error);
+            return;
+        }
+
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        if (string.IsNullOrWhiteSpace(newName) || newName.Any(c => invalidChars.Contains(c)))
+        {
+            Snackbar.Add("Project name is invalid. Please avoid using special characters like \\ / : * ? \" < > |", Severity.Error);
+            return;
+        }
+
+        foreach (ProjectData project in Projects)
+        {
+            if(newName == project.Project.Name)
+            {
+                Snackbar.Add("A project with this name already exists. Please choose a different name.", Severity.Error);
+                return;
+            }
+        }
+
+        bool confirmed = await Application.Current.MainPage.DisplayAlert(
+            "DataView",
+            $"Are you sure you want to rename {projectData.Project.Name} project to {projectData.EntredName}?",
+            "Yes",
+            "Cancel"
+        );
+
+        if (!confirmed)
+        {
+            return;
+        }
+        try
+        {
+            // Only show loading AFTER user confirms
+            isLoading = true;
+            StateHasChanged();
+            await Task.Delay(100); // Let UI render the loading spinner
+
+            ProjectRegistry prevPjReg = projectData.Project;
+            IdRequestGUID requestGuid = new IdRequestGUID { Id = prevPjReg.IdProject };
+            Project prevPj = await _appEngine.LocalProjectService.GetByIdProject(requestGuid);
+
+            string oldFolderPath = prevPjReg.FolderPath;
+            string oldDbPath = prevPjReg.DBPath;
+            string newFolderPath = Path.Combine(Path.GetDirectoryName(oldFolderPath), projectData.EntredName);
+            string newDbPath = Path.Combine(newFolderPath, string.Concat(projectData.EntredName, Path.GetExtension(oldDbPath)));
+
+            //Moving Project Db files:
+            var copied = await CopyProjects(oldFolderPath, newFolderPath, oldDbPath, newDbPath);
+
+            if (!copied)
+            {
+                Snackbar.Add("Failed to copy project files.", Severity.Error);
+                return;
+            }
+
+            prevPj.Name = projectData.EntredName;
+            prevPj.FolderPath = newFolderPath;
+            prevPj.DBPath = newDbPath;
+            requestDataBase.NewDatabasePath = newDbPath;
+
+            // Update Datasets
+            var folderDatasetsToChange = Path.Combine(oldFolderPath, "Datasets");
+            var targetDatasetsDirectory = Path.Combine(newFolderPath, "Datasets");
+            var updatePathsDataSetqry = await projectViewModel.CopyDatasets(folderDatasetsToChange, targetDatasetsDirectory, newDbPath);
+            if (updatePathsDataSetqry.Count == 0)
+            {
+                Snackbar.Add("Failed to copy datasets inside the project.", Severity.Error);
+                if (Directory.Exists(newFolderPath))
+                    Directory.Delete(newFolderPath, recursive: true);
+                return;
+            }
+
+            //Updating name & database Path in New Project:
+            await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBase);
+            IdReply response = await _appEngine.LocalProjectService.RenameProject(prevPj);
+            if (response.Id < 0 || !File.Exists(oldDbPath))
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+                return;
+            }
+
+            //delete base project and physical location
+            var request = new IdRequest { Id = projectData.Project.Id };
+            response = await projectService.DeleteProject(request);
+            if (response.Id == -1)
+            {
+                //error in deleting project -> rollback
+                Snackbar.Add(response.Message, Severity.Error);
+                prevPj.Name = Path.GetFileNameWithoutExtension(oldFolderPath);
+                prevPj.FolderPath = oldFolderPath;
+                prevPj.DBPath = oldDbPath;
+                await _appEngine.LocalProjectService.RenameProject(prevPj);
+                return;
+            }
+            //create a new project in Base Project:
+            var newProjectReg = new ProjectRegistry
+            {
+                Name = projectData.EntredName,
+                FolderPath = newFolderPath,
+                DBPath = newDbPath,
+                GPSLatitude = prevPjReg.GPSLatitude,
+                GPSLongitude = prevPjReg.GPSLongitude,
+                RoundedGPSLatitude = prevPjReg.RoundedGPSLatitude,
+                RoundedGPSLongitude = prevPjReg.RoundedGPSLongitude,
+                CreatedAtActionResult = prevPjReg.CreatedAtActionResult,
+                IdProject = prevPjReg.IdProject,
+                UpdatedAtActionResult = prevPjReg.UpdatedAtActionResult
+            };
+            response = await projectService.Create(newProjectReg);
+            if (response != null && response.Id >= 0)
+            {
+                newProjectReg.Id = response.Id;
+                projectViewModel.ChangeProjectAsync(newProjectReg, prevPj);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Error in project rename function : " + ex.Message);
+            Snackbar.Add("Error in project rename function : " + ex.Message, Severity.Error);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<bool> CopyProjects(string oldFolder, string newFolder, string oldDbPath, string newDbPath)
+    {
+        if (!Directory.Exists(oldFolder))
+        {
+            Console.WriteLine("Origin folder does not exist: " + oldFolder);
+            return false;
+        }
+        if (!Directory.Exists(newFolder))
+        {
+            Directory.CreateDirectory(newFolder);
+        }
+
+        //copy the metadata Local db first
+        try
+        {
+            if (_selectedProject == null) return false;
+            await _appEngine.DatabaseRegistryService.CloseDatabaseConnection(_selectedProject.DBPath);
+
+            File.Copy(oldDbPath, newDbPath, overwrite: true);
+            // File.Delete(fileName);
+
+            Log.Information("Project Moved: " + oldDbPath + " -> " + newDbPath);
+
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"An error occurred renaming the file: {ex.Message}");
+            return false;
+        }
+
+        return true;
+    }
+
+    private async void DeleteProject(ProjectData projectData)
+    {
+        bool result = await App.Current.MainPage.DisplayAlert(
+                            "DataView",
+                            $"{projectData.Project.Name} will be deleted. Are you sure you want to proceed?",
+                            "Yes",
+                            "Cancel");
+
+        if (result)
+        {
+            try
+            {
+                if (projectData.Project == null) return;
+
+                // Close this db path connection in case
+                await _appEngine.LocalProjectService.CloseDatabaseConnection(projectData.Project.DBPath);
+                await Task.Delay(100);
+
+                var request = new IdRequest { Id = projectData.Project.Id };
+                var deleteResponse = await projectService.DeleteProject(request);
+                //error message
+                if (deleteResponse.Id == -1)
+                {
+                    Snackbar.Add(deleteResponse.Message, Severity.Error);
+                    return;
+                }
+
+                Projects.Remove(projectData);
+
+                if (_appState.SelectedProject.DBPath == projectData.Project.DBPath)
+                {
+                    // Refresh the project list to reflect the deletion
+                    UpdateToNewProject();
+                }
+                Snackbar.Add($"{projectData.Project.Name} project has been successfully deleted.");
+                // Force UI update
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error($"Error in project delete function: {ex.Message}");
+                Snackbar.Add($"Error in project delete function: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    // private async Task<IdReply> DeleteProjectFromDatabase(ProjectRegistry project)
+    // {
+    //     try
+    //     {
+    //         var request = new IdRequest { Id = project.Id };
+    //         var response = await projectService.DeleteProject(request);
+    //         return response;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Log.Error($"Error deleting project {project.Name} from the database: {ex.Message}");
+    //         return new IdReply { Id = -1, Message = $"Error deleting project {project.Name}: {ex.Message}" };
+    //     }
+    // }
+
+
+    private async Task DeleteProjectFolder(string geoJSON)
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(geoJSON))
+            {
+                string pathDbFileProject = Tools.GetDbPathProjectDesSerial(geoJSON);
+                string pathDbProject = Tools.GetDbPathProjectDesSerial(geoJSON);
+
+                Debug.WriteLine($"Attempting to delete: File={pathDbFileProject}, Folder={pathDbProject}");
+
+                // Check and delete the file if it exists
+                if (File.Exists(pathDbFileProject))
+                {
+                    Debug.WriteLine($"Deleting file: {pathDbFileProject}");
+                    File.Delete(pathDbFileProject);
+                }
+                else
+                {
+                    Debug.WriteLine($"File not found: {pathDbFileProject}");
+                }
+
+                // Check and delete the directory if it exists
+                if (Directory.Exists(pathDbProject))
+                {
+                    Debug.WriteLine($"Deleting directory: {pathDbProject}");
+                    Directory.Delete(pathDbProject, true);
+                }
+                else
+                {
+                    Debug.WriteLine($"Directory not found: {pathDbProject}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error deleting folder of the project: {ex.Message}");
+        }
+        await Task.CompletedTask;
+
+    }
+
+}

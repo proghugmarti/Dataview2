@@ -1,0 +1,795 @@
+﻿@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Helper
+@using CommunityToolkit.Mvvm.Messaging;
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Database_Tables;
+@using DataView2.Core.Models.LCMS_Data_Tables;
+@using DataView2.Core.Models.QC
+@using DataView2.Core.Records.Contracts
+@using DataView2.Engines;
+@using System.ComponentModel;
+@using DataView2.Options
+@using DataView2.Pages
+@using DataView2.States;
+@using DataView2.ViewModels;
+@using System.Text.Json
+@using DataView2.XAML
+@using Esri.ArcGISRuntime.Geometry
+@using Google.Protobuf.WellKnownTypes
+@using Microsoft.UI.Windowing
+@using Serilog;
+@using Microsoft.Extensions.Configuration;
+@using System.Diagnostics
+
+@inject Microsoft.AspNetCore.Components.NavigationManager NavManager
+@inject ISnackbar Snackbar
+@inject IConfiguration _configuration
+@inject ApplicationEngine _appEngine
+@inject ApplicationState AppState
+@inject DataView2.ViewModels.NewProjectViewModel NewProjectViewModel
+
+<MudProviders />
+
+<div class="main" style="background-color:#202123">
+    @*     <MudCarousel TData="object" @ref="_carousel" ShowArrows="false" ShowBullets="false" EnableSwipeGesture="false" AutoCycle="false" Class="mud-width-full" Style="height:100vh;">
+        <MudCarouselItem Transition="Transition.Slide" Style="overflow-y: auto;"> *@
+    <MudNavMenu Bordered="true" Rounded="true" Style="font-size:medium" class="nav-menu-header-black">
+@*         <MudNavLink OnClick="HomeClick" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Home" Class="nav-link-blue">
+            Home
+        </MudNavLink> *@
+        
+        @* <MudNavLink Icon="@Icons.Material.Filled.FlipCameraAndroid"
+                    Class="nav-new-session"
+                    OnClick="@SynchronizeInstances">
+            Synchronize Maps
+        </MudNavLink> *@
+
+        <MudNavGroup Title=@($"Dataset{(selectedDataset == null ? string.Empty : $" - {selectedDataset.Name}")}") Icon="@Icons.Material.Rounded.Storage" Class="nav-group-header-black">
+            @if (selectedDataset != null)
+            {
+                @foreach (var dataset in datasets)
+                {
+                    <MudButton class="dataset-buttons" Variant="Variant.Filled" Style="width:100%; color: white;"
+                                OnClick="@(() => HandleDatasetStringChanged(dataset.Name))">
+                        @dataset.Name
+                    </MudButton>
+                }
+                @if (datasets.Count > 0)
+                {
+                    <div class="button-group-container">
+
+                        <MudButtonGroup Color="Color.Transparent" Variant="Variant.Text">
+                            <MudButton Disabled="@_processingCreateBackup" OnClick="CreateBackup">
+                                @if (_processingCreateBackup)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                                }
+                                else if (_backupCreated)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Check" Color="Color.Success" />
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Save" />
+                                }
+                            </MudButton>
+                            <MudButton Disabled="@_processingRestoreLast" OnClick="RestoreLastBackup">
+                                @if (_processingRestoreLast)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                                }
+                                else if (_restoreLastCompleted)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Check" Color="Color.Success" />
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.Undo" />
+                                }
+                            </MudButton>
+                            <MudButton>
+                                <MudMenu @ref="_mudMenu" Style="align-self: auto;" Dense="true" AnchorOrigin="Origin.TopRight" TransformOrigin="Origin.TopRight">
+                                    <ActivatorContent>
+                                        @if (_processingRestoreIndividual)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                                        }
+                                        else if (_restoreIndividualCompleted)
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Check" Color="Color.Success" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Restore" />
+                                            <MudIcon Icon="@Icons.Material.Filled.ArrowDropDown" />
+                                        }
+                                    </ActivatorContent>
+                                    <ChildContent>
+                                        @foreach (var backup in Backups)
+                                        {
+                                            <MudMenuItem OnClick="() => RestoreBackup(backup.Id)">
+                                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                                    <span>@backup.Name</span>
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="() => DeleteBackup(backup.Id)" />
+                                                </div>
+                                            </MudMenuItem>
+                                        }
+                                    </ChildContent>
+                                </MudMenu>
+                            </MudButton>
+                        </MudButtonGroup>
+                    </div>
+                }
+                else
+                {
+                    <MudTooltip Text="Empty project, create a new dataset">
+                        <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" />
+                    </MudTooltip>
+                }
+            }
+        </MudNavGroup>
+
+        @* Survey *@
+        <MudNavGroup Icon="@Icons.Material.Outlined.InsertPhoto" Title="Surveys" Class="nav-group-header-black">
+            <MudTable T="Survey" Items="@surveys" MultiSelection="true" Hover="true" Dense Class="m-2" Style="background:#312F2F;" SelectionChangeable="true" Breakpoint="Breakpoint.None"
+                      CustomHeader="true" HeaderClass="data-grid-header" Filter="new Func<Survey,bool>(FilterFunc)" ContainerStyle="width:100%; height:100%; overflow:hidden;"
+                      RowStyle="white-space: normal; word-break: break-word;" SelectedItems="selectedSurveys" SelectedItemsChanged="HandleSurveyChanged">
+                <ToolBarContent>
+                    <MudTextField @bind-Value="searchString" class="mudtextfield" Placeholder="Search" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" onfocus="@(() => IsPopupOpen(true))" onblur="@(() => IsPopupOpen(false))" />
+                </ToolBarContent>
+                <HeaderContent>
+                    <MudTHeadRow Checkable="true">
+                        <MudTh Style="color:white">Survey Name</MudTh>
+                        <MudTh></MudTh>
+                    </MudTHeadRow>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Survey Name" Style="color:white">@context.SurveyName</MudTd>
+                    <MudTd>
+                        <MudTooltip Text="@((context.GPSLatitude != 0 || context.GPSLongitude != 0) ? "Show on Map" : "No GPS data found")" Placement="Placement.Top" Arrow="true">
+                            <MudIconButton Icon="@Icons.Material.Filled.Map" Color="Color.Primary" 
+                                           OnClick="@(() => ShowOnMap(context))" Disabled="!(context.GPSLatitude != 0 || context.GPSLongitude != 0)" />
+                        </MudTooltip>
+                    </MudTd>
+                </RowTemplate>
+
+                <NoRecordsContent>
+                    <MudText Style="color:white;"Typo="Typo.body2">No Survey Found</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudNavGroup>
+    </MudNavMenu>
+
+
+
+    @* Layers *@
+    <DataView2.Pages.Map.LayerMenu />
+
+    @* Place loading overlay here *@
+    @if (isLoading)
+    {
+        <div class="loading-overlay">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    <style>
+        .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        }
+    </style>
+</div>
+
+<style>
+    html, body, #app {
+        height: 100%;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .main {
+        flex: 1; /* fill remaining space */
+        overflow: auto;
+        scrollbar-width: none; /* Firefox */
+    }
+
+        .main::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Edge */
+        }
+
+    .mud-table-empty-row{
+        background: #3F3D3D;
+    }
+</style>
+
+@code
+{
+    private bool isLoading = false;
+    public ApplicationEngine appEngine;
+
+    // private List<DatabaseRegistry> datasets = new List<DatabaseRegistry>();
+    private List<DatabaseRegistryLocal> datasets = new List<DatabaseRegistryLocal>();
+    // private ProjectRegistry selectedProject;
+    //private ProjectRegistry selectedBaseProject;
+    private Project selectedProject;
+    // private DatabaseRegistry selectedDataset ;
+    private DatabaseRegistryLocal selectedDataset;
+    private string datasetName;
+    private string DatasetPath = "";
+    private string CurrentProjectName;
+    private bool IsProcessing = false;
+
+    private List<Survey> surveys = new List<Survey>();
+    private HashSet<Survey> selectedSurveys = new HashSet<Survey>();
+    private string searchString = "";
+
+    private string value { get; set; } = "Nothing selected";
+    [Inject] private IDialogService DialogService { get; set; }
+    //NewDatabaseRequest requestDataBaseProject = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Metadata) };
+    //NewDatabaseRequest requestDataBaseDataset = new NewDatabaseRequest { NewDatabasePath = "", DbType = nameof(Tools.dbContextType.Dataset) };
+
+
+    protected override async void OnInitialized()
+    {
+        var currentUrl = NavManager.Uri;
+        AppState.SetActivePage(currentUrl);
+        AppState.OnProjectUpdated += async projectName =>
+        {
+            await HandleProjectChanged(projectName);
+        };
+        AppState.OnSurveyIntializeRequested += GetSurveys;
+        AppState.OnDatasetUpdated += async (dataset) =>
+        {
+            await DatasetUpdated(dataset);
+        };
+
+        NavManager.LocationChanged += HandleLocationChanged;
+        AppState.MenuPageChanged += UpdateUri;
+        AppState.Processing += Processing;
+        AppState.OnFolderOpenClicked += OnfolderOpenClicked;
+        appEngine = MauiProgram.AppEngine;
+    }
+
+    private async void OnfolderOpenClicked(string imagePath, string surveyId)
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            string folderPath = folder.Folder.Path;
+
+            // Check if the surveyId is valid
+            try
+            {
+                if (!string.IsNullOrEmpty(surveyId))
+                {
+                    var request = new ImageFolderChangeRequest
+                        {
+                            surveyId = surveyId,
+                            ImageFolderPath = folderPath
+                        };
+                    await appEngine.SurveyService.UpdateSurveyFolderPath(request); // Update the database
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error in updating survey: {ex.Message}");
+            }
+
+
+            List<string> jpgFiles = Directory.GetFiles(folderPath, "*Range.jpg").ToList().Select(x => x.Replace("_Range", string.Empty)).ToList();
+
+            //if image path found null/empty
+            if (string.IsNullOrEmpty(imagePath))
+            {
+                imagePath = Path.GetFileNameWithoutExtension(Directory.GetFiles(folderPath, "*Range.jpg").ToList().Select(x => x.Replace("_Range", string.Empty)).ToList()[0]);
+            }
+            else
+            {
+                imagePath = Path.Combine(folderPath, Path.GetFileName(imagePath));
+            }
+
+            string[] filepathsplits = imagePath.Split("_");
+            string sectionId = Convert.ToInt64(filepathsplits[filepathsplits.Length - 1]).ToString();
+
+            if (jpgFiles.Count > 0)
+            {
+                //update image file path in in lcms_segments and absolute path in survey table
+                await appEngine.SegmentService.UpdateImagePathInSegmentAndSurvey(jpgFiles);
+
+            }
+
+            //notify main page for changes
+            //AppState.ImagePathUpdated(imagePath); // deleted this part as it loads up all the objects and also multi- select segments without pressing ctrl key
+
+            AppState.SegmentClicked(imagePath, surveyId, sectionId);
+        }
+    }
+
+    private async void HandleLocationChanged(object sender, LocationChangedEventArgs e)
+    {
+        //if no project found, can't proceed anything without creating one
+        if (selectedProject == null)
+        {
+            //error message
+            await App.Current.MainPage.DisplayAlert("Alert", "No project found. Please create a project to continue.", "OK");
+            var baseUri = new Uri(e.Location, UriKind.RelativeOrAbsolute);
+            var newUri = new Uri(baseUri, "NewProject");
+            AppState.SetActivePage(newUri.ToString());
+            return;
+        }
+
+        //if no dataset found, can't proceed anything without creating one
+        if (selectedDataset == null)
+        {
+            //error message
+            await App.Current.MainPage.DisplayAlert("Alert", "No dataset found. Please create a dataset to continue.", "OK");
+            var baseUri = new Uri(e.Location, UriKind.RelativeOrAbsolute);
+            var newUri = new Uri(baseUri, "NewDataset");
+            AppState.SetActivePage(newUri.ToString());
+            return;
+        }
+
+        if (!IsProcessing)
+            AppState.SetActivePage(e.Location);
+    }
+
+    private void UpdateUri(string page)
+    {
+        if (!IsProcessing)
+            NavManager.NavigateTo(page);
+    }
+
+    private void Processing(bool isprocessing)
+    {
+        IsProcessing = isprocessing;
+    }
+
+    public async void CloseWindow()
+    {
+        bool result = await App.Current.MainPage.DisplayAlert(
+                               "DataView",
+                               "Are you sure you want to close the application?",
+                               "Yes",
+                               "Cancel");
+
+        if (result)
+        {
+            appEngine.ServicesEngine.StopAll(_configuration);
+            await (App.Current as App)?.CloseAllWindows(_configuration);
+            App.Current.Quit();
+        }
+    }
+
+    public async Task DatasetUpdated(DatabaseRegistryLocal dataset = null)
+    {
+        try
+        {
+            datasets = await AvailableDatasets();
+            if (datasets.Count == 0)
+            {
+                selectedDataset = null;
+                NavManager.NavigateTo("/NewDataset");
+                return;
+            }
+
+            if (dataset == null)
+            {
+                selectedDataset = datasets.OrderByDescending(d => d.UpdatedAtActionResult).FirstOrDefault();              
+            }
+            else
+            {
+                selectedDataset = datasets.FirstOrDefault(d => d.Id == dataset.Id)
+                               ?? datasets.OrderByDescending(d => d.UpdatedAtActionResult).FirstOrDefault();
+            }
+
+            HandleDatasetChanged(selectedDataset);
+            Serilog.Log.Information($"Changed Dataset: {selectedDataset.Name}");
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in UpdateDatasetsDropdown : {ex.Message}");
+        }
+    }
+
+    private async Task<List<DatabaseRegistryLocal>> AvailableDatasets()
+    {
+        isLoading = true;
+        try
+        {
+            //get all the database registry from the project db
+            List<DatabaseRegistryLocal> databaseRegistries = await _appEngine.DatabaseRegistryService.GetAll(new Empty());
+
+            foreach (var dr in databaseRegistries.ToList()) // Important: use ToList to avoid modifying the collection during iteration
+            {
+                if (!File.Exists(dr.Path))
+                {
+                    databaseRegistries.Remove(dr);
+                    await _appEngine.DatabaseRegistryService.DeleteDataset(dr);
+                }
+            }
+
+            return databaseRegistries;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+
+    private async void HandleDatasetChanged(DatabaseRegistryLocal dataset)
+    {
+        isLoading = true;
+        StateHasChanged(); // trigger UI update to show overlay
+
+        try
+        {
+            selectedDataset = dataset;
+            //this changes the database connection
+            await _appEngine.DatabaseRegistryService.ChangeDataset(dataset.Name);
+            await SetMapAfterDatasetChanged();
+
+            AppState.SelectedDatasetChanged(dataset);
+            await LoadBackups();
+        }
+        finally
+        {
+            NavManager.NavigateTo("/Home");
+            AppState.UpdateCoordinates(dataset.GPSLatitude, dataset.GPSLongitude);
+            isLoading = false;
+            StateHasChanged(); // trigger UI update to hide overlay
+        }
+    }
+
+
+    private async Task SetMapAfterDatasetChanged()
+    {
+        isLoading = true;
+        //If Offline map was used last time, load it
+        var offlineMapSetting = await appEngine.SettingsService.GetByName(new SettingName { name = selectedDataset.Name });
+        if (offlineMapSetting.Any())
+        {
+            var offlineMapPath = offlineMapSetting.First().Value;
+            if (File.Exists(offlineMapPath))
+            {
+                AppState.applyOfflineMap(offlineMapPath);
+            }
+        }
+        else
+        {
+            if (!AppState.isUsingOnlineMap)
+            {
+                AppState.applyOfflineMap("online");
+            }
+        }
+        isLoading = false;
+    }
+
+    private async Task HandleDatasetStringChanged(string datasetName)
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            //requestDataBaseProject.NewDatabasePath = AppState.SelectedDbPathProject;
+            //await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBaseProject);
+
+            var databaseRegistry = await _appEngine.DatabaseRegistryService.GetByName(datasetName);
+            // requestDataBaseDataset.NewDatabasePath = databaseRegistry.Path;
+            // await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBaseDataset);
+
+            if (databaseRegistry != null)
+            {
+                HandleDatasetChanged(databaseRegistry); // already triggers loading
+            }
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+
+    private List<DatasetBackup> Backups { get; set; } = new List<DatasetBackup>();
+    private async Task LoadBackups()
+    {
+        //requestDataBaseProject.NewDatabasePath = AppState.SelectedDbPathProject;
+        //await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBaseProject);
+        if (selectedDataset != null)
+        {
+            int datasetId = selectedDataset.Id;
+            Backups = await appEngine.DatasetBackupService.GetBackupsByDatasetId(new DatasetIdRequest { DatasetId = datasetId });
+        }
+    }
+
+    private bool _processingCreateBackup = false;
+    private bool _backupCreated = false;
+
+    private async Task CreateBackup()
+    {
+        _processingCreateBackup = true;
+        _backupCreated = false;
+        StateHasChanged(); // Update UI to show spinner
+
+        try
+        {
+            string datasetPath = selectedDataset.Path;
+            string datasetname = selectedDataset.Name;
+            string timestamp = DateTime.Now.ToString("dd_MM_HHmm");
+
+            var request = new NewBackupRequest
+                {
+                    FilePath = datasetPath,
+                    Name = $"b_{timestamp}",
+                    Description = "Backup created from navMenu",
+                };
+
+            var idReply = await appEngine.DatasetBackupService.CreateBackup(request);
+
+            await LoadBackups();
+
+            _backupCreated = true;
+            Snackbar.Add("Progress saved as a backup", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error creating backup: {ex.Message}");
+            Snackbar.Add("Failed to create backup", Severity.Error);
+            _backupCreated = false;
+        }
+        finally
+        {
+            _processingCreateBackup = false;
+            StateHasChanged();
+
+            // Keep check icon visible for a short time
+            if (_backupCreated)
+            {
+                await Task.Delay(1500);
+                _backupCreated = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task DeleteBackup(int backupId)
+    {
+        try
+        {
+            // Call service to delete the backup
+            await appEngine.DatasetBackupService.DeleteBackup(new BackupActionRequest { BackupId = backupId });
+
+            // Remove the backup from the local list
+            Backups = Backups.Where(b => b.Id != backupId).ToList();
+
+            StateHasChanged();
+            Snackbar.Add("Backup deleted successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting backup: {ex.Message}");
+            Snackbar.Add("Failed to delete backup!", Severity.Error);
+        }
+    }
+    private bool _processingRestoreLast = false;
+    private bool _restoreLastCompleted = false;
+
+    private async Task RestoreLastBackup()
+    {
+        var lastBackup = Backups.OrderByDescending(b => b.Timestamp).FirstOrDefault();
+        if (lastBackup != null)
+        {
+            await RestoreBackupInternal(lastBackup.Id, isLast: true);
+        }
+        else
+        {
+            Snackbar.Add("No backups found to restore.", Severity.Info);
+        }
+    }
+
+    private bool _processingRestoreIndividual = false;
+    private bool _restoreIndividualCompleted = false;
+    private MudMenu _mudMenu;
+
+    private async Task RestoreBackup(int backupId)
+    {
+        await RestoreBackupInternal(backupId, isLast: false);
+    }
+
+    private async Task RestoreBackupInternal(int backupId, bool isLast)
+    {
+        if (isLast)
+        {
+            _processingRestoreLast = true;
+            _restoreLastCompleted = false;
+        }
+        else
+        {
+            _processingRestoreIndividual = true;
+            _restoreIndividualCompleted = false;
+        }
+
+        StateHasChanged();
+
+        if (!isLast && _mudMenu is not null)
+        {
+            await _mudMenu.CloseMenuAsync();
+        }
+
+        try
+        {
+            await appEngine.DatasetBackupService.RestoreBackup(new BackupActionRequest { BackupId = backupId });
+
+            Snackbar.Add(isLast ? "Loading the most recent backup" : "Backup file successfully implemented!", Severity.Success);
+            //AppState.InitializeSurveyAndLayers();
+            NavManager.NavigateTo("/Home");
+
+            await Task.Delay(500);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error restoring backup: {ex.Message}");
+            Snackbar.Add("Error restoring backup!", Severity.Error);
+        }
+        finally
+        {
+            if (isLast)
+            {
+                _processingRestoreLast = false;
+                StateHasChanged();
+                await Task.Delay(500);
+                _restoreLastCompleted = false;
+            }
+            else
+            {
+                _processingRestoreIndividual = false;
+                StateHasChanged();
+                await Task.Delay(500);
+                _restoreIndividualCompleted = false;
+            }
+
+            StateHasChanged();
+            await LoadBackups();
+        }
+    }
+    // Method to refresh the list of backups
+    private async Task RefreshBackupList()
+    {
+        Backups = await appEngine.DatasetBackupService.GetAllBackups();
+        StateHasChanged();
+    }
+
+    private async void HomeClick()
+    {
+        if (!IsProcessing)
+        {
+            if (selectedDataset != null)
+            {
+                NavManager.NavigateTo("/Home");
+                //requestDataBaseProject.NewDatabasePath = AppState.SelectedDbPathProject;
+                //await _appEngine.DatabaseRegistryService.ChangeDatabase(requestDataBaseProject);
+                IdRequest requestId = new IdRequest() { Id = selectedDataset.Id };
+                DatabaseRegistryLocal dataset = await appEngine.DatabaseRegistryService.GetActualDatasetRegistry(requestId);
+                if (dataset.Name == "Default")
+                {
+                    //handle case there is no dataset created in the project selected
+                    Snackbar.Add("No dataset selected", Severity.Error);
+                    return;
+                }
+                AppState.UpdateCoordinates(dataset.GPSLatitude, dataset.GPSLongitude);
+                AppState.StopGeometryEditor();
+                StateHasChanged();
+            }
+            else
+            {
+                Snackbar.Add("Please create a dataset first.", Severity.Info);
+            }
+        }
+    }
+
+    private async void CreateOfflineMap()
+    {
+        NavManager.NavigateTo("/Home");
+        AppState.CurrentPath = null;
+        AppState.SetOfflineMapPath();
+        StateHasChanged();
+    }
+
+    private async void GetSurveys()
+    {
+        if (selectedDataset != null)
+        {
+            surveys.Clear();
+            selectedSurveys.Clear();
+
+            if (AppState.ExistingSurveys != null)
+            {
+                //add all surveys at first
+                foreach (var survey in AppState.ExistingSurveys)
+                {
+                    surveys.Add(survey);
+                    selectedSurveys.Add(survey);
+                }
+
+                if (selectedSurveys.Count > 0)
+                    HandleSurveyChanged();
+            }
+
+            StateHasChanged();
+        }
+    }
+    private void ShowOnMap (Survey survey) { SelectMap(); AppState.UpdateCoordinates(survey.GPSLatitude, survey.GPSLongitude); }
+
+    private void HandleSurveyChanged()
+    {
+        AppState.SurveySelected(selectedSurveys);
+    }
+
+    private void IsPopupOpen(bool status)
+    {
+        AppState.IsPopupOpen = status;
+    }
+
+    private void SelectMap()
+    {
+        var baseUrl = NavManager.Uri;
+        var fullUrl = new Uri(new Uri(baseUrl), "Home").ToString();
+        AppState.SetActivePage(fullUrl);
+    }
+
+    private bool FilterFunc(Survey survey)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (survey.SurveyName.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    private string GetMultiSelectionText(List<string> selectedValues)
+    {
+        return $"{selectedValues.Count} survey{(selectedValues.Count > 1 ? "s" : "")} selected";
+    }
+
+    private async Task HandleProjectChanged(Project project)
+    {
+        selectedProject = project;
+        if (project != null)
+        {
+            CurrentProjectName = selectedProject.Name;
+        }
+        else
+        {
+            selectedProject = null;
+            CurrentProjectName = null;
+            selectedDataset = null;
+            selectedSurveys.Clear();
+            surveys.Clear();
+        }
+        await DatasetUpdated();
+
+        StateHasChanged();
+    }    
+
+    // private void SynchronizeInstances()
+    // {
+    //     AppState.ToggleMapSynchronization();
+    // }
+}

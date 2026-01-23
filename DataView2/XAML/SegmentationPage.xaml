@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pages="clr-namespace:DataView2.Pages.Map"
+             xmlns:state="clr-namespace:DataView2.States"
+             xmlns:viewmodel="clr-namespace:DataView2.ViewModels"
+             x:Class="DataView2.XAML.SegmentationPage">
+  
+        <BlazorWebView HostPage="wwwroot/index.html" IsVisible="true">
+            <BlazorWebView.RootComponents>
+                <RootComponent Selector="#app" ComponentType="{x:Type pages:SegmentationTable}"/>
+            </BlazorWebView.RootComponents>
+        </BlazorWebView>
+</ContentPage>

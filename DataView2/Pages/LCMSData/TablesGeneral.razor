@@ -1,0 +1,1002 @@
+﻿@page "/TablesGeneral"
+@using System.Data
+@using System.Dynamic
+@using System.Globalization;
+@using System.IO;
+@using System.Reflection;
+@using System.Text
+@using System.Timers;
+@using CsvHelper;
+@using DataView2.Core.Helper
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.CrackClassification
+@using DataView2.Core.Models.DTS
+@using DataView2.Core.Models.ExportTemplate
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Core.Models.Other;
+@using DataView2.Core.Models.Positioning
+@using DataView2.Core.Protos;
+@using DataView2.Engines;
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes;
+@using Microsoft.Data.Sqlite
+@using MudBlazor.Services
+@using Serilog;
+@using static DataView2.Core.Helper.Tools
+
+@inject ISettingTablesService contextTables
+@inject ISnackbar Snackbar
+@inject ApplicationState appState
+@inject Microsoft.AspNetCore.Components.NavigationManager NavManager
+
+<style>
+    .mud-table-col {
+    min-width: 500px;
+    max-width: 1000px;
+    overflow: scroll;
+    text-align: left;
+    font-weight: 700;
+    }
+
+    .mud-table-header {
+    text-align: left;
+    color: #472ac0;
+    font-size: 18px;
+    font-weight: 700;
+    }
+</style>
+
+@if(surveys.Count > 0)
+{
+    <div class="d-flex align-items-center mx-auto" style="width:450px">
+        <MudSelect T="Survey" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=100 LockScroll="false"
+        Class="mb-2" @bind-Value="SelectedSurvey">
+            @if (surveys.Count > 0)
+            {
+                @foreach (var survey in surveys)
+                {
+                    <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+                }
+            }
+        </MudSelect>
+    </div>
+}
+
+@if (lstTablesName.Count > 0)
+{
+    <MudStack Row=true>
+        <MudPaper Width="25%" Elevation="0">
+            <MudTextField @bind-Value="_searchText"
+                          Placeholder="Search table..."
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          OnBlur="()=>SearchTable()" />
+
+            <MudTreeView @bind-SelectedValue="SelectedTable" Hover="true"> 
+                <MudTreeViewItem @bind-Expanded="@tablesExpanded" Value="@("Tables")" Icon="@(tablesExpanded ? @Icons.Material.Filled.TableChart : @Icons.Material.Outlined.TableChart)" >
+                    @foreach (var tableExport in FilteredTables)
+                    {
+                        <MudStack Row>
+                            <MudTooltip Text="Download CSV" Placement="Placement.Right" Arrow="true">
+                                <MudIconButton Class="mt-2 z-50" Size="Size.Small" Color="@Color.Default" Icon="@Icons.Material.Rounded.Download" OnClick="@(() => DownloadCsv(tableExport.Name))" />
+                            </MudTooltip>
+
+                            <MudTreeViewItem Value="@tableExport.Name" class="ml-n15" Icon="@Icons.Material.Outlined.Dataset"></MudTreeViewItem>
+                        </MudStack>
+                    }
+                </MudTreeViewItem>
+            </MudTreeView>
+        </MudPaper>
+
+        <MudPaper Width="75%" Elevation="0">
+            <MudStack>
+                <MudText Typo="@Typo.h6" Align="Align.Left" Color="Color.Primary">@SelectedTable</MudText>
+                @if (metaTables.Any(m => m.TableName == SelectedTable) || summaries.Any(s => s.Name == SelectedTable))
+                {
+                    <MudTable Items="@DynamicRows" Hover="true" Bordered="true" RowsPerPage="@rowsPerPage" Striped="true">
+                        <HeaderContent>
+                            @foreach (var column in ColumnNames)
+                            {
+                                <MudTh>@column</MudTh>
+                            }
+                        </HeaderContent>
+                        <RowTemplate>
+                            @foreach (var column in ColumnNames)
+                            {
+                                var value = context.ContainsKey(column) ? context[column] : null;
+
+                                if (value == null)
+                                {
+                                    <MudTd DataLabel="@column">
+                                        @string.Empty
+                                    </MudTd>
+                                }
+                                else
+                                {
+                                    <MudTd DataLabel="@column">
+                                        @value
+                                    </MudTd>
+                                }
+
+                            }
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudTablePager PageSizeOptions="@_pageSizeOption" RowsPerPageString="Rows Per Page" />
+                        </PagerContent>
+                    </MudTable>
+                }
+                else
+                {
+                    <MudTable Items="@DynamicRows" Hover="true" Bordered="true" RowsPerPage="@rowsPerPage" Striped="true">
+                        <HeaderContent>
+                            @foreach (var column in ColumnNames)
+                            {
+                                <MudTh>@column</MudTh>
+                            }
+                        </HeaderContent>
+
+                        <RowTemplate>
+                            @foreach (var column in ColumnNames)
+                            {
+                                @if (column.EndsWith("id", StringComparison.OrdinalIgnoreCase) || column.ToLower().Contains("gps") || column.ToLower().Contains("."))
+                                {
+                                    <MudTd DataLabel="@column">
+                                        @context[column]
+                                    </MudTd>
+                                }
+                                else if (column == "Action")
+                                {
+                                    <MudTd>
+                                        <MudStack Row>
+                                            <MudTooltip Text="Save">
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Save" Color="Color.Primary" OnClick="() => SaveData(context)" Size="Size.Small" />
+                                            </MudTooltip>
+                                            <MudTooltip Text="Delete">
+                                                <MudIconButton Icon="@Icons.Material.Outlined.Delete" Color="Color.Error" OnClick="() => DeleteData(context)" Size="Size.Small" />
+                                            </MudTooltip>
+                                        </MudStack>
+                                    </MudTd>
+                                }
+                                else
+                                {
+                                    var value = context.ContainsKey(column) ? context[column] : null;
+
+                                    if (value == null)
+                                    {
+                                        <MudTd DataLabel="@column">
+                                            @string.Empty
+                                        </MudTd>
+                                    }
+                                    else
+                                    {
+                                        <MudTd>
+                                            @switch (context[column])
+                                            {
+                                                case int:
+                                                    <MudInput T="int" Value="@(Convert.ToInt32(context[column]))"
+                                                    ValueChanged="@(v => UpdateCellValue(context, column, v))"
+                                                    Immediate="true" />
+                                                    break;
+                                                case double:
+                                                    <MudInput T="double" Value="@(Convert.ToDouble(context[column]))"
+                                                    ValueChanged="@(v => UpdateCellValue(context, column, v))"
+                                                    Immediate="true" />
+                                                    break;
+                                                default:
+                                                    <MudInput T="string" Value="@(context[column]?.ToString() ?? string.Empty)"
+                                                    ValueChanged="@(v => UpdateCellValue(context, column, v))"
+                                                    Immediate="true" Style="min-width: 100px;" />
+                                                    break;
+                                            }
+                                        </MudTd>
+                                    }
+                                }
+                            }
+                        </RowTemplate>
+
+                        <PagerContent>
+                            <MudTablePager PageSizeOptions="@_pageSizeOption" RowsPerPageString="Rows Per Page" />
+                        </PagerContent>
+                    </MudTable>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudStack>
+}
+
+@code {
+    public List<string> ColumnNames = new();
+    private List<Dictionary<string, object>> DynamicRows = new();
+    private int CurrentPage = 0;
+
+    private string _SelectedTable;
+    private string SelectedTable
+    {
+        get => _SelectedTable;
+        set
+        {
+            if (value != "Tables")
+            {
+                _SelectedTable = value;
+                LoadData();
+            }
+        }
+    }
+
+    private List<Survey> surveys = new List<Survey>();
+    private Survey _SelectedSurvey;
+    private Survey SelectedSurvey
+    {
+        get => _SelectedSurvey;
+        set
+        {
+            _SelectedSurvey = value;
+            FetchTableData();
+        }
+    }
+
+    bool tablesExpanded = true;
+    [Inject] private IDialogService DialogService { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    public List<TableExport> lstTablesName = new List<TableExport>();
+
+    public ApplicationEngine appEngine;
+    public string connString = string.Empty;
+
+    private PagingParameters _pagingParameters = new PagingParameters();
+    private readonly int[] _pageSizeOption = { 5, 10, 25, 50, 100 };
+    private int rowsPerPage = 5;
+
+    IDialogReference dialog = null;
+    private string selectedDataset;
+
+    static private string _userFiles = "User CSV Files";
+    string strSelectedSurvey = string.Empty;
+
+    //Coordinates formats:
+    public string coordinatesSystem = "";
+    List<MetaTable> metaTables = new List<MetaTable>();
+    List<Summary> summaries = new List<Summary>();
+
+    #region General
+    protected override async Task OnInitializedAsync()
+    {
+        appEngine = MauiProgram.AppEngine;
+
+        //select default dataset option
+        selectedDataset = appEngine.DatabaseRegistryService.GetActualDatabasePath().Result;
+        connString = connString = $"Data Source={selectedDataset};";
+        GetDynamicTables();
+        GetSurveys();
+        //await FetchTableData();
+    }
+
+    private async void GetDynamicTables()
+    {
+        metaTables = await appEngine.MetaTableService.HasData(new Empty());
+        summaries = await appEngine.SummaryService.GetAll(new Empty());
+    }
+
+    private void GetSurveys()
+    {
+        surveys.Clear();
+        surveys.Add(new Survey { SurveyName = "All", SurveyIdExternal = "All" });
+        surveys.AddRange(appEngine.SurveyService.GetAll(new Empty()).Result);
+
+        StateHasChanged();
+    }
+
+    private async void HandleSurveyChanged()
+    {
+        GetSurveys();
+        await FetchTableData();
+    }
+
+    private void ShowDialog()
+    {
+        string genFileImage = "/images/cloud-download.gif";
+        string genFileText = "Fetching Data...";
+        var parameters = new DialogParameters<Charging>();
+        parameters.Add(x => x.DialogImage, genFileImage);
+        parameters.Add(x => x.DialogText, genFileText);
+        var maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium, Position = DialogPosition.Center };
+
+        dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+    }
+
+    private async Task FetchTableData()
+    {
+        try
+        {
+            strSelectedSurvey = SelectedSurvey.SurveyName == "All" ? string.Join(",", surveys.Where(s => s.SurveyIdExternal != "All").Select(s => s.SurveyIdExternal).ToList()) : SelectedSurvey.SurveyIdExternal;
+            bool allSurveys = SelectedSurvey.SurveyName == "All" ? true : false;
+
+            var lstTables = await contextTables.QueryAsync("SELECT rootpage,name, '' as file FROM sqlite_master WHERE type='table' AND name NOT LIKE '%Migration%' AND name NOT LIKE '%sequence%';");
+
+            ShowDialog();
+            await Task.Delay(2000);
+
+            lstTablesName.Clear();
+            foreach (var tbl in lstTables)
+            {
+                TablesSettingsData lstTable = new TablesSettingsData();
+                TablesSettingsDataReply tableData = new TablesSettingsDataReply();
+                if(allSurveys)
+                {
+                    foreach(Survey survey in surveys)
+                    {
+                        lstTable = new TablesSettingsData
+                            {
+                                Name = tbl.Name,
+                                SurveyId = survey.Id,
+                                SurveyExternalId = survey.SurveyIdExternal
+                            };
+                        tableData = await contextTables.TableHasDataAsync(lstTable);
+
+                        if (tableData.RowsExist && TableViewHelper.TableViewList.Contains(tbl.Name) && !lstTablesName.Any(t => t.Name == tbl.Name))
+                        {
+                            lstTablesName.Add(new TableExport { Name = tbl.Name, RootPage = tbl.RootPage.ToString() });
+                        }
+                    }
+                }
+                else
+                {
+                    lstTable = new TablesSettingsData
+                        {
+                            Name = tbl.Name,
+                            SurveyId = SelectedSurvey.Id,
+                            SurveyExternalId = SelectedSurvey.SurveyIdExternal
+                        };
+                    tableData = await contextTables.TableHasDataAsync(lstTable);
+
+                    if (tableData.RowsExist && TableViewHelper.TableViewList.Contains(tbl.Name))
+                    {
+                        lstTablesName.Add(new TableExport { Name = tbl.Name, RootPage = tbl.RootPage.ToString() });
+                    }
+                }
+            }
+
+            //checking for data in MetaTableValue
+            if (metaTables != null && metaTables.Count > 0)
+            {
+                foreach (var mt in metaTables)
+                {
+                    var table = new TableExport { Name = mt.TableName, RootPage = (lstTables.Max(r => r.RootPage) + 1).ToString() };
+                    lstTablesName.Add(table);
+                }
+            }
+
+            if (summaries != null && summaries.Count > 0)
+            {
+                var summaryNames = summaries.Select(x => x.Name).Distinct().ToList();
+                foreach (var summaryName in summaryNames)
+                {
+                    var table = new TableExport { Name = summaryName, RootPage = (lstTables.Max(r => r.RootPage) + 1).ToString() };
+                    lstTablesName.Add(table);
+                }
+            }
+
+            lstTablesName = lstTablesName.OrderBy(o => o.Name).ToList();
+            dialog.Close();
+
+            SelectedTable = lstTablesName.FirstOrDefault().Name;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Log.Logger.Error(ex, $"Error : {ex.Message}");
+        }
+    }
+
+    private string ConvertValue(object value)
+    {
+        return value switch
+        {
+            null => "N/A",
+            string str => str, // Return string as is
+            int num => num.ToString(),
+            long num => num.ToString(),
+            float num => num.ToString(),
+            double num => num.ToString(),
+            decimal num => num.ToString(),
+            DateTime date => date.ToString("yyyy-MM-dd HH:mm"), // Format DateTime
+            bool boolValue => boolValue ? "True" : "False", // Convert boolean
+            _ => value.ToString() ?? "N/A" // Fallback to string conversion
+        };
+    }
+
+    private void UpdateCellValue(Dictionary<string, object> row, string column, object? value)
+    {
+        if (row == null)
+            row = new Dictionary<string, object>();
+
+        if (value is int || value is double || value is bool)
+        {
+            row[column] = value;
+        }
+        else
+        {
+            row[column] = value?.ToString() ?? string.Empty; 
+        }
+    }
+
+    private async void LoadData()
+    {
+        if (string.IsNullOrEmpty(SelectedTable) || SelectedTable == "Tables") return;
+
+        if (SelectedSurvey == null) return;
+
+        DynamicRows.Clear();
+        ColumnNames.Clear();
+        ShowDialog();
+
+        if (metaTables.Any(m => m.TableName == SelectedTable))
+        {
+            //get table structure and data from the metadata
+            await GetMetaTable(SelectedTable);
+        }
+        else if (summaries.Any(x => x.Name == SelectedTable))
+        {
+            await GetSummaryTable(SelectedTable);
+        }
+        else
+        {
+            try
+            {
+                DynamicRows = Newtonsoft.Json.JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(appEngine.SegmentService.GetDynamicDataAsync(SelectedTable + ',' + SelectedSurvey.SurveyIdExternal).Result);
+                if (SelectedTable != "Survey")
+                {
+                    var surveyIdRows = Newtonsoft.Json.JsonConvert.DeserializeObject<List<Dictionary<string, object>>>(appEngine.SegmentService.GetDynamicDataAsync(SelectedTable + ',' + SelectedSurvey.Id).Result);
+                    DynamicRows.AddRange(surveyIdRows);
+                }
+
+                ColumnNames = DynamicRows.SelectMany(r => r.Keys).Distinct().ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Error in LoadData for {SelectedTable} : {ex.Message}");
+            }
+
+            ColumnNames.Add("Action"); //not allowing changes in metaTables or Summaries
+        }
+
+        dialog.Close();
+        StateHasChanged();
+    }
+
+    private async Task GetMetaTable(string table)
+    {
+        ColumnNames.Clear();
+        DynamicRows.Clear();
+
+        MetaTable metaTable = metaTables.FirstOrDefault(m => m.TableName == table);
+        if (metaTable != null)
+        {
+            //get data from matatablevalues
+            var tableValues = await appEngine.MetaTableService.GetByTable(metaTable);
+            var survey = await appEngine.SurveyService.GetSurveyEntityByExternalId(tableValues[0].SurveyId);
+            if (tableValues != null && tableValues.Any())
+            {
+                foreach (var value in tableValues)
+                {
+                    if (survey == null || survey.SurveyIdExternal != value.SurveyId)
+                        survey = await appEngine.SurveyService.GetSurveyEntityByExternalId(value.SurveyId);
+
+                    //attributes
+                    var attributes = ConvertKeyValueFieldsToDictionary(value.Attributes);
+                    if (attributes != null && attributes.Count > 0)
+                    {
+                        if (SelectedTable.StartsWith("IRI") && SelectedTable.Contains("Meter Section"))
+                        {
+                            attributes.Add("IRI SectionId", value.SegmentId);
+                        }
+                        else
+                        {
+                            attributes.Add("SegmentId", value.SegmentId);
+                        }
+                        attributes.Add("GPSLatitude", value.GPSLatitude);
+                        attributes.Add("GPSLongitude", value.GPSLongitude);
+                        attributes.Add("SurveyId", survey.SurveyName);
+                        attributes.Add("SurveyIdExternal", survey.SurveyIdExternal);
+                        attributes.Add("ImageFileIndex", value.ImageFileIndex);
+                        attributes.Add("LRPNumber", value.LRPNumber);
+                        attributes.Add("Chainage", value.Chainage);
+                        attributes.Add("InitialChainage", survey.StartChainage);
+                        attributes.Add("Direction", survey.Direction);
+
+                        if (SelectedSurvey.SurveyIdExternal == "All" || SelectedSurvey.SurveyIdExternal == value.SurveyId)
+                            DynamicRows.Add(attributes);
+                    }
+                }
+            }
+
+            if (DynamicRows.Any())
+            {
+                // Derive all unique column names from DynamicRows
+                ColumnNames = DynamicRows
+                    .SelectMany(row => row.Keys)
+                    .Distinct()
+                    .ToList();                
+            }
+        }
+    }
+
+    private async Task GetSummaryTable(string table)
+    {
+        //Summary table
+        var dynamicRows = new List<Dictionary<string, object>>();
+        var matchingNameSummaries = summaries.Where(x => x.Name == table).ToList();
+        Survey survey = null;
+
+        foreach (var summary in matchingNameSummaries)
+        {
+            // if (survey == null || survey.SurveyIdExternal != summary.SurveyId)
+            //     survey = await appEngine.SurveyService.GetSurveyEntityByExternalId(summary.SurveyId);
+
+            var row = new Dictionary<string, object>();
+
+            foreach (var prop in typeof(Summary).GetProperties())
+            {
+                if (prop.Name != "SummaryDefects" && prop.Name != "SampleUnitSet" && prop.Name != "SampleUnit" && prop.Name != "SampleUnitSetId" && prop.Name != "SampleUnitId")
+                {
+                    if (prop.Name == "SurveyId")
+                    {
+                        row[prop.Name] = survey.SurveyName;
+                        row["SurveyIdExternal"] = prop.GetValue(summary); //saving surveyIdexternal as well
+                    }
+                    else
+                    {
+                        row[prop.Name] = prop.GetValue(summary);                        
+                    }
+                }
+            }
+
+            if (summary.SummaryDefects != null && summary.SummaryDefects.Any())
+            {
+                foreach (var summaryDefect in summary.SummaryDefects)
+                {
+                    var key = $"{summaryDefect.TableName} {summaryDefect.Operation} ({summaryDefect.NumericField})";
+                    var value = summaryDefect.Value;
+                    row[key] = value;
+                }
+            }
+            dynamicRows.Add(row);
+
+            row = UpdateSummaryForSurvey(row, "InitialChainage", survey.StartChainage);
+            row = UpdateSummaryForSurvey(row, "Direction", survey.Direction);
+        }
+
+        DynamicRows = dynamicRows;
+        ColumnNames = dynamicRows
+        .SelectMany(row => row.Keys)
+        .Distinct()
+        .ToList();
+    }
+
+    private Dictionary<string, object> UpdateSummaryForSurvey(Dictionary<string, object> row, string key, object value)
+    {
+        if (!row.ContainsKey(key))
+            row.Add(key, value);
+        else
+            row[key] = value;
+
+        return row;
+    }
+
+    private Dictionary<string, object> ConvertKeyValueFieldsToDictionary(List<KeyValueField> keyValueFields)
+    {
+        var dictionary = new Dictionary<string, object>();
+
+        foreach (var field in keyValueFields)
+        {
+            if (field.Type == ColumnType.Number.ToString() || field.Type == ColumnType.Measurement.ToString())
+            {
+                if (double.TryParse(field.Value, out var decimalValue))
+                {
+                    dictionary[field.Key] = decimalValue;
+                }
+            }
+            else if (field.Type == ColumnType.Text.ToString() || field.Type == ColumnType.Dropdown.ToString() || field.Type == ColumnType.Date.ToString())
+            {
+                dictionary[field.Key] = field.Value;
+            }
+            else if (field.Type == "int" && int.TryParse(field.Value, out var intValue))
+            {
+                dictionary[field.Key] = intValue;
+            }
+        }
+
+        return dictionary;
+    }
+
+    private async void SaveData(Dictionary<string, object> row)
+    {
+        try
+        {
+            if (row != null)
+            {
+                bool dataUpdated = true;
+                if (!metaTables.Any(m => m.TableName == SelectedTable))
+                {
+                    switch (SelectedTable)
+                    {
+                        case "LCMS_Segment":
+                            LCMS_Segment lCMS_Segment = await appEngine.SegmentService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (lCMS_Segment == null) dataUpdated = false;
+                            break;
+
+                        // case "CrackClassificationNodes ":
+                        //     CrackClassificationNodes crackClassificationNodes = await appEngine.CrackClassificationNodesService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                        //     if (crackClassificationNodes == null) dataUpdated = false;
+                        //     break;
+
+                        // case "CrackClassifications":
+                        //     CrackClassifications crackClassifications = await appEngine.CrackClassificationsService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                        //     if (crackClassifications == null) dataUpdated = false;
+                        //     break;
+
+                        case "GPS_Processed":
+                            GPS_Processed GPS_Processed = await appEngine.GPSProcessedService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (GPS_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Bleeding":
+                            LCMS_Bleeding LCMS_Bleeding = await appEngine.BleedingService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Bleeding == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Concrete_Joints":
+                            LCMS_Concrete_Joints LCMS_Concrete_Joints = await appEngine.ConcreteJointService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Concrete_Joints == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Corner_Break":
+                            LCMS_Corner_Break LCMS_Corner_Break = await appEngine.CornerBreakService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Corner_Break == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Cracking_Raw":
+                            LCMS_Cracking_Raw LCMS_Cracking_Raw = await appEngine.CrackingRawService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Cracking_Raw == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Curb_DropOff":
+                            LCMS_Curb_DropOff LCMS_Curb_DropOff = await appEngine.CurbDropOffService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Curb_DropOff == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_FOD":
+                            LCMS_FOD LCMS_FOD = await appEngine.FODService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_FOD == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Geometry_Processed":
+                            LCMS_Geometry_Processed LCMS_Geometry_Processed = await appEngine.GeometryService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Geometry_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Grooves":
+                            LCMS_Grooves LCMS_Grooves = await appEngine.GroovesService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Grooves == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Lane_Mark_Processed":
+                            LCMS_Lane_Mark_Processed LCMS_Lane_Mark_Processed = await appEngine.LanMarkedProcessedService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Lane_Mark_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Marking_Contour":
+                            LCMS_Marking_Contour LCMS_Marking_Contour = await appEngine.MarkingContourService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Marking_Contour == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_MMO_Processed":
+                            LCMS_MMO_Processed LCMS_MMO_Processed = await appEngine.MMOService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_MMO_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Patch_Processed":
+                            LCMS_Patch_Processed LCMS_Patch_Processed = await appEngine.PatchService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Patch_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Potholes_Processed":
+                            LCMS_Potholes_Processed LCMS_Potholes_Processed = await appEngine.PotholesService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Potholes_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Pumping_Processed":
+                            LCMS_Pumping_Processed LCMS_Pumping_Processed = await appEngine.PumpingService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Pumping_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Ravelling_Raw":
+                            LCMS_Ravelling_Raw LCMS_Ravelling_Raw = await appEngine.RavellingService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Ravelling_Raw == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Rough_Processed":
+                            LCMS_Rough_Processed LCMS_Rough_Processed = await appEngine.RoughnessService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Rough_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Rumble_Strip":
+                            LCMS_Rumble_Strip LCMS_Rumble_Strip = await appEngine.RumbleStripService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Rumble_Strip == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Rut_Processed":
+                            LCMS_Rut_Processed LCMS_Rut_Processed = await appEngine.RutProcessedService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Rut_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Sags_Bumps":
+                            LCMS_Sags_Bumps LCMS_Sags_Bumps = await appEngine.SagsBumpsService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Sags_Bumps == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Sealed_Cracks":
+                            LCMS_Sealed_Cracks LCMS_Sealed_Cracks = await appEngine.SealedCrackService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Sealed_Cracks == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Shove_Processed":
+                            LCMS_Shove_Processed LCMS_Shove_Processed = await appEngine.ShoveService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Shove_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Texture_Processed":
+                            LCMS_Texture_Processed LCMS_Texture_Processed = await appEngine.MacroTextureService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Texture_Processed == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Water_Entrapment":
+                            LCMS_Water_Entrapment LCMS_Water_Entrapment = await appEngine.WaterTrapService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Water_Entrapment == null) dataUpdated = false;
+                            break;
+
+                        case "Survey":
+                           Survey Survey = await appEngine.SurveyService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                           if (Survey == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Segment_Grid":
+                            LCMS_Segment_Grid LCMS_Segment_Grid = await appEngine.SegmentGridService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Segment_Grid == null) dataUpdated = false;
+                            break;
+
+                        case "LASfile":
+                            LASfile LASfile = await appEngine.LASfileService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LASfile == null) dataUpdated = false;
+                            break;
+
+                        case "LASPoint":
+                            LASPoint LASPoint = await appEngine.LASfileService.UpdateGenericDataLasPoint(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LASPoint == null) dataUpdated = false;
+                            break;
+
+                        case "VideoFrame":
+                            VideoFrame VideoFrame = await appEngine.VideoFrameService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (VideoFrame == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_Spalling_Raw":
+                            LCMS_Spalling_Raw LCMS_Spalling_Raw = await appEngine.SpallingService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_Spalling_Raw == null) dataUpdated = false;
+                            break;
+
+                        case "LCMS_PickOuts_Raw":
+                            LCMS_PickOuts_Raw LCMS_PickOuts_Raw = await appEngine.PickOutRawService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (LCMS_PickOuts_Raw == null) dataUpdated = false;
+                            break;
+
+                        case "Boundary":
+                            Boundary Boundaries = await appEngine.BoundariesService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                            if (Boundaries == null) dataUpdated = false;
+                            break;
+
+                        default:
+                            dataUpdated = false;
+                            break;
+                    }
+                }
+                else
+                {
+                    MetaTableValue metaTableValue = await appEngine.MetaTableService.UpdateGenericData(Newtonsoft.Json.JsonConvert.SerializeObject(row));
+                    if (metaTableValue == null) dataUpdated = false;
+                }
+
+                if (dataUpdated)
+                    Snackbar.Add($"Selected record is edited successfully.", Severity.Info);
+                else
+                    Snackbar.Add($"Failed to edit selected record.", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to edit selected record due to {ex.Message}.", Severity.Error);
+        }
+    }
+
+    private async void DeleteData(Dictionary<string, object> row)
+    {
+        if (await DeleteRecordAlert())
+        {
+            if (row != null)
+            {
+                string deleteQuery = string.Empty;
+                if (!metaTables.Any(m => m.TableName == SelectedTable))
+                    deleteQuery = $"Delete FROM {SelectedTable} where Id={row["Id"]}";
+                else
+                    deleteQuery = $"Delete FROM MetaTableValue where Id={row["Id"]}";
+
+                IdReply idReply = await appEngine.SegmentService.ExecuteSQlQueries(new List<string> { deleteQuery });
+                if (idReply != null && idReply.Id == 0)
+                {
+                    Snackbar.Add("Selected record is deleted successfully.", Severity.Info);
+                    LoadData();
+                }
+                else
+                {
+                    Snackbar.Add("Failed to deleted selected record.", Severity.Info);
+                }
+            }
+        }
+    }
+
+    private async Task<bool> DeleteRecordAlert()
+    {
+        bool result = await App.Current.MainPage.DisplayAlert(
+                               "DataView",
+                               "Are you sure, you want to delete the selected record?",
+                               "Yes",
+                               "Cancel");
+        return result;
+    }
+    #endregion
+
+    #region Download CSVs
+    private async void DownloadCsv(string tableName)
+    {
+        appState.NotifyProcessing(true);
+        string downloadsPath = AppPaths.DocumentsFolder + $"\\User Export Files\\{_userFiles}\\{tableName}".Replace("\\", "/");
+
+        string genFileImage = "/images/download.gif";
+        string genFileText = "Generating Files...";
+        DialogParameters parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+        try
+        {
+            var dialog = DialogService.Show<Charging>("", parameters, maxWidth);
+            await Task.Delay(2000);
+
+            // Check for the directory
+            if (!Directory.Exists(downloadsPath))
+                Directory.CreateDirectory(downloadsPath);
+
+            // Use dataset name for csv, not survey
+            string fileName = $"{appState.SelectedDataset.Name}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            downloadsPath = Path.Combine(downloadsPath, fileName);
+
+            //remove older file
+            if (File.Exists(downloadsPath)) File.Delete(downloadsPath);
+
+            if (metaTables.Any(m => m.TableName == tableName))
+            {
+                //saving metadata table values as csv
+                if (SelectedTable != tableName)
+                    await GetMetaTable(tableName);
+                string csv = GenerateCsv(DynamicRows);
+                File.WriteAllText(downloadsPath, csv.ToString());
+            }
+            else if (summaries.Any(s => s.Name == tableName))
+            {
+                if (SelectedTable != tableName)
+                    await GetSummaryTable(tableName);
+                string csv = GenerateCsv(DynamicRows);
+                File.WriteAllText(downloadsPath, csv.ToString());
+            }
+            else if (tableName.Equals("GPS_Processed", StringComparison.OrdinalIgnoreCase)
+      || tableName.Equals("Geometry_Processed", StringComparison.OrdinalIgnoreCase))
+            {
+                string query = string.Empty;
+                if (!string.IsNullOrEmpty(strSelectedSurvey))
+                {
+                    query = $@"SELECT tableMain.*,
+                          s.SurveyName as Description,
+                          s.StartChainage as InitialChainage,
+                          s.Direction
+                   FROM {tableName} tableMain
+                   JOIN Survey s ON tableMain.SurveyId = s.Id
+                   WHERE s.SurveyIdExternal IN({strSelectedSurvey})";
+                }
+                else
+                {
+                    query = $@"SELECT * FROM {tableName} ";
+                }
+
+                var fileGenerated = await contextTables.SaveTemplatedCSV(
+                    new TablesSetting { Name = query, File = downloadsPath, RootPage = default });
+            }
+            else
+            {
+                string query = string.Empty;
+                if (!string.IsNullOrEmpty(strSelectedSurvey) && tableName != "Survey")
+                    query = $"SELECT tableMain.*, s.SurveyName as Description, s.StartChainage as InitialChainage, s.Direction FROM {tableName} tableMain JOIN Survey s ON tableMain.SurveyId = s.SurveyIdExternal WHERE tableMain.surveyId IN({strSelectedSurvey})";
+                    //query = $"SELECT * FROM {tableName} WHERE SurveyId in ({strSelectedSurvey})";
+                else
+                    query = $"SELECT * FROM {tableName}";
+
+                var fileGenerated = await contextTables.SaveTemplatedCSV(new TablesSetting { Name = query, File = downloadsPath, RootPage = default });
+            }
+
+            //Check new CSV is downloaded
+            if (File.Exists(downloadsPath))
+            {
+                Snackbar.Add($"{tableName} CSV file downloaded at {Path.GetDirectoryName(downloadsPath)}", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add($"Failed to download {tableName} CSV", Severity.Error);
+            }
+
+            dialog.Close();
+        }
+        catch (Exception ex) { Log.Error($"Error in downloading CSV files : {ex.Message}"); }
+        finally { dialog.Close(); appState.NotifyProcessing(false); }
+    }
+
+    private string GenerateCsv(List<Dictionary<string, object>> data)
+    {
+        if (data == null || data.Count == 0)
+            return "";
+
+        StringBuilder csvContent = new StringBuilder();
+        var headers = data.SelectMany(dict => dict.Keys).Distinct().ToList();
+        csvContent.AppendLine(string.Join(",", headers));
+        foreach (var row in data)
+        {
+            var values = headers.Select(header => row.ContainsKey(header) ? EscapeCsvValue(row[header]?.ToString() ?? "") : "");
+            csvContent.AppendLine(string.Join(",", values));
+        }
+
+        return csvContent.ToString();
+    }
+
+    private string EscapeCsvValue(string value)
+    {
+        if (value.Contains(",") || value.Contains("\"") || value.Contains("\n"))
+        {
+            value = "\"" + value.Replace("\"", "\"\"") + "\""; // Escape double quotes
+        }
+        return value;
+    }
+
+    #endregion
+
+    //Search table in Tables tree
+    private string _searchText = string.Empty;
+    private IEnumerable<TableExport> FilteredTables =>
+    string.IsNullOrWhiteSpace(_searchText)
+        ? lstTablesName
+        : lstTablesName.Where(t => t.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+
+    private void SearchTable()
+    {
+        if (string.IsNullOrWhiteSpace(_searchText))
+            return;
+
+        var match = lstTablesName.FirstOrDefault(t => t.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
+        {
+            tablesExpanded = true; 
+            SelectedTable = match.Name;
+        }
+    }
+
+}

@@ -1,0 +1,310 @@
+﻿@page "/PCIRatingPage"
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using Google.Protobuf.WellKnownTypes
+
+@inject Microsoft.AspNetCore.Components.NavigationManager NavManager
+@inject ApplicationEngine appEngine
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+
+<MudContainer>
+    @if(isAddingNewRating)
+    {
+        <MudText Typo="Typo.h6" Align="Align.Center" Class="m-2">Add PCI Rating</MudText>
+        <MudStack Class="ma-10">
+            <MudDatePicker Label="Date" @bind-Date="newDate" ShowToolbar="false" Variant="Variant.Outlined" />
+            <MudTextField T="string" @bind-Value="newRatingName" Label="RatingName" Variant="Variant.Outlined" />
+            <MudTextField T="string" @bind-Value="newRaterName" Label="RaterName" Variant="Variant.Outlined" />
+            <MudSelect T="string" @bind-Value="newType" Label="Type" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("Road")">Road</MudSelectItem>
+                <MudSelectItem Value="@("Airport")">Airport</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="newSurface" Label="Surface" Variant="Variant.Outlined">
+                <MudSelectItem Value="@("Concrete")">Concrete</MudSelectItem>
+                <MudSelectItem Value="@("Asphalt")">Asphalt</MudSelectItem>
+            </MudSelect>
+            <MudTooltip Text="Will be used as Network ID in PAVER software xml. It identifies the entire pavement network (e.g., a city, airport, or military base)." >
+                <MudTextField T="string" @bind-Value="networkId" Label="Network Id" Variant="Variant.Outlined" />
+            </MudTooltip>
+            <MudTooltip Text="Will be used as Branch ID in PAVER software xml. It represents a major roadway or facility segment within the network.">
+                <MudTextField T="string" @bind-Value="branchId" Label="Branch Id" Variant="Variant.Outlined" />
+            </MudTooltip>
+            <MudTooltip Text="Will be used as Section ID in PAVER software xml. It represents a portion of the pavement that is relatively uniform in construction and condition.">
+                <MudNumericField T="int?" @bind-Value="sectionId" Label="Section Id" Variant="Variant.Outlined" />
+            </MudTooltip>
+            <MudStack Row>
+                @if (sampleUnitSets != null && sampleUnitSets.Count > 0)
+                {
+                    <MudSelect T="SampleUnit_Set" Label="Sample Unit Set" Variant="Variant.Outlined" @bind-Value="@selectedSampleUnitSet">
+                        @foreach (var sampleUnitSet in sampleUnitSets)
+                        {
+                            @if (sampleUnitSet.SampleUnits != null)
+                            {
+                                <MudSelectItem T="SampleUnit_Set" Value="sampleUnitSet">@sampleUnitSet.Name</MudSelectItem>
+                            }
+                            else
+                            {
+                                <MudSelectItem T="SampleUnit_Set" Value="sampleUnitSet" Disabled>@sampleUnitSet.Name (No sample units found)</MudSelectItem>
+                            }
+                        }
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="string" Label="No Sample Unit Set found" Variant="Variant.Outlined" ></MudSelect>
+                }
+            </MudStack>
+        </MudStack>
+        <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Spacing="2" Class="my-4">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SavePciRating">Save</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="CancelAdding">Cancel</MudButton>
+        </MudStack>     
+    }
+    else
+    {
+        <MudText Typo="Typo.h6" Align="Align.Center" Class="m-2 mb-5">PCI Ratings</MudText>
+        <MudTable @ref="table" T="PCIRatings" Items="pciRatings" Hover HeaderClass="mud-header" Class="ma-6">
+            <HeaderContent>
+                <MudTh>Date</MudTh>
+                <MudTh>Name</MudTh>
+                <MudTh>Rater</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>Surface</MudTh>
+                <MudTh>Network/Branch/Section Id</MudTh>
+                <MudTh>Sample Unit Set</MudTh>
+                <MudTh>Progress</MudTh>
+                <MudTh></MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Date">@context.Date?.ToString("yyyy-MM-dd")</MudTd>
+                <MudTd DataLabel="Name">@context.RatingName</MudTd>
+                <MudTd DataLabel="Rater">@context.RaterName</MudTd>
+                <MudTd DataLabel="Type">@context.Type</MudTd>
+                <MudTd DataLabel="Surface">@context.Surface</MudTd>
+                <MudTd DataLabel="Network/Branch/Section Id">@(context.NetworkId + "::" + context.BranchId + "::" + context.SectionId)</MudTd>
+                <MudTd DataLabel="Sample Unit Set">@((@context.SampleUnitSet != null) ? @context.SampleUnitSet.Name : null)</MudTd>
+                <MudTd>
+                    <MudStack Spacing="0">
+                        <MudProgressCircular Color="Color.Primary" Size="Size.Small" StrokeWidth="4" Min="0" Max="100" Value="@(context.ProgressPercentage)" />
+                        <MudText Typo="Typo.caption" Color="Color.Dark">
+                            @($"{@Math.Round(context.ProgressPercentage, 2)}%")
+                        </MudText>
+                    </MudStack>
+                </MudTd>
+                <MudTd>
+                    @if(context.ProgressPercentage > 0)
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" OnClick="@(() => ExecutePCIRating(context))">Load</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" OnClick="@(() => ExecutePCIRating(context))">Execute</MudButton>
+                    }
+                </MudTd>
+                <MudTd>
+                    <MudIconButton Size="Size.Small" OnClick="@(() => DeletePCIRating(context))" Icon="@Icons.Material.Outlined.Delete" />
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+        <div class="d-flex justify-content-center align-items-center">
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="StartAdding" Class="mt-4">NEW</MudButton>
+        </div>
+    }
+</MudContainer>
+
+<style>
+    .mud-tooltip-root {
+    width: 100%;
+    }
+</style>
+
+@code 
+{
+    private MudTable<PCIRatings> table;
+    private List<PCIRatings> pciRatings = new List<PCIRatings>();
+    private PCIRatings editingPCIRating;
+    private bool isAddingNewRating = false;
+    private DateTime? newDate;
+    private string newRatingName;
+    private string newRaterName;
+    private string newType;
+    private string newSurface;
+    private string networkId;
+    private string branchId;
+    private int? sectionId;
+    private List<SampleUnit_Set> sampleUnitSets = new List<SampleUnit_Set>();
+    private SampleUnit_Set selectedSampleUnitSet;
+
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        GetPCIRatings();
+    }
+
+    private async void GetPCIRatings()
+    {
+        var ratings = await appEngine.PCIRatingService.GetAll(new Google.Protobuf.WellKnownTypes.Empty());
+        if (ratings != null)
+        {
+            pciRatings = ratings;
+        }
+
+        StateHasChanged();
+    }
+
+    private async void StartAdding()
+    {
+        isAddingNewRating = true;
+
+        //get sample unit set
+        var response = await appEngine.SampleUnitSetService.GetAll(new Empty());
+        if (response != null && response.Count > 0)
+        {
+            var pciSUS = response.Where(x => x.Type == SampleUnitSetType.PCI).ToList();
+            sampleUnitSets = pciSUS;
+        }
+
+        StateHasChanged();
+    }
+
+    private void CancelAdding()
+    {
+        isAddingNewRating = false;
+    }
+
+    private async void SavePciRating()
+    {
+        if (newDate == null || newRatingName == null || newRaterName == null || newType == null || newSurface == null || networkId == null || branchId == null || sectionId == null || selectedSampleUnitSet == null)
+        {
+            Snackbar.Add("All fields must be filled", Severity.Error);
+            return;
+        }
+
+        var existingRating = await appEngine.PCIRatingService.GetByName(newRatingName);
+        if (existingRating != null && existingRating.Id > 0)
+        {
+            Snackbar.Add("That rating name already exists. Please choose a different name.", Severity.Error);
+            return;
+        }
+
+        //create a pci rating
+        var pciRating = new PCIRatings
+        {
+            Date = newDate.Value,
+            RatingName = newRatingName,
+            RaterName = newRaterName,
+            Type = newType,
+            Surface = newSurface,
+            SampleUnitSetId = selectedSampleUnitSet.Id,
+            ProgressPercentage = 0.0,
+            NetworkId = networkId,
+            BranchId = branchId,
+            SectionId = sectionId.Value
+        };
+
+        var response = await appEngine.PCIRatingService.Create(pciRating);
+        if (response != null && response.Id != -1)
+        {
+            Snackbar.Add("A new PCI Rating has been successfully saved.", Severity.Success);
+            RefreshVariables();
+        }
+        else
+        {
+            Snackbar.Add("Something went wrong. Please try again.", Severity.Error);
+        }
+
+        isAddingNewRating = false;
+        GetPCIRatings();
+    }
+
+    private void RefreshVariables()
+    {
+        newDate = null;
+        newRatingName = null;
+        newRaterName = null;
+        newType = null;
+        newSurface = null;
+        selectedSampleUnitSet = null;
+    }
+
+    private void StartEditing(PCIRatings rating)
+    {
+        // Create a copy of the row for editing
+        editingPCIRating = new PCIRatings
+        {
+            Date = rating.Date,
+            RatingName = rating.RatingName,
+            RaterName = rating.RaterName,
+            Type = rating.Type,
+            Surface = rating.Surface,
+            SampleUnitSetId = rating.SampleUnitSetId
+        };
+        table.SetEditingItem((object?)rating);
+    }
+
+    private async void CommitEditPCIRatings(object pciRating)
+    {
+        if (pciRating is PCIRatings rating && editingPCIRating != null)
+        {
+            rating.Date = editingPCIRating.Date;
+            rating.RatingName = editingPCIRating.RatingName;
+            rating.RaterName = editingPCIRating.RaterName;
+            rating.Type = editingPCIRating.Type;
+            rating.Surface = editingPCIRating.Surface;
+            rating.SampleUnitSetId = editingPCIRating.SampleUnitSetId;
+        }
+
+        var response = await appEngine.PCIRatingService.EditValue((PCIRatings)pciRating);
+        if(response != null && response.Id != -1)
+        {
+            Snackbar.Add($"PCI Rating has been edited.", Severity.Success);
+        }
+        editingPCIRating = null;
+    }
+
+    private void CancelEditPCIRatings(object rating)
+    {
+        // Simply discard changes by not applying editingPCIRating to the list
+        editingPCIRating = null;
+        Snackbar.Add($"Changes have been discarded.");
+    }
+
+    private async void DeletePCIRating(PCIRatings pciRating)
+    {
+        bool result = await App.Current.MainPage.DisplayAlert(
+                            "DataView",
+                            "Are you sure, you want to delete the selected PCI rating?",
+                            "Yes",
+                            "Cancel");
+
+        if(result)
+        {
+            var response = await appEngine.PCIRatingService.DeleteObject(pciRating);
+            // Remove from the list
+            pciRatings.Remove(pciRating);
+            StateHasChanged();
+        }
+    }
+
+    private async void ExecutePCIRating(PCIRatings pciRating)
+    {
+        string message = pciRating.ProgressPercentage == 100
+            ? "This PCI Rating is complete. Do you still want to start PCI Rating mode?"
+            : "Do you want to start PCI Rating mode?";
+        bool result = await App.Current.MainPage.DisplayAlert(
+                     "DataView",
+                     message,
+                     "Yes",
+                     "Cancel");
+
+        if(result)
+        {
+            var param = new Dictionary<string, object> { {"PCIRatingEntity", pciRating} };
+            appState.ChangeSurveySetPage("PCIRatingMode", param);
+        }
+    }
+}

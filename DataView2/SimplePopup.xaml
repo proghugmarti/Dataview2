@@ -1,0 +1,37 @@
+<toolkit:Popup 
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+    x:Class="DataView2.SimplePopup"
+    Color="Transparent"
+    Size="800,600"
+    CanBeDismissedByTappingOutsideOfPopup="True">
+
+    <VerticalStackLayout
+        HorizontalOptions="Center"
+        VerticalOptions="Center">
+
+        <Border 
+    Stroke="Black" 
+    StrokeThickness="1"
+    StrokeShape="RoundRectangle 10"
+    Background="White" 
+    Padding="0"
+    WidthRequest="800"
+    HeightRequest="600"
+    HorizontalOptions="Center"
+    VerticalOptions="Center">
+
+            <BlazorWebView 
+        x:Name="blazorWebView"
+        HostPage="wwwroot/index.html"
+        HorizontalOptions="FillAndExpand"
+        VerticalOptions="FillAndExpand" />
+
+        </Border>
+
+
+
+    </VerticalStackLayout>
+
+</toolkit:Popup>

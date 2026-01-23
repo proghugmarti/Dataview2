@@ -1,0 +1,685 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.QC
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes
+@using System.Text.Json
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject LayerViewModel viewModel;
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:5px;" OnClick="Close"></MudIconButton>
+</div>
+
+<MudTabs Rounded="true" Centered="true">
+    <MudTabPanel Text="New QC Filter">
+        <MudContainer Class="mt-5">
+            <MudStack Row=true>
+                <MudText Color="Color.Primary" style="font-weight:500">Filter Name : </MudText>
+                <MudTextField T="string" Style="height:20px;margin:0px;padding:-5px" @bind-Value="enteredFilterName" Variant="Variant.Text"></MudTextField>
+            </MudStack>
+
+            <MudStack Row=true >
+                <MudSelect T="string" @ref="Tables" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Tables" LockScroll="false" MaxHeight=200 Class="my-2" ValueChanged="OnTableChanged" Disabled="@tableDisabled">
+                    @foreach (var tableName in tableNames)
+                    {
+                        <MudSelectItem T="string" Value="@tableName">@tableName</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" @ref="Properties" Margin="Margin.Dense" Label="Properties" Variant="Variant.Outlined" @bind-Value="selectedProperty" MaxHeight=200 LockScroll="false">
+                    @foreach (var property in properties)
+                    {
+                        <MudSelectItem T="string" Value="@property">@property</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (selectedProperty != "Severity")
+                {
+                    <MudSelect T="string" @ref="Functions" Margin="Margin.Dense" Label="Function" Variant="Variant.Outlined" MaxHeight=200 LockScroll="false">
+                        <MudSelectItem Value="@("<")"></MudSelectItem>
+                        <MudSelectItem Value="@("<=")"></MudSelectItem>
+                        <MudSelectItem Value="@(">")"></MudSelectItem>
+                        <MudSelectItem Value="@(">=")"></MudSelectItem>
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="string" @ref="Functions" Margin="Margin.Dense" Label="Function" Variant="Variant.Outlined" MaxHeight=200 LockScroll="false">
+                        <MudSelectItem Value="@("=")"></MudSelectItem>
+                        <MudSelectItem Value="@("!=")"></MudSelectItem>
+                    </MudSelect>
+                }
+
+                @if (selectedProperty != "Severity")
+                {
+                    <MudNumericField Margin="Margin.Dense" Label="Value" Variant="Variant.Outlined" @bind-Value="valueData"></MudNumericField>
+                }
+                else
+                {
+                    <MudSelect T="string" @ref="Severity" Margin="Margin.Dense" Style="height:20px;" Label="Severity" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("Very Low")"></MudSelectItem>
+                        <MudSelectItem Value="@("Low")"></MudSelectItem>
+                        <MudSelectItem Value="@("Medium")"></MudSelectItem>
+                        <MudSelectItem Value="@("High")"></MudSelectItem>
+                        <MudSelectItem Value="@("Very High")"></MudSelectItem>
+                    </MudSelect>
+                }
+
+            </MudStack>
+
+            <MudPaper Class="p-2 mt-2" Outlined="true" Style="height: 150px; overflow-y: auto;">
+                <div role="group" class="d-flex flex-row justify-end gap-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick=@(()=>AddOperator("OR"))>OR</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick=@(()=>AddOperator("AND"))>AND</MudButton>
+                    <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="AddFilter" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="RemoveFilter" />
+                </div>
+
+                @foreach (var query in filterQueries)
+                {
+                    <MudText Class="p-1">@query</MudText>
+                }
+            </MudPaper>
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Class="m-2">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveFilter">Save Filter</MudButton>
+            </MudStack>
+        </MudContainer>
+    </MudTabPanel>
+
+
+    <MudTabPanel Text="Edit QC Filters" OnClick="ChangeToEditFilter">
+        <MudContainer>
+            <MudStack Row=true Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudText Color="Color.Primary" style="font-weight:500">Filters : </MudText>
+                <MudSelect T="QCFilter" Label="Filters" Margin="Margin.Dense" Variant="Variant.Outlined" Value="selectedFilter" ValueChanged="OnFilterChanged" MaxHeight=200 LockScroll="false" Dense>
+                    @if (filters.Count > 0)
+                    {
+                        foreach (QCFilter f in filters)
+                        {
+                            <MudSelectItem T="QCFilter" Value="@f">@f.FilterName</MudSelectItem>
+                        }
+                    }
+                </MudSelect>
+            </MudStack>
+            <MudStack Row=true >
+                <MudText Color="Color.Primary" style="font-weight:500">Filter Name : </MudText>
+                <MudTextField T="string" @bind-Value="enteredFilterName"></MudTextField>
+            </MudStack>
+            <MudStack Row=true>
+                <MudSelect T="string" @ref="Tables" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Tables" LockScroll="false" MaxHeight=200 Class="my-2" ValueChanged="OnTableChanged" Disabled="@tableDisabled">
+                    @foreach (var tableName in tableNames)
+                    {
+                        <MudSelectItem T="string" Value="@tableName">@tableName</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" @ref="Properties" Margin="Margin.Dense" Label="Properties" Variant="Variant.Outlined" @bind-Value="selectedProperty" MaxHeight=200 LockScroll="false">
+                    @foreach (var property in properties)
+                    {
+                        <MudSelectItem T="string" Value="@property">@property</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (selectedProperty != "Severity")
+                {
+                    <MudSelect T="string" @ref="Functions" Margin="Margin.Dense" Label="Function" Variant="Variant.Outlined" MaxHeight=200 LockScroll="false">
+                        <MudSelectItem Value="@("<")"></MudSelectItem>
+                        <MudSelectItem Value="@("<=")"></MudSelectItem>
+                        <MudSelectItem Value="@(">")"></MudSelectItem>
+                        <MudSelectItem Value="@(">=")"></MudSelectItem>
+                    </MudSelect>
+                }
+                else
+                {
+                    <MudSelect T="string" @ref="Functions" Margin="Margin.Dense" Label="Function" Variant="Variant.Outlined" MaxHeight=200 LockScroll="false">
+                        <MudSelectItem Value="@("=")"></MudSelectItem>
+                        <MudSelectItem Value="@("!=")"></MudSelectItem>
+                    </MudSelect>
+                }
+
+                @if (selectedProperty != "Severity")
+                {
+                    <MudNumericField Margin="Margin.Dense" Label="Value" Variant="Variant.Outlined" @bind-Value="valueData"></MudNumericField>
+                }
+                else
+                {
+                    <MudSelect T="string" Margin="Margin.Dense" @ref="Severity" Style="height:20px;" Label="Severity" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@("Very Low")"></MudSelectItem>
+                        <MudSelectItem Value="@("Low")"></MudSelectItem>
+                        <MudSelectItem Value="@("Medium")"></MudSelectItem>
+                        <MudSelectItem Value="@("High")"></MudSelectItem>
+                        <MudSelectItem Value="@("Very High")"></MudSelectItem>
+                    </MudSelect>
+                }
+
+            </MudStack>
+
+            <MudPaper Class="p-2 mt-2" Outlined="true" Style="height: 120px; overflow-y: auto;">
+                <div role="group" class="d-flex flex-row justify-end gap-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick=@(()=>AddOperator("OR"))>OR</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick=@(()=>AddOperator("AND"))>AND</MudButton>
+                    <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="AddFilter" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Remove" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="RemoveFilter" />
+                </div>
+
+                @foreach (var query in filterQueries)
+                {
+                    <MudText Class="p-1">@query</MudText>
+                }
+            </MudPaper>
+
+            <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Class="m-2">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="EditFilter">Edit Filter</MudButton>
+                <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="DeleteFilter">Delete Filter</MudButton>
+            </MudStack>
+        </MudContainer>
+    </MudTabPanel>
+
+
+    <MudTabPanel Text="Run Filters" OnClick="ChangeToRunFilter">
+        <MudContainer>
+            <MudSelect T="Survey" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Surveys" MaxHeight=200 LockScroll="false" Class="my-2" MultiSelection="true" @bind-SelectedValues="selectedSurveys">
+                @if (surveys.Count > 0)
+                {
+                    @foreach (var survey in surveys)
+                    {
+                        <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+                    }
+                }
+            </MudSelect>
+            <MudPaper Class="p-2 mt-2" Outlined="true" Style="height: 180px; overflow-y: auto;">
+                @if (filters.Count > 0)
+                {
+                    <MudList T="QCFilter" SelectionMode="SelectionMode.MultiSelection" Dense @bind-SelectedValues="selectedFilters">
+                        @foreach (var filter in filters)
+                        {
+                            <MudStack Row>
+                                <MudListItem Value="filter"> @filter.FilterName </MudListItem>
+                                <MudToggleIconButton Icon="@Icons.Material.Filled.ExpandMore" ToggledIcon="@Icons.Material.Filled.ExpandLess" Size="Size.Small"
+                                Toggled="@(expandedFilters.ContainsKey(filter) && expandedFilters[filter])" ToggledChanged=@(()=> ToggleFilter(filter)) />
+                            </MudStack>
+                            @if (expandedFilters.ContainsKey(filter) && expandedFilters[filter])
+                            {
+                                <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                                    <MudText Typo="Typo.caption" Align="Align.Center">@GetFilterQuery(filter).query</MudText>
+                                </MudStack>
+                            }
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+            <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Class="m-3">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RunFilters">Run Filter</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="ClearFilters">Clear Filter</MudButton>
+            </MudStack>
+        </MudContainer>
+    </MudTabPanel>
+</MudTabs>
+
+
+@code 
+{
+    [Inject] private IDialogService DialogService { get; set; }
+
+    private List<Survey> surveys = new List<Survey>();
+    private List<string> tableNames = new List<string>{};
+    private List<string> properties = new List<string>();
+    IEnumerable<Survey> selectedSurveys = new HashSet<Survey>();
+    private double valueData = 0.0;
+    private string selectedProperty { get; set; }
+    private string enteredFilterName = string.Empty;
+    private List<string> filterQueries = new List<string>();
+    private List<QCFilter> filters = new List<QCFilter>();
+    private IReadOnlyCollection<QCFilter> selectedFilters = new List<QCFilter>();
+    private Dictionary<QCFilter, bool> expandedFilters = new();
+    private QCFilter selectedFilter;
+
+    private MudSelect<string> Tables;
+    private MudSelect<string> Properties;
+    private MudSelect<string> Functions;
+    private MudSelect<string> Severity;
+
+    private List<FilterJsonData> filterJsonData = new List<FilterJsonData>();
+    private bool tableDisabled = false;
+
+    protected override async void OnInitialized()
+    {
+        tableNames = TableNameHelper.GetAllLCMSTables();
+    }
+
+    private void ChangeToRunFilter()
+    {
+        ClearAll();
+        surveys.Clear();
+        surveys = appState.ExistingSurveys.ToList();
+        GetQCFilters();
+    }
+
+    private void ChangeToEditFilter()
+    {
+        ClearAll();
+        GetQCFilters();
+    }
+
+    private async void GetQCFilters()
+    {
+        filters = await appEngine.QCFilterService.GetAll(new Empty());
+        StateHasChanged();
+    }
+
+    private void OnTableChanged(string selectedTable)
+    {
+        if (selectedTable != null)
+        {
+            selectedProperty = string.Empty;
+
+            //fetch numeric properties
+            properties = viewModel.GetNumericProperties(selectedTable).ToList();
+
+            switch (selectedTable)
+            {
+                case LayerNames.Bleeding:
+                case LayerNames.Cracking:
+                case LayerNames.Potholes:
+                case LayerNames.Patch:
+                case LayerNames.Ravelling:
+                case LayerNames.SegmentGrid:
+                case LayerNames.CrackSummary:
+                    properties.Add("Severity");
+                    break;
+            }
+            StateHasChanged();
+        }
+    }
+    private void Close()
+    {
+        appState.ClosePopupInMap();
+    }
+
+    public void AddOperator(string logicalOperator)
+    {
+        if (filterQueries.Count > 0)
+        {
+            var lastFilterQuery = filterQueries[filterQueries.Count - 1];
+            if (lastFilterQuery != "OR" && lastFilterQuery != "AND")
+            {
+                filterQueries.Add(logicalOperator);
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    public void AddFilter()
+    {
+        if (string.IsNullOrEmpty(Tables.Value) || string.IsNullOrEmpty(Properties.Value) || string.IsNullOrEmpty(Functions.Value) || string.IsNullOrEmpty(valueData.ToString()))
+        {
+            DialogService.ShowMessageBox("Alert", "All fields are mandatory to add a filter", "OK");
+            return;
+        }
+
+        if (Properties.Value == "Severity" && string.IsNullOrEmpty(Severity.Value))
+        {
+            DialogService.ShowMessageBox("Alert", "All fields are mandatory to add a filter", "OK");
+            return;
+        }
+
+        FilterJsonData filter = new FilterJsonData();
+        string value = Properties.Value != "Severity" ? valueData.ToString() : Severity.Value;
+        string dbTable = TableNameHelper.GetDBTableName(Tables.Value);
+        string reqData = "GET " + Properties.Value + " FROM " + dbTable + " WHERE " + Properties.Value + " " + Functions.Value + " " + value;
+
+        if (filterQueries.Count == 0)
+        {
+            filterQueries.Add(reqData);
+            filter = new FilterJsonData
+            {
+                filterDataValue = value,
+                selectedFunction = Functions.Value,
+                selectedProerty = Properties.Value,
+                selectedTable = Tables.Value
+            };
+            tableDisabled = true;
+        }
+        else
+        {
+            var lastFilterQuery = filterQueries[filterQueries.Count - 1];
+            if(lastFilterQuery == "OR" || lastFilterQuery == "AND")
+            {
+                filterQueries.Add(reqData);
+                filter = new FilterJsonData
+                {
+                    connector = lastFilterQuery,
+                    filterDataValue = value,
+                    selectedFunction = Functions.Value,
+                    selectedProerty = Properties.Value,
+                    selectedTable = Tables.Value
+                };
+            }
+            else
+            {
+                DialogService.ShowMessageBox("Alert", "Please choose a logical operator (OR/AND)", "OK");
+                return;
+            }
+        }
+        filterJsonData.Add(filter);
+
+        StateHasChanged();
+    }
+
+    public void RemoveFilter()
+    {
+        if (filterQueries.Count > 0)
+        {
+            var lastFilterQuery = filterQueries[filterQueries.Count-1];
+            filterQueries.RemoveAt(filterQueries.Count -1);
+
+            if(lastFilterQuery != "OR" && lastFilterQuery != "AND")
+            {
+                filterJsonData.RemoveAt(filterJsonData.Count - 1);//remove last record
+            }
+
+            if(filterQueries.Count == 0)
+            {
+                tableDisabled = false;
+            }
+        }
+        StateHasChanged();
+    }
+
+    public void ClearAll()
+    {
+        filterQueries.Clear();
+        filterJsonData.Clear();
+        selectedProperty = null;
+        selectedSurveys = new HashSet<Survey>();
+        Tables.Clear();
+        Properties.Clear();
+        Functions.Clear();
+        valueData = 0;
+        enteredFilterName = null;
+        tableDisabled = false;
+        selectedFilter = null;
+        selectedFilters = null;
+    } 
+
+    public async void SaveFilter()
+    {
+        if (string.IsNullOrEmpty(enteredFilterName))
+        {
+            await DialogService.ShowMessageBox("Alert", "Please enter Filter Name", "OK");
+            return;
+        }
+
+        if(filterQueries.Count > 0)
+        {
+            QCFilter qCFilter = new QCFilter();
+            qCFilter.FilterName = enteredFilterName;
+            qCFilter.FilterJson = Newtonsoft.Json.JsonConvert.SerializeObject(filterJsonData);
+
+            IdReply idReply = await appEngine.QCFilterService.Create(qCFilter);
+            if (idReply != null)
+            {
+                await DialogService.ShowMessageBox("Alert",
+                idReply.Message,
+                "OK");
+            }
+
+            ClearAll();
+            GetQCFilters();
+            StateHasChanged();
+        }
+        else
+        {
+            await DialogService.ShowMessageBox("Alert", "No filter found.", "OK");
+        }
+    }
+
+    private void OnFilterChanged(QCFilter filter)
+    {
+        selectedFilter = filter;
+        enteredFilterName = filter.FilterName;
+        // Clear the existing filter queries and filter JSON data
+        filterQueries.Clear();
+        filterJsonData.Clear();
+
+        if (!string.IsNullOrEmpty(filter.FilterJson))
+        {
+            var filterQuery = string.Empty;
+            var filterJsonDataList = Newtonsoft.Json.JsonConvert.DeserializeObject<List<FilterJsonData>>(filter.FilterJson);
+
+            if (filterJsonDataList != null && filterJsonDataList.Count > 0)
+            {
+                string table = null;
+                foreach (FilterJsonData item in filterJsonDataList)
+                {
+                    var dbTable = TableNameHelper.GetDBTableName(item.selectedTable);
+                    // Generate the query string for the filter
+                    string reqData = $"GET {item.selectedProerty} FROM {dbTable} WHERE {item.selectedProerty} {item.selectedFunction} {item.filterDataValue}";
+
+                    // Add the logical connector if present
+                    if (!string.IsNullOrEmpty(item.connector))
+                    {
+                        filterQueries.Add(item.connector);
+                    }
+
+                    // Add the query to the list
+                    filterQueries.Add(reqData);
+
+                    // Add to filterJsonData
+                    filterJsonData.Add(new FilterJsonData
+                        {
+                            selectedTable = item.selectedTable,
+                            selectedProerty = item.selectedProerty,
+                            selectedFunction = item.selectedFunction,
+                            filterDataValue = item.filterDataValue,
+                            connector = item.connector
+                        });
+                    table = item.selectedTable;
+                }
+
+                Tables.Value = table;
+                OnTableChanged(table);
+                tableDisabled = true;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+
+    private void ToggleFilter(QCFilter filter)
+    {
+        if (expandedFilters.ContainsKey(filter))
+        {
+            // Toggle the current state
+            expandedFilters[filter] = !expandedFilters[filter];
+        }
+        else
+        {
+            // Add to dictionary and expand
+            expandedFilters[filter] = true;
+        }
+
+        StateHasChanged();
+    }
+
+    public (string query, string tableName) GetFilterQuery(QCFilter filter)
+    {
+        List<FilterJsonData> jsonDatas = JsonSerializer.Deserialize<List<FilterJsonData>>(filter.FilterJson);
+        string query = "SELECT * FROM ", dbTableName = string.Empty, partQuery = string.Empty, connector = string.Empty;
+        string layerName = jsonDatas.FirstOrDefault().selectedTable;
+        foreach (FilterJsonData fjd in jsonDatas)
+        {
+            dbTableName = TableNameHelper.GetDBTableName(fjd.selectedTable);
+            connector = fjd.connector;
+            if (fjd.selectedProerty != "Severity")
+                partQuery += $"{connector} {fjd.selectedProerty} {fjd.selectedFunction} {fjd.filterDataValue} ";
+            else
+                partQuery += $"{connector} {fjd.selectedProerty} {fjd.selectedFunction} '{fjd.filterDataValue}' ";
+        }
+
+        query += dbTableName;
+
+        if(!string.IsNullOrEmpty(partQuery.Trim()))
+        {
+            query += " WHERE " + partQuery.Trim();
+        }
+
+        return (query, layerName);
+    }
+
+    private async void RunFilters()
+    {
+        //Remove highlighted graphics from the past filters
+        if (appState.graphicsToRemove.Count > 0)
+        {
+            appState.RevertGraphicsToRemove();
+        }
+
+
+        if(selectedSurveys.Count() == 0)
+        {
+            await DialogService.ShowMessageBox("Alert", "Please select at least one survey.", "OK");
+        }
+        else if(selectedFilters == null || selectedFilters.Count == 0 )
+        {
+            await DialogService.ShowMessageBox("Alert", "Please select a filter", "OK");
+        }
+        else
+        {
+            var existingDefects = new List<string>();
+            foreach (var survey in selectedSurveys)
+            {
+                SurveyIdRequest surveyIdRequest = new SurveyIdRequest
+                {
+                    SurveyId = survey.Id,
+                    SurveyExternalId = survey.SurveyIdExternal
+                };
+
+                var surveyDefects = await appEngine.SurveyService.FetchLCMSTablesBySurvey(surveyIdRequest);
+                foreach (var surveyDefect in surveyDefects)
+                {
+                    if (!existingDefects.Contains(surveyDefect))
+                    {
+                        existingDefects.Add(surveyDefect);
+                    }
+                }
+            }
+
+            if (existingDefects != null && existingDefects.Count > 0)
+            {
+                foreach (var filter in selectedFilters)
+                {
+                    var (query, layerName) = GetFilterQuery(filter);
+
+                    string surveyIdList = string.Join(", ", selectedSurveys.Select(Survey => $"'{Survey.SurveyIdExternal}'"));
+                    query += $" AND SurveyId IN ({surveyIdList})";
+
+                    if(existingDefects.Contains(layerName))
+                    {
+                        //execute query and get the id
+                        var response = await appEngine.SegmentService.ExecuteQueryAndReturnIds(query);
+                        if (response != null && response.Count > 0)
+                        {
+                            //highlight the graphics with the certain id
+                            appState.ApplyQCFilters(layerName, response);
+                        }
+                        else
+                        {
+                            await DialogService.ShowMessageBox("Alert", $"No matching graphic were found after applying the QC filter.", "OK");
+                        }
+                    }
+                    else
+                    {
+                        await DialogService.ShowMessageBox("Alert", $"{layerName} table does not exist in the selected survey.", "OK");
+                    }
+                }
+            }
+        }
+    }
+
+    private void ClearFilters()
+    {
+        if(appState.graphicsToRemove.Count > 0)
+        {
+            appState.RevertGraphicsToRemove();
+        }
+
+        selectedFilters = null;
+    }
+
+    private async void EditFilter()
+    {
+        if (selectedFilter == null)
+        {
+            await DialogService.ShowMessageBox("Alert", "No filter data is found to update", "OK");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(enteredFilterName))
+        {
+            await DialogService.ShowMessageBox("Alert", "Please enter Filter Name", "OK");
+            return;
+        }
+
+        if (filterJsonData.Count == 0)
+        {
+            await DialogService.ShowMessageBox("Alert", "No filter data is found to save", "OK");
+            return;
+        }
+
+        selectedFilter.FilterName = enteredFilterName;
+        selectedFilter.FilterJson = Newtonsoft.Json.JsonConvert.SerializeObject(filterJsonData);
+
+        QCFilter qCFilterUpdated = await appEngine.QCFilterService.EditValue(selectedFilter);
+        if (qCFilterUpdated != null)
+        {
+            await DialogService.ShowMessageBox("Alert",
+            "Filter is updated successfully.",
+            "OK");
+        }
+
+        //Get updated qc filters
+        GetQCFilters();
+        StateHasChanged();
+    }
+
+    private async void DeleteFilter()
+    {
+        if (selectedFilter == null)
+        {
+            await DialogService.ShowMessageBox("Alert", "No filter data is found to delete", "OK");
+            return;
+        }
+
+        bool result = await App.Current.MainPage.DisplayAlert(
+                               "DataView",
+                               "Are you sure, you want to delete the selected record?",
+                               "Yes",
+                               "Cancel");
+
+        if (result)
+        {
+            //delete record
+            IdReply idReply = await appEngine.QCFilterService.DeleteObject((QCFilter)selectedFilter);
+            if (idReply != null)
+            {
+
+                await App.Current.MainPage.DisplayAlert(
+                               "DataView",
+                               idReply.Message,
+                               "OK");
+            }
+
+            GetQCFilters();
+            ClearAll();
+            StateHasChanged();
+        }
+    }
+}

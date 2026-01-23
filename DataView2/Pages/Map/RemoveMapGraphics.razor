@@ -1,0 +1,852 @@
+﻿@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using Esri.ArcGISRuntime.Geometry
+@using Google.Protobuf.WellKnownTypes
+@using Newtonsoft.Json
+@using Newtonsoft.Json.Linq
+@using static DataView2.Core.Helper.TableNameHelper
+
+@inject ApplicationEngine appEngine
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:5px;" OnClick="Close"></MudIconButton>
+</div>
+<MudTabs Centered="true" MinimumTabWidth="50" ActivePanelIndexChanged="Refresh">
+    <MudTabPanel Text="Remove Double ups" Disabled="isBoundaryProcessing">
+        <MudContainer Class="px-7">
+            <MudCheckBox T="bool" Size="Size.Small" Label="Multi-Survey Overlap" Value="IsMultiSurveys" ValueChanged="MultiSurveyValueChanged"></MudCheckBox>
+
+            @if (IsMultiSurveys)
+            {
+                <MudTooltip Text="All the defects of this primary survey remain unchanged.">
+                    <MudAutocomplete T="Survey" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Please select a primary survey" MaxHeight=120
+                    ToStringFunc="survey => survey?.SurveyName ?? string.Empty" Clearable="true" SearchFunc="FilterPrimarySurveys" ResetValueOnEmptyText="true"
+                    Value="doubleUpSurvey" ValueChanged="(args) => OnDoubleUpSurveySelected(args)" Disabled="isPreviewing" style="width:375px;" />
+
+                </MudTooltip>
+
+                <MudTooltip Text="Any defects within the overlapping area of this survey will be removed." >
+                    <MudAutocomplete T="Survey" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Please select an overlapping survey" MaxHeight=120
+                    ToStringFunc="survey => survey?.SurveyName ?? string.Empty" Clearable="true" SearchFunc="FilterOverlappingSurveys" ResetValueOnEmptyText="true"
+                    Value="doubleUpSecondSurvey" ValueChanged="(args) => OnDoubleUpTwoSurveysSelected(args)" Disabled="isPreviewing" style="width:375px;"/>
+                </MudTooltip>
+            }
+            else
+            {
+                <MudAutocomplete T="Survey" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=120
+                ToStringFunc="survey => survey?.SurveyName ?? string.Empty" Clearable="true" SearchFunc="FilterSurveys" ResetValueOnEmptyText="true"
+                Value="doubleUpSurvey" ValueChanged="(args) => OnDoubleUpSurveySelected(args)" Disabled="isPreviewing" style="width:375px;" /> 
+            }
+
+            <MudSelect Margin="Margin.Dense" Dense="true" MultiSelection="true" SelectAll="@(tableNames.Count > 0)" Variant="Variant.Outlined" Label="Please select defect layers"
+            MaxHeight=200 LockScroll="false" @bind-SelectedValues="selectedTables" Disabled="isPreviewing" style="width:375px;">
+                @if (tableNames.Count > 0)
+                {
+                    @foreach (var tableName in tableNames)
+                    {
+                        <MudSelectItem T="string" Value="@tableName">@tableName</MudSelectItem>
+                    }
+                }
+                else
+                {
+                    <MudSelectItem T="string" Disabled>No defect layers found</MudSelectItem>
+                }
+            </MudSelect>
+            <div class="d-flex justify-content-center align-items-center mt-2">
+                @if (isPreviewing)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="Revert">Revert</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="HighlightDoubleUps">Load & Highlight Double Ups</MudButton>
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="RemoveSelected">Remove</MudButton>
+            </div>
+        </MudContainer>
+
+        @if (isPreviewLoading)
+        {
+            <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+                <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                    <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+                    <MudText Typo="Typo.caption" Align="Align.Center" Style="background-color:white">Highlighting double ups on the map...</MudText>
+                </MudStack>
+            </MudOverlay>
+        }
+    </MudTabPanel>
+    <MudTabPanel Text="Apply Boundary" Disabled="isDoubleUpProcessing">
+        <MudContainer Class="px-7 mt-5">
+            <MudSelect T="Survey" Margin="Margin.Dense" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=120
+            LockScroll="false" Value="@boundarySurvey" ValueChanged="(args) => OnBoundarySurveySelected(args)" Class="my-2">
+                @if (surveys.Count > 0)
+                {
+                    @foreach (var survey in surveys)
+                    {
+                        <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+                    }
+                }
+                else
+                {
+                    <MudSelectItem T="Survey" Disabled>No surveys found</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect Margin="Margin.Dense" Dense="true" MultiSelection="true" SelectAll="@(tableNames.Count > 0)" Variant="Variant.Outlined" Label="Please select defect layers"
+            MaxHeight=200 LockScroll="false" @bind-SelectedValues="selectedTables" Disabled="isPreviewing" Class="my-2">
+                @if (tableNames.Count > 0)
+                {
+                    @foreach (var tableName in tableNames)
+                    {
+                        <MudSelectItem T="string" Value="@tableName">@tableName</MudSelectItem>
+                    }
+                }
+                else
+                {
+                    <MudSelectItem T="string" Disabled>No defect layers found</MudSelectItem>
+                }
+            </MudSelect>
+
+            <div class="d-flex justify-content-between align-items-center mt-1">
+                <MudStack Row Spacing="1" AlignItems="AlignItems.Center">
+                    <MudTooltip Style="margin-left:30px; max-width:170px;" Text="Upload a boundary file to apply" Placement="Placement.Bottom" >
+                        <MudIconButton Icon="@Icons.Material.Filled.AttachFile" Variant="@(isAttachFileClicked ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="OpenFile" />
+                    </MudTooltip>
+                    <MudTooltip Style="margin-left:30px; max-width:170px;" Text="Reapply a boundary from the existing boundary layer" Placement="Placement.Bottom">
+                        <MudIconButton Icon="@Icons.Material.Filled.PlaylistAdd" Variant="@(isExistingBoundaryClicked ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="GetExistingBoundaries" />
+                    </MudTooltip>
+                    <MudTooltip Style="max-width:170px;" Text="Draw a boundary polygon on the map" Placement="Placement.Bottom">
+                        <MudIconButton Icon="@Icons.Material.Filled.Polyline" Variant="@(isPolylineClicked ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="DrawPolygon" Disabled="polygonDrawn" />
+                    </MudTooltip>
+                </MudStack>
+
+                @if (isAttachFileClicked)
+                {
+                    <MudText Inline="true" Typo="Typo.caption" Class="m-1 mx-2">@boundaryFileName</MudText>
+                    <MudTooltip Text="Refresh" Placement="Placement.Bottom" Class="text-end">
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Variant="Variant.Filled" Color="Color.Primary" OnClick="RefreshBoundary" />
+                    </MudTooltip>
+                }
+
+                @if (isExistingBoundaryClicked)
+                {
+                    @if (existingBoundaries.Any())
+                    {
+                        <MudSelect T="Boundary" Margin="Margin.Dense" Dense="true" Label="Select an existing boundary"
+                        LockScroll="false" Value="selectedBoundary" ValueChanged="ShowBoundaryOnMap" Class="m-1 mx-2" Style="max-width:250px;">
+                            @foreach (var boundary in existingBoundaries)
+                            {
+                                <MudSelectItem T="Boundary" Value="@boundary">@boundary.BoundaryName</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    else
+                    {
+                        <MudSelect T="string" Disabled Label="No Boundary Found" Class="m-1 mx-2"></MudSelect>
+                    }
+                }
+
+                @if (isPolylineClicked)
+                {
+                    <MudText Inline="true" Typo="Typo.caption" Class="m-1 mx-2">@boundaryFileName</MudText>
+
+                    @if (polygonDrawn)
+                    {
+                        <MudTooltip Text="Refresh" Placement="Placement.Bottom">
+                            <MudIconButton Icon="@Icons.Material.Filled.Refresh" Variant="Variant.Filled" Color="Color.Primary" OnClick="RefreshBoundary" />
+                        </MudTooltip>
+                    }
+                    else
+                    {
+                        <MudTooltip Text="Undo" Placement="Placement.Bottom">
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Variant="Variant.Filled" Color="Color.Primary" OnClick="UndoPolygon" />
+                        </MudTooltip>
+                        <MudTooltip Text="Save" Placement="Placement.Bottom">
+                            <MudIconButton Icon="@Icons.Material.Filled.Save" Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePolygon" />
+                        </MudTooltip>
+                    }
+                }
+            </div>
+
+            <div class="d-flex justify-content-center align-items-center mt-3">
+                @if (isPreviewing)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="Revert">Revert</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="PreviewBoundary">Load & Highlight Outside</MudButton>
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Class="m-2" OnClick="ApplyBoundary">Apply</MudButton>
+            </div>
+        </MudContainer>
+        @if (isPreviewLoading)
+        {
+            <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+                <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                    <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+                    <MudText Typo="Typo.caption" Align="Align.Center">Highlighting defects outside of the boundary...</MudText>
+                </MudStack>
+            </MudOverlay>
+        }
+    </MudTabPanel>
+
+    @if (isRemoveLoading)
+    {
+        <MudOverlay Visible="true" LightBackground="true" LockScroll="true" Class="mt-6">
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+                <MudText Typo="Typo.caption" Align="Align.Center" Style="background-color:white">Defect Removal in Progress... This may take a few minutes.</MudText>
+            </MudStack>
+        </MudOverlay>
+    }
+</MudTabs>
+
+@code {
+    [Inject] private IDialogService DialogService { get; set; }
+    private List<Survey> surveys = new List<Survey>();
+    private List<Survey> overlappingSurveys = new List<Survey>();
+    private List<string> tableNames = new List<string>();
+    private IEnumerable<string> selectedTables = new List<string>();
+    private Survey doubleUpSurvey;
+    private Survey doubleUpSecondSurvey;
+    private Survey boundarySurvey;
+    private bool IsMultiSurveys = false;
+    private bool isPreviewing = false;
+    private bool isPreviewLoading = false;
+    private bool isRemoveLoading = false;
+    private bool isBoundaryProcessing = false;
+    private bool isDoubleUpProcessing = false;
+    private bool _busy = false;
+    private bool isAttachFileClicked = false;
+    private bool isPolylineClicked = false;
+    private bool isExistingBoundaryClicked = false;
+    private bool polygonDrawn = false;
+    string boundaryFileName;
+    List<MapPoint> boundaryCoordinates = new ();
+    List<Boundary> existingBoundaries = new List<Boundary>();
+    Boundary selectedBoundary;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        appState.OnDefectsHighlighted += async ( message ) =>
+        {
+            await InvokeAsync(() =>
+            {
+                isPreviewLoading = false;
+                //warning message
+                if (!String.IsNullOrEmpty(message))
+                {
+                    Snackbar.Add(message, Severity.Error);
+                    isPreviewing = false;
+                    isDoubleUpProcessing = false;
+                    isRemoveLoading = false;
+                }
+                StateHasChanged();
+            });
+        };
+        appState.OnProcessingCompletedFromMap += async () =>
+        {
+            await InvokeAsync(() =>
+            {
+                Snackbar.Add("Graphics have been successfully removed from the database.", Severity.Info);
+                Refresh();
+            });
+        };
+        appState.OnGeometryEditorStopped += async () =>
+        {
+            await InvokeAsync(() =>
+            {
+                polygonDrawn = true;
+                StateHasChanged();
+            });
+        };
+        appState.GraphicsInMapCleared += RefreshPage;
+    }
+
+    private void RefreshPage()
+    {
+        //GetSurveys();
+        RefreshBoundary();
+        Refresh();
+    }
+
+    private async void GetSurveys()
+    {
+        surveys.Clear();
+        surveys = await appEngine.SurveyService.GetAll(new Empty());
+        StateHasChanged();
+    }
+
+    private async void GetRemainingSurveys()
+    {
+        overlappingSurveys.Clear();
+        if(surveys.Contains(doubleUpSurvey))
+        {
+            var withoutDoubleUpSurvey = surveys.Where(s => s != doubleUpSurvey).ToList();
+            overlappingSurveys.AddRange(withoutDoubleUpSurvey);
+        }
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        appState.ClosePopupInMap();
+    }
+
+    private void OnDoubleUpSurveySelected(Survey survey)
+    {
+        if (survey != null)
+        {
+            doubleUpSurvey = survey;
+
+            if (!IsMultiSurveys)
+            {
+                var request = new SurveyIdRequest
+                    {
+                        SurveyId = survey.Id,
+                        SurveyExternalId = survey.SurveyIdExternal
+                    };
+
+                FetchTables(request);
+            }
+            else
+                GetRemainingSurveys();
+        }
+    }
+
+    private void OnDoubleUpTwoSurveysSelected(Survey survey)
+    {
+        doubleUpSecondSurvey = survey;
+        FetchBothSurveyTables();
+    }
+
+    private async void OnBoundarySurveySelected(Survey survey)
+    {
+        boundarySurvey = survey;
+
+        var request = new SurveyIdRequest
+            {
+                SurveyId = survey.Id,
+                SurveyExternalId = survey.SurveyIdExternal
+            };
+
+        var tables = await appEngine.SurveyService.FetchLCMSTablesBySurvey(request);
+        tableNames = tables.Where(x => x != LayerNames.Segment).ToList();
+        StateHasChanged();
+    }
+
+    private async void FetchTables(SurveyIdRequest request)
+    {
+        tableNames = await appEngine.SurveyService.FetchLCMSTablesBySurvey(request);
+        RemoveNotNeededTables();
+        StateHasChanged();
+    }
+
+    private async void FetchBothSurveyTables()
+    {
+        if(doubleUpSurvey != null && doubleUpSecondSurvey != null)
+        {
+            var firstSurveyRequest = new SurveyIdRequest
+                {
+                    SurveyId = doubleUpSurvey.Id,
+                    SurveyExternalId = doubleUpSurvey.SurveyIdExternal
+                };
+
+            var secondSurveyRequest = new SurveyIdRequest
+                {
+                    SurveyId = doubleUpSecondSurvey.Id,
+                    SurveyExternalId = doubleUpSecondSurvey.SurveyIdExternal
+                };
+
+            var firstSurveyTableNames = await appEngine.SurveyService.FetchLCMSTablesBySurvey(firstSurveyRequest);
+            var secondSurveyTableNames = await appEngine.SurveyService.FetchLCMSTablesBySurvey(secondSurveyRequest);
+
+            if(firstSurveyTableNames.Any())
+            {
+                tableNames = firstSurveyTableNames;
+            }
+            else
+            {
+                Snackbar.Add("Primary Survey does not contain LCMS Tables.", Severity.Error);
+            }
+
+            if (secondSurveyTableNames.Any())
+            {
+                foreach(var secondTable in secondSurveyTableNames)
+                {
+                    if (!tableNames.Contains(secondTable))
+                    {
+                        tableNames.Add(secondTable);
+                    }
+                }
+            }
+            else
+            {
+                Snackbar.Add("Overlapping Survey does not contain LCMS Tables.", Severity.Error);
+            }
+
+            RemoveNotNeededTables();
+        }
+        StateHasChanged();
+    }
+
+    private void RemoveNotNeededTables()
+    {
+        //don't include segment sized defects
+        if (tableNames.Contains(LayerNames.Segment))
+        {
+            tableNames.Remove(LayerNames.Segment);
+        }
+        if (tableNames.Contains(LayerNames.PASER))
+        {
+            tableNames.Remove(LayerNames.PASER);
+        }
+        if (tableNames.Contains(LayerNames.PCI))
+        {
+            tableNames.Remove(LayerNames.PCI);
+        }
+        //don't include multi polygons
+        if (tableNames.Contains(LayerNames.MacroTexture))
+        {
+            tableNames.Remove(LayerNames.MacroTexture);
+        }
+        if (tableNames.Contains(LayerNames.Bleeding))
+        {
+            tableNames.Remove(LayerNames.Bleeding);
+        }
+    }
+
+    private void MultiSurveyValueChanged(bool state)
+    {
+        IsMultiSurveys = state;
+        doubleUpSurvey = null;
+        doubleUpSecondSurvey = null;
+        selectedTables = new List<string>();
+        overlappingSurveys.Clear();
+    }
+
+    private async Task HighlightDoubleUps()
+    {
+        if (IsMultiSurveys)
+        {
+            if (doubleUpSurvey == doubleUpSecondSurvey)
+            {
+                Snackbar.Add("Please select a different overlapping survey.", Severity.Error);
+            }
+            else if (doubleUpSurvey == null || doubleUpSecondSurvey == null || selectedTables.Count() == 0)
+            {
+                Snackbar.Add("Please select all fields.", Severity.Error);
+            }
+            else
+            {
+                isPreviewLoading = true;
+                isPreviewing = true;
+                isDoubleUpProcessing = true;
+                StateHasChanged();
+
+                await Task.Yield();
+                appState.LoadLayersAndHighlight("Double Up", selectedTables, doubleUpSurvey.SurveyIdExternal, doubleUpSecondSurvey.SurveyIdExternal);
+            }
+        }
+        else
+        {
+            if (doubleUpSurvey != null && selectedTables.Count() > 0)
+            {
+                isPreviewLoading = true;
+                isPreviewing = true;
+                isDoubleUpProcessing = true;
+                StateHasChanged();
+
+                await Task.Yield();
+                appState.LoadLayersAndHighlight("Double Up", selectedTables, doubleUpSurvey.SurveyIdExternal);
+            }
+            else
+            {
+                Snackbar.Add("Please select a survey and defect layer(s).", Severity.Info);
+            }
+        }
+    }
+
+    private void Revert()
+    {
+        isPreviewing = false;
+        isDoubleUpProcessing = false;
+        if(appState.graphicsToRemove.Any())
+        {
+            appState.RevertGraphicsToRemove();
+        }
+    }
+    private async void RemoveSelected()
+    {
+        if (IsMultiSurveys)
+        {
+            if(doubleUpSurvey == null || doubleUpSecondSurvey == null || selectedTables.Count() == 0)
+            {
+                Snackbar.Add("Please select both surveys and at least one defect layer.", Severity.Info);
+                return;
+            }
+        }
+        else
+        {
+            if (doubleUpSurvey == null || selectedTables.Count() == 0)
+            {
+                Snackbar.Add("Please select a survey and at least one defect layer.", Severity.Info);
+                return;
+            }
+        }
+
+        //Delete only the highlithed one when it is loaded and highlighted!
+        if (appState.graphicsToRemove.Count > 0)
+        {
+            bool answer = await App.Current.MainPage.DisplayAlert("Confirmation", "Are you sure you want to remove the highlighted double ups?", "Yes", "No");
+            if (answer)
+            {
+                isRemoveLoading = true;
+                isDoubleUpProcessing = false;
+                StateHasChanged();
+
+                appState.RemoveHighlightedDefects();
+            }
+        }
+        //Delete double ups directly from the database when it is not loaded or highlighted
+        else
+        {
+            bool answer = await App.Current.MainPage.DisplayAlert("Confirmation", "Are you sure you want to remove the double ups directly from the database? ", "Yes", "No");
+            if (answer)
+            {
+                isRemoveLoading = true;
+                isDoubleUpProcessing = false;
+                StateHasChanged();
+
+                if (IsMultiSurveys)
+                {
+                    appState.DeleteDoubleUpRequested(selectedTables, doubleUpSurvey.SurveyIdExternal, doubleUpSecondSurvey.SurveyIdExternal);
+                }
+                else
+                {
+                    appState.DeleteDoubleUpRequested(selectedTables, doubleUpSurvey.SurveyIdExternal);
+                }
+            }
+        }
+    }
+    private void Refresh()
+    {
+        isBoundaryProcessing = false;
+        isDoubleUpProcessing = false;
+        isRemoveLoading = false;
+        isPreviewing = false;
+        doubleUpSurvey = null;
+        doubleUpSecondSurvey = null;
+        boundarySurvey = null;
+        isAttachFileClicked = false;
+        isPolylineClicked = false;
+        polygonDrawn = false;
+        boundaryCoordinates = null;
+        boundaryFileName = null;
+        selectedTables = null;
+        IsMultiSurveys = false;
+        selectedBoundary = null;
+        selectedTables = new List<string>();
+        tableNames.Clear();
+        GetSurveys();
+        StateHasChanged();
+    }
+
+    private async Task OpenFile()
+    {
+        try
+        {
+            if (_busy) return;
+            _busy = true;
+
+            var result = await FilePicker.PickAsync(new PickOptions
+                {
+                    PickerTitle = "Pick a boundary file"
+                });
+
+            //only accepting .tpkx file for now
+            if (result != null)
+            {
+                if (result.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    var fileContent = await File.ReadAllTextAsync(result.FullPath);
+                    if (IsGeoJsonFormat(fileContent, out List<MapPoint> coordinates))
+                    {
+                        var boundaryFilePath = result.FullPath;
+                        boundaryFileName = Path.GetFileName(boundaryFilePath);
+                        boundaryCoordinates = coordinates;
+                        isAttachFileClicked = true;
+                        isPolylineClicked = false;
+                        isExistingBoundaryClicked = false;
+                        isBoundaryProcessing = true;
+                        appState.DrawBoundaryOnMap(boundaryCoordinates);
+                    }
+                    else
+                    {
+                        Snackbar.Add("The selected file is not in GeoJSON format.", Severity.Error);
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("only .json files are accepted", Severity.Error);
+
+                }
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Handle exceptions
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async void GetExistingBoundaries()
+    {
+        if(isExistingBoundaryClicked)
+        {
+            RefreshBoundary();
+        }
+        else
+        {
+            isAttachFileClicked = false;
+            isPolylineClicked = false;
+            isExistingBoundaryClicked = true;
+            var boundaries = await appEngine.BoundariesService.GetAll(new Empty());
+            if (boundaries != null && boundaries.Count > 0)
+            {
+                existingBoundaries = boundaries;
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async void ShowBoundaryOnMap(Boundary boundary)
+    {
+        selectedBoundary = boundary;
+        if(boundary != null)
+        {
+            var boundaryCoordinates = System.Text.Json.JsonSerializer.Deserialize<List<double[]>>(boundary.Coordinates);
+            var boundaryMapPoints = boundaryCoordinates
+                .Select(coord => new MapPoint(coord[0], coord[1]))
+                .ToList();
+            appState.DrawBoundaryOnMap(boundaryMapPoints);
+        }
+    }
+
+    private bool IsGeoJsonFormat(string jsonContent, out List<MapPoint> coordinates)
+    {
+        coordinates = null;
+
+        try
+        {
+            var geoJson = JObject.Parse(jsonContent);
+            var type = geoJson["type"]?.ToString();
+            var geometry = geoJson["geometry"];
+            var properties = geoJson["properties"];
+            var coordinatesToken = geometry?["coordinates"];
+
+            // Check if the main structure and required fields are present
+            if (type == "Feature" && geometry != null && properties != null && coordinatesToken != null)
+            {
+                var geometryType = geometry["type"]?.ToString();
+                var coordinatesArray = coordinatesToken as JArray;
+
+                // Ensure the geometry type is Polygon and coordinates is an array
+                if (geometryType == "Polygon" && coordinatesArray != null && coordinatesArray.Type == JTokenType.Array)
+                {
+                    coordinates = new List<MapPoint>();
+                    foreach (var coord in coordinatesArray)
+                    {
+                        if (coord is JArray coordArray && coordArray.Count == 2)
+                        {
+                            var x = coordArray[0].Value<double>();
+                            var y = coordArray[1].Value<double>();
+                            coordinates.Add(new MapPoint(x, y, SpatialReferences.Wgs84));
+                        }
+                        else
+                        {
+                            return false; // Invalid coordinate format
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Handle JSON parsing exceptions
+            return false;
+        }
+
+        return false;
+    }
+
+    private async void PreviewBoundary()
+    {
+        if(boundarySurvey == null || selectedTables.Count() == 0)
+        {
+            Snackbar.Add("Please select all fields.", Severity.Error);
+            return;
+        }
+
+        if(!polygonDrawn)
+        {
+            Snackbar.Add("Please draw a boundary", Severity.Error);
+            return;
+        }
+
+        isPreviewing = true;
+        isPreviewLoading = true;
+        StateHasChanged();
+
+        await Task.Yield();
+        appState.LoadLayersAndHighlight("Boundary", selectedTables, boundarySurvey.SurveyIdExternal);
+    }
+
+    private async void ApplyBoundary()
+    {
+        if (boundarySurvey != null && selectedTables.Count() > 0)
+        {
+            //Delete only the highlithed one when it is loaded and highlighted!
+            if (appState.graphicsToRemove.Count > 0)
+            {
+                bool answer = await App.Current.MainPage.DisplayAlert("Confirmation", "Are you sure you want to remove the highlighted defects outside of the boundary?", "Yes", "No");
+                if (answer)
+                {
+                    isRemoveLoading = true;
+                    isDoubleUpProcessing = false;
+                    StateHasChanged();
+
+                    appState.RemoveHighlightedDefects(boundarySurvey.SurveyIdExternal, boundarySurvey.SurveyName);
+                }
+            }
+            //Delete defects directly from the database when it is not loaded or highlighted
+            else
+            {
+                bool answer = await App.Current.MainPage.DisplayAlert("Confirmation", "Are you sure you want to apply boundary and remove defects directly from the database? ", "Yes", "No");
+                if (answer)
+                {
+                    isRemoveLoading = true;
+                    isBoundaryProcessing = false;
+                    StateHasChanged();
+
+                    try
+                    {
+                        await Task.Run(() =>
+                        {
+                            try
+                            {
+                                appState.RemoveDefectsOutsideBoundary(boundarySurvey.SurveyIdExternal, boundarySurvey.SurveyName, selectedTables);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine("Error removing graphics: " + ex.Message);
+                                Refresh();
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Task failed: " + ex.Message);
+                    }
+                }
+            }
+        }
+        else
+        {
+            Snackbar.Add("Please select a survey or select layers", Severity.Error);
+        }
+    }
+
+    private void DrawPolygon()
+    {
+        if (!isPolylineClicked)
+        {
+            //Remove the boundary graphic from the map and enable geometry editor.
+            appState.RemoveTempBoundary();
+            appState.DrawBoundaryPolygon(this, new EventArgs());
+            isAttachFileClicked = false;
+            isExistingBoundaryClicked = false;
+            isPolylineClicked = true;
+            isBoundaryProcessing = true;
+            boundaryFileName = "Draw a boundary on map";
+        }
+        else
+        {
+            isPolylineClicked = false;
+            isBoundaryProcessing = false;
+            boundaryFileName = null;
+            appState.StopGeometryEditor();
+        }
+        StateHasChanged();
+    }
+
+    private void UndoPolygon()
+    {
+        appState.UndoBoundaryPolygon(this, new EventArgs());
+    }
+
+    private  void SavePolygon()
+    {
+        appState.SaveBoundaryPolygon();
+    }
+
+    private void RefreshBoundary()
+    {
+        appState.RemoveTempBoundary();
+        isBoundaryProcessing = false;
+        isAttachFileClicked = false;
+        isExistingBoundaryClicked = false;
+        isPolylineClicked = false;
+        boundaryFileName = null;
+        polygonDrawn = false;
+        selectedBoundary = null;
+        existingBoundaries = new List<Boundary>();
+    }
+
+    private Task<IEnumerable<Survey>> FilterSurveys(string text, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return Task.FromResult(surveys.Where(s => s?.SurveyName != null).AsEnumerable());
+
+        var filtered = surveys.Where(s =>
+            s?.SurveyName != null &&
+            s.SurveyName.Contains(text, StringComparison.OrdinalIgnoreCase));
+
+        return Task.FromResult(filtered);
+    }
+
+    private Task<IEnumerable<Survey>> FilterSurveys(string text, CancellationToken token, List<Survey> source)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return Task.FromResult(source.Where(s => s?.SurveyName != null).AsEnumerable());
+
+        var filtered = source.Where(s =>
+            s?.SurveyName != null &&
+            s.SurveyName.Contains(text, StringComparison.OrdinalIgnoreCase));
+
+        return Task.FromResult(filtered);
+    }
+
+    private Task<IEnumerable<Survey>> FilterPrimarySurveys(string text, CancellationToken token)
+    => FilterSurveys(text, token, surveys);
+
+    private Task<IEnumerable<Survey>> FilterOverlappingSurveys(string text, CancellationToken token)
+        => FilterSurveys(text, token, overlappingSurveys);
+
+}

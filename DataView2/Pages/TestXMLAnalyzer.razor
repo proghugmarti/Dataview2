@@ -1,0 +1,45 @@
+﻿@page "/TestXMLAnalyzer"
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.DTS;
+@using Google.Protobuf.WellKnownTypes;
+@inject IXMLObjectService xmlservice
+
+
+<h3>Test XMAL Analyzer</h3>
+
+<p>Cuatro "Gaos" Peludos </p>
+
+<MudButton OnClick="OpenFile">Open File</MudButton>
+
+
+@code {
+    // OpenFile function
+
+    public XMLObject mLObject = new XMLObject();
+
+    private async Task OpenFile()
+    {
+        try
+        {
+            var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Pick an XML file please"
+            });
+
+            if (result != null)
+            {
+                    var stream = await result.OpenReadAsync();
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                       string fileContent = await reader.ReadToEndAsync();
+//                      var prueba = new xmlservice.ProcessXMLFile(fileContent); // Create a new instance
+                    }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Handle exceptions
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+}

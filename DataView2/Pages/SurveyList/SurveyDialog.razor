@@ -1,0 +1,607 @@
+﻿@using CommunityToolkit.Maui.Storage;
+@using CsvHelper
+@using DataView2.Core.Helper
+@using DataView2.Core.Models.Other
+@using DataView2.ViewModels;
+@using Esri.ArcGISRuntime.Geometry
+@using Serilog
+@using System.Diagnostics
+@using NetTopologySuite.Geometries;
+@using NetTopologySuite.IO;
+@using System.Diagnostics;
+@using ProjNet.CoordinateSystems;
+@using ProjNet.CoordinateSystems.Transformations;
+@using System.Text.Json
+@using System.Globalization
+
+@inject SurveySetViewModel viewModel;
+
+<MudProviders />
+
+<div style="display: flex; justify-content: center; align-items: center; height: 100%;">
+    @if (page == "new")
+    {
+        <MudStack>
+            <MudText Typo="Typo.h6" Align="Align.Center">Create a new survey list (.csv)</MudText>
+            <div class="d-flex align-items-center mx-auto" style="width: 400px;">
+                <MudTextField Label="Folder Path" @bind-Value="@surveyPath" Variant="Variant.Outlined" Style="height: 50px; margin-right: 0;" ReadOnly=true></MudTextField>
+                <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Variant="Variant.Filled" Color="Color.Primary"
+                Size="Size.Large" OnClick="@SetFolderPath" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" />
+            </div>
+            <div class="d-flex align-items-center mx-auto" style="width:400px">
+                <MudTextField Label="CSV File Name" @bind-Value="@surveyFileName" Variant="Variant.Outlined" />
+            </div>
+            <div class="d-flex align-items-center mx-auto">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="Cancel" Class="m-1">Cancel</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateSurveySetFolder" Class="m-1">Create</MudButton>
+            </div>
+        </MudStack>
+    }
+    else if (page == "open")
+    {
+        <MudStack Class="my-5">
+            <MudText Typo="Typo.h6" Align="Align.Center">Open an existing survey list (.csv)</MudText>
+            <div class="d-flex align-items-center mx-auto my-3" style="width: 400px;">
+                <MudTextField Label="File Path" @bind-Value="@surveyTemplatePath" Variant="Variant.Outlined" Style="height: 50px; margin-right: 0;" ReadOnly=true></MudTextField>
+                <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Variant="Variant.Filled" Color="Color.Primary"
+                Size="Size.Large" OnClick="@SetFilePath" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" />
+            </div>
+            <div class="d-flex align-items-center mx-auto">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="Cancel" Class="m-2">Cancel</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenSurveyTemplate" Class="m-2">Open</MudButton>
+            </div>
+        </MudStack>
+    }
+    else if (page == "import")
+    {
+        <MudStack Class="my-5">
+            <MudText Typo="Typo.h6" Align="Align.Center">Import surveys from shape file</MudText>
+            <div class="d-flex align-items-center mx-auto my-3" style="width: 400px;">
+                <MudTextField Label="Folder Path" @bind-Value="@surveyPath" Variant="Variant.Outlined" Style="height: 50px; margin-right: 0;" ReadOnly=true></MudTextField>
+                <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Variant="Variant.Filled" Color="Color.Primary"
+                Size="Size.Large" OnClick="@SetFolderPath" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" />
+            </div>
+            <div class="d-flex align-items-center mx-auto">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="Cancel" Class="m-2">Cancel</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ImportSurvey" Class="m-2">Import</MudButton>
+            </div>
+        </MudStack>
+    }
+    @*     else if (page == "set")
+    {
+        <MudStack Class="my-5">
+            <MudText Typo="Typo.h6" Align="Align.Center">Set Boundarie from an existing survey list</MudText>
+            <div class="d-flex align-items-center mx-auto my-3" style="width: 400px;">
+                <MudTextField Label="Folder Path" @bind-Value="@surveyPath" Variant="Variant.Outlined" Style="height: 50px; margin-right: 0;" ReadOnly=true></MudTextField>
+                <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Variant="Variant.Filled" Color="Color.Primary"
+                Size="Size.Large" OnClick="@SetFolderPath" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" />
+            </div>
+            <div class="d-flex align-items-center mx-auto">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Cancel" Class="m-2">Cancel</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenSurveyTemplate" Class="m-2">Open</MudButton>
+            </div>
+        </MudStack>
+    } *@
+    else if (page == "map")
+    {
+        <MudStack Class="my-5">
+            <MudText Typo="Typo.h6" Align="Align.Center">Set Offline Map Path</MudText>
+            <MudText Typo="Typo.body1" Align="Align.Center">Map Folder Path : @offlineMapDirectory</MudText>
+            <div class="d-flex align-items-center mx-auto" style="width:400px;">
+                <MudTextField @bind-Value="MapFilename" Label="Map File Name" T="string" Variant="Variant.Outlined" Margin="Margin.Dense"></MudTextField>
+            </div>
+            <div class="d-flex align-items-center mx-auto gap-1">
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SetOfflineMapFilepath">Set</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CancelOfflineMap">Cancel</MudButton>
+            </div>
+        </MudStack>
+    }
+</div>
+
+@code {
+    private string surveyPath;
+    private string surveyFileName;
+    private string surveyTemplatePath;
+    private static string documentsPath = AppPaths.DocumentsFolder;
+    private string offlineMapDirectory = AppPaths.OfflineMapFolder; 
+    private string MapFilename;
+
+    [Parameter]
+    public string page { get; set; }
+
+    [Inject] private IDialogService Dialog { get; set; }
+    DialogOptions maxWidth = new DialogOptions() { MaxWidth = MaxWidth.Medium };
+    string genFileImage = "/images/download.gif";
+    string genFileText = "Importing Surveys...";
+    DialogParameters parameters;
+    IDialogReference dialog = null;
+    string prjPath = string.Empty, outputDir = string.Empty;
+    private static readonly object fileLock = new object();
+
+    private async void SetFilePath()
+    {
+        //file picker for csv
+        var customFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>> { { DevicePlatform.WinUI, new[] { ".csv" } } });
+        var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Please select a CSV file",
+                FileTypes = customFileType,
+            });
+        if (result != null && File.Exists(result.FullPath))
+        {
+            surveyTemplatePath = result.FullPath;
+        }
+        else
+        {
+            await App.Current.MainPage.DisplayAlert("Alert", "Please select a survey template file (.csv).", "OK");
+        }
+        StateHasChanged();
+    }
+
+    private async void SetFolderPath()
+    {
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        var folder = await FolderPicker.PickAsync(token);
+        if (folder.IsSuccessful)
+        {
+            surveyPath = folder.Folder.Path;
+        }
+        StateHasChanged();
+    }
+
+    private void CreateSurveySetFolder()
+    {
+        if (IsFormValid())
+        {
+            if (!Directory.Exists(surveyPath))
+            {
+                App.Current.MainPage.DisplayAlert("Alert", "Survey directory not found. Please verify the path and try again.", "OK");
+                return;
+            }
+
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            if (string.IsNullOrEmpty(surveyFileName) || string.IsNullOrWhiteSpace(surveyFileName) || surveyFileName.Any(c => invalidChars.Contains(c)))
+            {
+                App.Current.MainPage.DisplayAlert("Alert", "CSV File Name is invalid. Please avoid using special characters like \\ / : * ? \" < > |", "OK");
+                return;
+            };
+
+            var csvFilePath = Path.Combine(surveyPath, surveyFileName + ".csv");
+            if (Path.Exists(csvFilePath))
+            {
+                App.Current.MainPage.DisplayAlert("Alert", "A survey set file (.csv) with this name already exists. Please choose a different name or delete the existing file.", "OK");
+                return;
+            }
+            else
+            {
+                //create csv file
+                using var writer = new StreamWriter(csvFilePath);
+                using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
+                csv.WriteHeader<GeoJsonObjectCSV>();
+                csv.NextRecord();
+                viewModel.PassSurveySetPath(csvFilePath);
+            }
+        }
+        else
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "Please provide both folder path and name.", "OK");
+        }
+    }
+
+    private bool IsFormValid()
+    {
+        return !string.IsNullOrWhiteSpace(surveyPath) && !string.IsNullOrWhiteSpace(surveyFileName);
+    }
+
+    private async void OpenSurveyTemplate()
+    {
+        if (surveyTemplatePath != null)
+        {
+            viewModel.PassSurveySetPath(surveyTemplatePath);
+        }
+        else
+        {
+            await App.Current.MainPage.DisplayAlert("Alert", "Please select a survey template file (.csv).", "OK");
+        }
+    }
+
+    private void Cancel()
+    {
+        viewModel.PassSurveySetPath(null);
+        viewModel.appState.ShowHideSurveyTemplate(false);
+    }
+
+    private void CancelOfflineMap()
+    {
+        viewModel.SetOfflineMapPath(null);
+    }
+
+    private void SetOfflineMapFilepath()
+    {
+        if (string.IsNullOrEmpty(MapFilename))
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "Please enter offline map file name.", "OK");
+            return;
+        }
+        if (MapFilename.Any(ch => Path.GetInvalidFileNameChars().Contains(ch)))
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "A file name can't contain any of the following characters: \\ / : ? \" < > |", "OK");
+            return;
+        }
+
+        surveyPath = Path.Combine(offlineMapDirectory, $"{MapFilename}.tpkx");
+        if(File.Exists(surveyPath))
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "File name already exists please enter a different name.", "OK");
+            return;
+        }
+        if (surveyPath != null)
+        {
+            viewModel.SetOfflineMapPath(surveyPath);
+        }
+        else
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "Please select offline map path.", "OK");
+        }
+    }
+
+    private async void ImportSurvey()
+    {
+        if (string.IsNullOrEmpty(surveyPath))
+        {
+            App.Current.MainPage.DisplayAlert("Alert", "Please select folder path.", "OK");
+            return;
+        }
+
+        if (dialog == null)
+        {
+            parameters = new DialogParameters
+            {
+                { "DialogImage", genFileImage },
+                { "DialogText", genFileText }
+            };
+            dialog = Dialog.Show<Charging>("", parameters, maxWidth);
+        }
+
+        await Task.Run(async () =>
+        {
+            await ImportSurveyData(surveyPath);
+        });
+
+        if (dialog != null)
+        {
+            dialog.Close();
+            dialog = null;
+        }
+
+        viewModel.ManageImportData(surveyPath);
+
+        StateHasChanged();
+    }
+
+    private async Task ImportSurveyData(string surveyPath)
+    {
+        try
+        {
+            //select folder where .shp, .dbf and .prj files are placed
+            if (!string.IsNullOrEmpty(surveyPath))
+            {
+                var shpFiles = Directory.GetFiles(surveyPath, "*.shp");
+
+                if (shpFiles.Length > 0)
+                {
+                    foreach (var shapefilePath in shpFiles)
+                    {
+                        prjPath = Path.ChangeExtension(shapefilePath, ".prj");
+                        if (!File.Exists(prjPath))
+                        {
+                            Serilog.Log.Warning($"Project file doesn't exist at specified location.");
+                        }
+
+                        if (!File.Exists(Path.ChangeExtension(shapefilePath, ".dbf")))
+                        {
+                            Serilog.Log.Warning($"DBF file doesn't exist at specified location.");
+                        }
+
+                        outputDir = Path.Combine(surveyPath, "SurveyGeoFiles");
+                        if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
+
+                        var featureAttributes = new List<(NetTopologySuite.Geometries.Geometry geometry, Dictionary<string, object> attributes)>();
+
+                        var geometryFactory = new GeometryFactory();
+                        using (var reader = new ShapefileDataReader(shapefilePath, geometryFactory))
+                        {
+                            var header = reader.DbaseHeader;
+                            while (reader.Read())
+                            {
+                                var geometry = reader.Geometry;
+                                var attributes = new Dictionary<string, object>();
+
+                                for (int i = 0; i < header.NumFields; i++)
+                                {
+                                    string fieldName = header.Fields[i].Name;
+                                    object value = reader.IsDBNull(i + 1) ? null : reader.GetValue(i + 1);
+                                    attributes[fieldName] = value;
+                                }
+
+                                featureAttributes.Add((geometry, attributes));
+                            }
+                        }
+
+                        if (featureAttributes.Count > 0)
+                        {
+                            var stopwatch = Stopwatch.StartNew();
+                            await WriteDataToCSV(featureAttributes, Path.GetFileName(shapefilePath));
+                            //await CreateJsonFile(featureAttributes);
+                            stopwatch.Stop();
+
+                            Serilog.Log.Information($"Surveys are created successfully from {shapefilePath} in {stopwatch.Elapsed.TotalSeconds} seconds");
+                            MainThread.BeginInvokeOnMainThread(async () =>
+                            {
+                                await App.Current.MainPage.DisplayAlert("Success", $"Surveys are created successfully at {outputDir}", "OK");
+                            });
+                        }
+                        else
+                        {
+                            Log.Warning("No shape files are found to import.");
+                            await App.Current.MainPage.DisplayAlert("Error", "No shape files are found to import.", "OK");
+                            viewModel.appState.ShowHideSurveyTemplate(false);
+                        }
+                    }
+                }
+                else
+                {
+                    MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await App.Current.MainPage.DisplayAlert("Error", "No shape files are found to import.", "OK");
+                viewModel.appState.ShowHideSurveyTemplate(false);
+            });
+                }
+            }
+            else
+            {
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    await App.Current.MainPage.DisplayAlert("Success", "Invalid path is selected.", "OK");
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                await App.Current.MainPage.DisplayAlert("Error", "Surveys are failed to create from the selected shape file.", "OK");
+            });
+
+            Serilog.Log.Error($"Error ImportSurveyData : {ex.Message}");
+        }
+    }
+
+    private async Task WriteDataToCSV(List<(NetTopologySuite.Geometries.Geometry geometry, Dictionary<string, object> attributes)> featureAttributes, string fileName)
+    {
+        try
+        {
+            string filePath = Path.Combine(outputDir, Path.ChangeExtension(fileName, ".csv"));
+            using var writer = new StreamWriter(filePath);
+            using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
+            csv.WriteHeader<GeoJsonObjectCSV>();
+            csv.NextRecord();
+
+            List<GeoJsonObjectCSV> csvData = new List<GeoJsonObjectCSV>();
+            foreach (var featureAttribute in featureAttributes)
+            {
+                string directionParam = featureAttribute.attributes.FirstOrDefault(a => a.Key == "travel_dir").Value.ToString();
+                if (directionParam == "Both")
+                {
+                    csvData.Add(GetGeoJsonObj(featureAttribute, "Increasing"));
+                    csvData.Add(GetGeoJsonObj(featureAttribute, "Decreasing"));
+                }
+                else
+                {
+                    csvData.Add(GetGeoJsonObj(featureAttribute, directionParam));
+                }
+            }
+
+            if (csvData.Count > 0)
+            {
+                foreach (var csvObj in csvData)
+                {
+                    csv.WriteRecord(csvObj);
+                    csv.NextRecord();
+                }
+            }
+
+            csvData.Clear();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in WriteDataToCSV : {ex.Message}");
+            throw;
+        }
+    }
+
+    private GeoJsonObjectCSV GetGeoJsonObj((NetTopologySuite.Geometries.Geometry geometry, Dictionary<string, object> attributes) featureAttribute, string directionParam)
+    {
+        try
+        {
+            NetTopologySuite.Geometries.Geometry geometry = featureAttribute.geometry;
+            int lanes = Convert.ToInt32(featureAttribute.attributes.FirstOrDefault(a => a.Key == "lanes").Value);
+            double startChainage = Convert.ToDouble(featureAttribute.attributes.FirstOrDefault(a => a.Key == "carrway_st").Value);
+            string surveyId = featureAttribute.attributes.FirstOrDefault(a => a.Key == "road_id__d").Value.ToString();
+            surveyId = surveyId + $"_{DateTime.UtcNow.ToString("yyMMddHHmmfff")}" + (directionParam == "Increasing" ? "_Inc" : "_Dec");
+            string linestring = geometry.AsText(), typestring = linestring.Split('(')[0].Trim();
+            double[][] coordinatesArray = ParseLineStringToDoubleArray(linestring, typestring);
+
+            GeoJsonObjectCSV geoJsonObjectCSV = new GeoJsonObjectCSV
+                {
+                    surveyId = surveyId,
+                    surveyDescription = $"{surveyId} from shape file",
+                    surveyInstruction = string.Empty,
+                    startChainage = startChainage,
+                    direction = directionParam == "Increasing" ? 1 : 0,
+                    lane = lanes,
+                    gpsAutoStart = 0,
+                    gpsAutoStartType = 0,
+                    modules = JsonSerializer.Serialize(new List<string> { "LCMS", "GPS", "Camera" }),
+                    analyserCfgFile = string.Empty,
+                    acquisitionCfgFile = string.Empty,
+                    operatorName = string.Empty,
+                    vehicleId = string.Empty,
+                    vehicleOdoCalibration = 0.0,
+                    completedDate = string.Empty,
+                    userDefinedFields = JsonSerializer.Serialize(new string[0][]),
+                    type = (typestring == "LINESTRING" || typestring == "MULTILINESTRING" || typestring.Contains("LINESTRING") || typestring.Contains("MULTILINESTRING")) ? "Polyline" : string.Empty,//remaining for Polygon, MultiPoint
+                    coordinates = JsonSerializer.Serialize(coordinatesArray)
+                };
+
+            return geoJsonObjectCSV;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in GetGeoJson : {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task CreateJsonFile(List<(NetTopologySuite.Geometries.Geometry geometry, Dictionary<string, object> attributes)> featureAttributes)
+    {
+        Parallel.ForEach(featureAttributes, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, featureAttribute =>
+        {
+            try
+            {
+                string directionParam = featureAttribute.attributes.FirstOrDefault(a => a.Key == "travel_dir").Value.ToString();
+                if (directionParam == "Both")
+                {
+                    WriteDataToJsonFile(featureAttribute, "Increasing");
+                    WriteDataToJsonFile(featureAttribute, "Decreasing");
+                }
+                else
+                {
+                    WriteDataToJsonFile(featureAttribute, directionParam);
+                }
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error($"Error in CreateJsonFile : {ex.Message}");
+                throw;
+            }
+        });
+    }
+
+    private string GetGeoJson((NetTopologySuite.Geometries.Geometry geometry, Dictionary<string, object> attributes) featureAttribute, string directionParam)
+    {
+        try
+        {
+            NetTopologySuite.Geometries.Geometry geometry = featureAttribute.geometry;
+            int lanes = Convert.ToInt32(featureAttribute.attributes.FirstOrDefault(a => a.Key == "lanes").Value);
+            double startChainage = Convert.ToDouble(featureAttribute.attributes.FirstOrDefault(a => a.Key == "carrway_st").Value);
+            string surveyId = featureAttribute.attributes.FirstOrDefault(a => a.Key == "road_id__d").Value.ToString();
+            surveyId = surveyId + $"_{DateTime.UtcNow.ToString("yyMMddHHmmfff")}" + (directionParam == "Increasing" ? "_Inc" : "_Dec");//manage both
+
+            GeoJsonProperties properties = new GeoJsonProperties
+                {
+                    surveyId = surveyId,
+                    surveyDescription = $"{surveyId} from shape file",
+                    surveyInstruction = string.Empty,
+                    startChainage = startChainage,
+                    direction = directionParam == "Increasing" ? 1 : 0,
+                    lane = lanes,
+                    gpsAutoStart = 0,
+                    gpsAutoStartType = 0,
+                    modules = new List<string> { "LCMS", "GPS", "Camera" },
+                    analyserCfgFile = string.Empty,
+                    acquisitionCfgFile = string.Empty,
+                    operatorName = string.Empty,
+                    vehicleId = string.Empty,
+                    vehicleOdoCalibration = 0.0,
+                    completedDate = string.Empty,
+                    userDefinedFields = new string[0][]
+                };
+
+            string linestring = geometry.AsText(), typestring = linestring.Split('(')[0].Trim();
+            double[][] coordinatesArray = ParseLineStringToDoubleArray(linestring, typestring);
+            GeoJsonGeometry jsonGeometry = new GeoJsonGeometry();
+
+            //remaining for Polygon, MultiPoint
+            switch (typestring)
+            {
+                case "LINESTRING":
+                case "MULTILINESTRING":
+                    jsonGeometry = new GeoJsonGeometry
+                        {
+                            type = "Polyline",
+                            coordinates = coordinatesArray
+                        };
+                    break;
+            }
+
+            GeoJsonObject geoJsonObject = new GeoJsonObject
+                {
+                    type = "Feature",
+                    geometry = jsonGeometry,
+                    properties = properties
+                };
+
+            string geoJson = JsonSerializer.Serialize(geoJsonObject, new JsonSerializerOptions { WriteIndented = true });
+            return geoJson;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in GetGeoJson : {ex.Message}");
+            return string.Empty;
+        }
+    }
+
+    private void WriteDataToJsonFile((NetTopologySuite.Geometries.Geometry geometry, Dictionary<string, object> attributes) featureAttribute, string directionParam)
+    {
+        try
+        {
+            string surveyId = featureAttribute.attributes.FirstOrDefault(a => a.Key == "road_id__d").Value.ToString();
+            string geoJson = GetGeoJson(featureAttribute, directionParam);
+            string fileName = $"{surveyId}.json";
+            var invalidChars = Path.GetInvalidFileNameChars();
+            fileName = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+
+            string filePath = Path.Combine(outputDir, fileName);
+            lock (fileLock)
+            {
+                File.WriteAllText(filePath, geoJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in WriteDataToJsonFile : {ex.Message}");
+            throw;
+        }
+    }
+
+    private double[][] ParseLineStringToDoubleArray(string linestring, string type)
+    {
+        var list = new List<double[]>();
+        try
+        {
+            var cleaned = linestring.Replace($"{type}", string.Empty).Replace("(", "").Replace(")", "").Trim();
+            var parts = cleaned.Split(',');
+
+            foreach (var part in parts)
+            {
+                var nums = part.Trim().Split(' ');
+                double x = double.Parse(nums[0]);
+                double y = double.Parse(nums[1]);
+                double[] transformed = CoordinateHelper.TransformFromWkt(File.ReadAllText(prjPath), x, y);
+                list.Add(transformed);
+            }
+
+            return list.ToArray();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in ParseLineStringToDoubleArray : {ex.Message}");
+            Serilog.Log.Information($"LineString : {linestring}");
+            return list.ToArray();
+        }
+    }
+
+}

@@ -1,0 +1,1671 @@
+﻿@page "/ManualCrackClassification"
+@using System.Xml;
+@using CommunityToolkit.Maui.Storage;
+@using DataView2.Core.Models.CrackClassification;
+@using Microsoft.VisualBasic;
+@using System.Text;
+@using System.Text.RegularExpressions;
+
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
+
+
+<style>
+    table, th, td {
+        border: 1px solid;
+        border-color: aqua
+    }
+
+    td {
+    }
+
+    .tableImage {
+
+        background-repeat: no-repeat;
+        background-size: 100%;
+    }
+
+</style>
+
+<InputFile id="fileInput" OnChange="UploadFiles" hidden accept=".xml,.jpg" multiple maximumFileCount="200" />
+
+
+<MudContainer Class="mt-16 px-8" MaxWidth="MaxWidth.False">
+    <div id="another_unique_identifier" class="ma-0" style="height:900px;overflow-y: scroll;">
+        <MudGrid>
+            <MudItem md="12" xs="12">
+                <MudGrid>
+                    <MudItem xs="12" md="12">
+                        <MudCard Elevation=4>
+                            <MudCardContent>
+
+                                <MudNumericField @bind-Value="MinSizeToStraight" Label="Minimun Size Straight Cracks" Variant="Variant.Outlined" Step="1" />
+                                <MudNumericField @bind-Value="MinSizeToAvoidMerge" Label="Minimun Size to avoid Merging" Variant="Variant.Outlined" Step="1" />
+
+                                <MudNumericField @bind-Value="straightness" Label="Straightness" Variant="Variant.Outlined" Step=".1" />
+                                <MudNumericField @bind-Value="minDeep" Label="Minimun Deep (mm)" Variant="Variant.Outlined" Step=".1" />
+                                <MudCheckBox T="bool" @bind-Checked="@ignoreOutLanes" Color="Color.Primary">Ignore Cracks Out of Lanes</MudCheckBox>
+
+                                <MudButton HtmlTag="label"
+                                           Variant="Variant.Filled"
+                                           Color="Color.Primary"
+                                           Style="margin:10px"
+                                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                                           OnClick="OpenFolder">
+                                    Upload A Folder
+                                </MudButton>
+
+                                @if (filePairs.Count > 0)
+                                {
+                                    <MudButton Variant="Variant.Filled"
+                                           Color="Color.Primary"
+                                           Style="margin:10px"
+                                           OnClick="ProcessNextPair">Process</MudButton>
+                                    <MudText Typo="@Typo.h6">@filePairs.Count() XML File@(filePairs.Count() == 1 ? "" : "s"):</MudText>
+                                    <MudList T="string">
+                                        @foreach (var filePair in filePairs)
+                                        {
+                                            <MudListItem Icon="@Icons.Material.Filled.AttachFile" @key="@filePair">
+                                                @Path.GetFileName(filePair.XmlFilePath) <code>@(new FileInfo(filePair.XmlFilePath).Length) bytes</code>
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="delete"
+                                                   OnClick="() => DeleteFilePair(filePair)"></MudIconButton>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+
+
+                                <MudButton HtmlTag="label"
+                                           Variant="Variant.Filled"
+                                           Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                                           for="fileInput">
+                                    Upload Files
+                                </MudButton>
+
+                                @if (files != null)
+                                {
+                                    <MudText Typo="@Typo.h6">@files.Count() File@(files.Count() == 1 ? "" : "s"):</MudText>
+                                    <MudList T="string">
+                                        @foreach (var file in files)
+                                        {
+                                            <MudListItem Icon="@Icons.Material.Filled.AttachFile" @key="@file">
+                                                @file.Name <code>@file.Size bytes</code>
+                                            </MudListItem>
+                                        }
+                                    </MudList>
+                                }
+                            </MudCardContent>
+
+
+                            <MudCardActions Class="justify-end mt-2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" @onclick="ReclassifyBatch">Reclassify</MudButton>
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" @onclick="ProcessResults">Process</MudButton>
+                            </MudCardActions>
+                        </MudCard>
+
+                    </MudItem>
+
+                    @if (showResult == 1)
+                    {
+                        <MudItem xs="12" sm="12" md="12">
+                            <MudCard Elevation=4>
+                                <MudCardContent>
+                                    <MudTable Items="@listCrackCounters" Dense="true" Bordered="true">
+                                        <HeaderContent>
+                                            <MudTh>Crack Type</MudTh>
+                                            <MudTh>Count</MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            <MudTd DataLabel="Id">
+                                                <MudChip T="string" Icon="@dicCrackIcons[@context.CrackType]" Color="@dicCrackColors[@context.CrackType]">@dicCrackNames[@context.CrackType]</MudChip>
+                                            </MudTd>
+                                            <MudTd DataLabel="MinX">@context.Count</MudTd>
+                                        </RowTemplate>
+                                    </MudTable>
+                                </MudCardContent>
+                            </MudCard>
+                        </MudItem>
+
+                    }
+                </MudGrid>
+            </MudItem>
+            @if (showResult == 1 && xmlFound && imageFound)
+            {
+                <MudItem md="12" xs="12">
+                    <MudItem sm="12" md="12">
+                        <MudPaper Elevation="2" Class="pa-4">
+
+                            <MudScrollToTop TopOffset="100"
+                                        Selector="#unique_id_scroll_section"
+                                        VisibleCssClass="visible absolute"
+                                        HiddenCssClass="invisible">
+                            </MudScrollToTop>
+
+
+                            <MudText><MudIcon Icon="@Icons.Material.Filled.AttachFile" /> @Path.GetFileName(xmlFile)</MudText>
+                            <MudText Class="mb-2"><MudIcon Icon="@Icons.Material.Filled.AttachFile" /> @Path.GetFileName(jpgFile)</MudText>
+
+                            <form method="post">
+                                <table id="mytable" cellspacing="0" class="tableImage" background="@(_userAvatar)" width="@widthFromImage" height="@heightFromImage" align="center">
+                                    @for (int i = 0; i < numberOfSquareY; i++)
+                                    {
+                                        <tr>
+                                            @for (int j = 0; j < numberOfSquareX; j++)
+                                            {
+                                                <td>
+                                                    <input type="text"
+                                                           size="1"
+                                                           maxlength="1"
+                                                           style="padding:5px;font-size:20px;background-color:transparent;color:white"
+                                                           class="input-field"
+                                                           value="@tableValues[i, j]" />
+                                                </td>
+                                            }
+                                        </tr>
+
+                                    }
+
+                                </table>
+                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" @onclick="ExportToCsv">Save Data</MudButton>
+                            </form>
+                           
+                            <MudScrollToTop TopOffset="100" Selector="#another_unique_identifier" Style="z-index:2001;">
+                                <div class="mud-theme-secondary px-3 py-6 mud-elevation-16 rounded-xl fixed" style="bottom:20px;right:20px;">Scroll to top</div>
+                            </MudScrollToTop>
+                        </MudPaper>
+                    </MudItem>
+                </MudItem>
+            }
+
+            @if (showResult == 2)
+            {
+                <MudItem md="12" xs="12">
+                    @{
+                        var bytes = System.Text.Encoding.UTF8.GetBytes(data);
+                        var base64 = Convert.ToBase64String(bytes);
+                        var url = $"data:text/csv;base64,{base64}";
+                    }
+                    <MudButton Href="@url" Download="data.csv" Variant="Variant.Filled" Color="Color.Primary">Download CSV</MudButton>
+                </MudItem>
+
+                <MudItem md="12" xs="12">
+                    <MudTable Items="@summaries" Dense="true" Bordered="true">
+                        <HeaderContent>
+                            <MudTh>Ch. start (m)</MudTh>
+                            <MudTh>Ch. end (m)</MudTh>
+                            <MudTh>Lane Width (mm)</MudTh>
+                            <MudTh>Sample Area (m2)</MudTh>
+                            <MudTh>Long Crack LOW (m2)</MudTh>
+                            <MudTh>Long Crack MED (m2)</MudTh>
+                            <MudTh>Long Crack HIGH (m2)</MudTh>
+                            <MudTh>Trans Crack LOW (m2)</MudTh>
+                            <MudTh>Trans Crack MED (m2)</MudTh>
+                            <MudTh>Trans Crack HIGH (m2)</MudTh>
+                            <MudTh>Alligator Crack LOW (m2)</MudTh>
+                            <MudTh>Alligator Crack MED (m2)</MudTh>
+                            <MudTh>Alligator Crack HIGH (m2)</MudTh>
+                            <MudTh>Other Crack LOW (m2)</MudTh>
+                            <MudTh>Other Crack MED (m2)</MudTh>
+                            <MudTh>Other Crack HIGH (m2)</MudTh>
+
+                            <MudTh>Longitudinal Cracking(mm)</MudTh>
+                            <MudTh>Transverse Cracking(mm)</MudTh>
+                            <MudTh>Cracking in wheelpaths(m2)</MudTh>
+                            <MudTh>Wheelpaths Area(m2)</MudTh>
+
+                            <MudTh>Square Fatigue Area(m2)</MudTh>
+
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Chstart">@context.Chstart</MudTd>
+                            <MudTd DataLabel="Chend">@context.Chend</MudTd>
+                            <MudTd DataLabel="LaneWidth">@context.LaneWidth</MudTd>
+                            <MudTd DataLabel="SampleArea">@context.SampleArea.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackLOW">@context.LongCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackMED">@context.LongCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="LongCrackHIGH">@context.LongCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackLOW">@context.TransCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackMED">@context.TransCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="TransCrackHIGH">@context.TransCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackLOW">@context.AlligatorCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackMED">@context.AlligatorCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="AlligatorCrackHIGH">@context.AlligatorCrackHIGH.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackLOW">@context.OtherCrackLOW.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackMED">@context.OtherCrackMED.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackHIGH">@context.OtherCrackHIGH.ToString("F2")</MudTd>
+
+                            <MudTd DataLabel="OtherCrackHIGH">@context.LongitudinalCracking.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackHIGH">@context.TransverseCracking.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackHIGH">@context.crackingWheelpaths.ToString("F2")</MudTd>
+                            <MudTd DataLabel="OtherCrackHIGH">@context.WheelpathsArea.ToString("F2")</MudTd>
+                            <MudTd DataLabel="FatigueArea">@context.FatigueArea.ToString("F2")</MudTd>
+
+                        </RowTemplate>
+
+                    </MudTable>
+
+                </MudItem>
+
+            }
+
+        </MudGrid>
+
+
+    </div>
+</MudContainer>
+
+
+
+@code
+{
+
+    private async Task ExportToCsv()
+    {
+        await JSRuntime.InvokeVoidAsync("exporttocsv", uploadedFileName);
+        await ProcessNextPair();
+    }
+
+    public string xmlFile;
+    public string jpgFile;
+    public double widthFromImage;
+    public double heightFromImage;
+    private List<(string XmlFilePath, string JpgFilePath)> filePairs = new List<(string, string)>();
+    private int currentPairIndex = 0; // Index to keep track of the current pair
+
+    bool imageFound = false, xmlFound = false;
+    static string appDataFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    string targetFilePath = Path.Combine(appDataFolderPath, "temData.xml");
+    string fileName = "temData.xml";
+    bool ignoreOutLanes = true;
+    string data = "";
+    private string _spinnerClass = "";
+    private string _userAvatar = "images/user.png";
+    private string _imageBase64Data;
+
+    static int matrixWidth = 30;
+    static int matrixHeight = 60;
+    static int MAXALLOWEDSIZE = 40240000;
+
+    int yCounter = 0;
+
+    int intSquareHorizontalSize = 10;
+    int intSquareVerticalSize = 10;
+
+    double ResolutionX = 1;
+    double ResolutionY = 1;
+
+    double numberOfSquareX = 0;
+    double numberOfSquareY = 0;
+    int squareSize = 250;
+    string uploadedFileName = string.Empty;
+
+    private string[,] tableValues;
+
+    double squareHorizontalSize = 10;
+    double squareVerticalSize = 10;
+    double ImageWidth;
+    double ImageHeight;
+
+    double DistanceBegin_m = 0;
+    double DistanceEnd_m = 0;
+    double LaneMarkingModule_Parameters = 0;
+    double GeneralParam_WheelPathWidth_mm = 0;
+    double GeneralParam_CentralBandWidth_mm = 0;
+    double SectionLength_m = 0;
+    double LaneMarkLeft = 0;
+    double LaneMarkRight = 0;
+    double LeftWheelPathLeft = 0;
+    double LeftWheelPathRight = 0;
+    double RightWheelPathLeft = 0;
+    double RightWheelPathRight = 0;
+
+    double cellHorizontalmm = 0;
+    double cellVerticalmm = 0;
+    double cellAreaM = 0;
+
+    double straightness = 0.7;
+    double minDeep = 0.0;
+
+    resultType[,] array = new resultType[matrixHeight, matrixWidth];
+    resultType[,] arrayDisplay = new resultType[matrixHeight, matrixWidth];
+
+    resultType[,] arrayLong = new resultType[matrixHeight, matrixWidth];
+    resultType[,] arrayTrans = new resultType[matrixHeight, matrixWidth];
+
+    int[,] arrayId = new int[matrixHeight, matrixWidth];
+    int[,] arrayIdDisplay = new int[matrixHeight, matrixWidth];
+    // To Debug only:
+    //    int[,] arrayFirstId= new int[matrixHeight, matrixWidth];
+
+    int[,] crackCounter = new int[matrixHeight, matrixWidth];
+
+    Dictionary<string, int> dicCrackCounter = new Dictionary<string, int>();
+    Dictionary<string, string> dicCrackIcons = new Dictionary<string, string>();
+    Dictionary<string, string> dicCrackNames = new Dictionary<string, string>();
+    Dictionary<string, Color> dicCrackColors = new Dictionary<string, Color>();
+
+
+    IList<IBrowserFile> files = new List<IBrowserFile>();
+    List<Crack> listCracks = new List<Crack>();
+    List<CrackNode> listCrackCrackNodes = new List<CrackNode>();
+    List<CrackCounter> listCrackCounters = new List<CrackCounter>();
+    List<CrackInMatrix> groupedCells = new List<CrackInMatrix>();
+    List<SummaryCrackClasification> summaries = new List<SummaryCrackClasification>();
+    List<String> ProcessedFiles = new List<String>();
+    int offRoadSquares = 0;
+    int colLeftWheelPathLeft = 0;
+    int colLeftWheelPathRight = 0;
+    int colRightWheelPathLeft = 0;
+    int colRightWheelPathRight = 0;
+    int colLaneMarkRight = 0;
+    int colLaneMarkLeft = 0;
+
+    int MinSizeToStraight = 4;
+    int MinSizeToAvoidMerge = 6;
+
+    int showResult = 0;
+
+    string jpgfileName = "images/temData.jpg?ts=";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await StartDictionaries();
+
+    }
+
+
+    private Task StartDictionaries()
+    {
+
+
+        dicCrackNames.Add("Unknown", "No Cracks");
+        dicCrackNames.Add("Alligator", "Alligator");
+        dicCrackNames.Add("Offroad", "Off Road");
+        dicCrackNames.Add("WheelPath", "Wheel Path");
+        dicCrackNames.Add("Transversal", "Transversal");
+        dicCrackNames.Add("Longitudinal", "Longitudinal");
+        dicCrackNames.Add("Multiple", "Multiple");
+        dicCrackNames.Add("Other", "Other");
+
+
+        dicCrackCounter.Add("Unknown", 0);
+        dicCrackCounter.Add("Alligator", 0);
+        dicCrackCounter.Add("Offroad", 0);
+        dicCrackCounter.Add("WheelPath", 0);
+        dicCrackCounter.Add("Transversal", 0);
+        dicCrackCounter.Add("Longitudinal", 0);
+        dicCrackCounter.Add("Multiple", 0);
+        dicCrackCounter.Add("Other", 0);
+
+        dicCrackIcons.Add("Unknown", Icons.Material.Filled.Check);
+        dicCrackIcons.Add("Alligator", Icons.Material.Filled.Air);
+        dicCrackIcons.Add("Offroad", Icons.Material.Filled.Grass);
+        dicCrackIcons.Add("WheelPath", Icons.Material.Filled.AddRoad);
+        dicCrackIcons.Add("Transversal", Icons.Material.Filled.HorizontalRule);
+        dicCrackIcons.Add("Longitudinal", Icons.Material.Filled.ArrowUpward);
+        dicCrackIcons.Add("Multiple", Icons.Material.Filled.AlignHorizontalCenter);
+        dicCrackIcons.Add("Other", Icons.Material.Filled.FullscreenExit);
+
+        dicCrackColors.Add("Unknown", Color.Success);
+        dicCrackColors.Add("Alligator", Color.Error);
+        dicCrackColors.Add("Offroad", Color.Primary);
+        dicCrackColors.Add("WheelPath", Color.Warning);
+        dicCrackColors.Add("Transversal", Color.Error);
+        dicCrackColors.Add("Longitudinal", Color.Error);
+        dicCrackColors.Add("Multiple", Color.Error);
+        dicCrackColors.Add("Other", Color.Error);
+
+        return Task.CompletedTask;
+    }
+
+
+    //Commented Out as this is not used
+    private async Task ReclassifyBatch()
+    {
+        summaries.Clear();
+
+        foreach (var file in files)
+        {
+
+            if (!imageFound && file.Name.Contains(".jpg"))
+            {
+                //await using FileStream fs = new(ImagefileName, FileMode.Create);
+                //await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(fs);
+
+                byte[] imageBytes;
+
+
+                //var newFile = Path.Combine(FileSystem.CacheDirectory, file.FileName);
+                //var stream = await file.OpenReadAsync();
+
+                await using MemoryStream ms = new MemoryStream();
+                await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(ms);
+                imageBytes = ms.ToArray();
+
+                _imageBase64Data = Convert.ToBase64String(imageBytes);
+                _userAvatar = string.Format("data:image/png;base64,{0}", _imageBase64Data);
+                this.StateHasChanged();
+                imageFound = true;
+            }
+
+            if (file.Name.Contains(".xml"))
+            {
+                await using FileStream fs = new(targetFilePath, FileMode.Create);
+                await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(fs);
+                fs.Close();
+                xmlFound = true;
+
+                DateTime date1 = DateTime.UtcNow;
+                jpgfileName = "images/temData.jpg?ts=" + date1.Ticks.ToString();
+
+                XmlDocument doc = new XmlDocument();
+
+                if (xmlFound)
+                {
+                    doc.Load(targetFilePath);
+                    getGeneralVariables(doc);  // Load General Information from XML
+                    getCracks(doc);   // Load Crack Points from XML
+                    await Reclassify();
+                }
+            }
+        }
+
+        PrepareCSVFile();
+
+    }
+
+
+    private async Task Reclassify()
+    {
+        cleanArray();
+
+        if (ignoreOutLanes)
+        {
+            await addOffRoadInfo();
+        }
+
+        await addCracksToMatrix();  //Add the Crack Points to the Matrix as Pending Cells, also complete the lines when is the same Crack
+
+        await ClassifyCracksInMatrix();  // Join adjancent cells and create objects each object is evaluated according to straightness
+                                         // This is for long and transversal.
+
+        await MergeAdjacentCracks();
+
+        if (!ignoreOutLanes)
+        {
+            await addOffRoadInfo();
+        }
+
+        // Commented this function out as it throws exception in the output and it slows down the application
+
+        //await addLaneToMatrix();  // Add the Road Information, overwrite offroad cells
+        //and change "other" cracks that are overlapped with wheelpath as "Alligator"  cracks
+        await countCells();
+
+        await ShowMatrix();
+
+        showResult = 1;
+        StateHasChanged();
+        ProcessResults();
+    }
+
+    private void ProcessResults()
+    {
+
+        showResult = 2;
+        SummaryCrackClasification clasification1 = new SummaryCrackClasification();
+
+        clasification1.Chstart = DistanceBegin_m;
+        clasification1.Chend = DistanceEnd_m;
+        clasification1.LaneWidth = LaneMarkingModule_Parameters;
+        clasification1.SampleArea = SectionLength_m * (LaneMarkingModule_Parameters / 1000);
+
+        List<int> dicLongCounted = new List<int>();
+
+        List<AreaInMatrix> fatigueAreas = new List<AreaInMatrix>();
+
+        @for (int i = 0; i < matrixHeight; i++)
+        {
+            @for (int j = 0; j < matrixWidth; j++)
+            {
+                if (IsInWheelPath(i, j))
+                {
+                    clasification1.WheelpathsArea += cellAreaM;
+
+                    if (array[i, j] != resultType.WheelPath)
+                    {
+                        clasification1.crackingWheelpaths += cellAreaM;
+                    }
+                }
+
+
+                switch (array[i, j])
+                {
+                    case resultType.Longitudinal:
+                        if (IsInWheelPath(i, j) && !dicLongCounted.Contains(i))
+                        {
+                            clasification1.LongitudinalCracking += squareVerticalSize;
+                            dicLongCounted.Add(i);
+                        }
+
+
+                        if (crackCounter[i, j] <= 1)
+                        {
+                            clasification1.LongCrackLOW = clasification1.LongCrackLOW + cellAreaM;
+                        }
+                        else if (crackCounter[i, j] == 2)
+                        {
+                            clasification1.LongCrackMED = clasification1.LongCrackMED + cellAreaM;
+                        }
+                        else
+                        {
+                            clasification1.LongCrackHIGH = clasification1.LongCrackHIGH + cellAreaM;
+
+                        }
+
+                        break;
+                    case resultType.Transversal:
+
+                        clasification1.TransverseCracking += squareHorizontalSize;
+
+                        if (crackCounter[i, j] <= 1)
+                        {
+                            clasification1.TransCrackLOW = clasification1.TransCrackLOW + cellAreaM;
+                        }
+                        else if (crackCounter[i, j] == 2)
+                        {
+                            clasification1.TransCrackMED = clasification1.TransCrackMED + cellAreaM;
+                        }
+                        else
+                        {
+                            clasification1.TransCrackHIGH = clasification1.TransCrackHIGH + cellAreaM;
+
+                        }
+                        break;
+                    case resultType.Alligator:
+                        if (crackCounter[i, j] <= 1)
+                        {
+                            clasification1.AlligatorCrackLOW = clasification1.AlligatorCrackLOW + cellAreaM;
+                        }
+                        else if (crackCounter[i, j] == 2)
+                        {
+                            clasification1.AlligatorCrackMED = clasification1.AlligatorCrackMED + cellAreaM;
+                        }
+                        else
+                        {
+                            clasification1.AlligatorCrackHIGH = clasification1.AlligatorCrackHIGH + cellAreaM;
+
+                        }
+
+                        var nearFatigue = fatigueAreas.Where(p => p.MinX - 1 <= j && p.MaxX + 1 >= j && p.MinY - 1 <= i && p.MaxY + 1 >= i).FirstOrDefault();
+
+                        if (nearFatigue != null)
+                        {
+                            // Add Current cell to Fatige Area
+                            if (j < nearFatigue.MinX)
+                            {
+                                nearFatigue.MinX = j;
+                            }
+                            if (j > nearFatigue.MaxX)
+                            {
+                                nearFatigue.MaxX = j;
+                            }
+                            if (i < nearFatigue.MinY)
+                            {
+                                nearFatigue.MinY = i;
+                            }
+                            if (i > nearFatigue.MaxY)
+                            {
+                                nearFatigue.MaxY = i;
+                            }
+                        }
+                        else
+                        {
+                            // Create new Fatige Area
+                            AreaInMatrix newFatigueArea = new AreaInMatrix()
+                                {
+                                    MinX = j,
+                                    MaxX = j,
+                                    MinY = i,
+                                    MaxY = i
+                                };
+                            fatigueAreas.Add(newFatigueArea);
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        foreach (var elem in fatigueAreas)
+        {
+            clasification1.FatigueArea += (elem.TotalArea() * cellAreaM);
+        }
+
+        summaries.Add(clasification1);
+    }
+
+
+    private async Task OpenFolder()
+    {
+
+        CancellationTokenSource source = new CancellationTokenSource();
+        CancellationToken token = source.Token;
+
+        //CommunityToolkit.Maui.Storage.FolderPickerResult folder;
+
+        var folder = await FolderPicker.PickAsync(token);
+
+        if (folder.IsSuccessful)
+        {
+            var folderPath = folder.Folder.Path;
+            var jpgFiles = Directory.GetFiles(folderPath, "*.jpg");
+            var xmlFiles = Directory.GetFiles(folderPath, "*.xml");
+
+            foreach (var file in xmlFiles)
+            {
+                xmlFile = file;
+                var xmlNumber = ExtractLastNumbers(file);
+
+                //look for range image first
+                var matchingJpgFile = jpgFiles.FirstOrDefault(jpgFile => ExtractLastNumbers(jpgFile) == xmlNumber && jpgFile.ToLower().Contains("rng"));
+
+                if (matchingJpgFile == null)
+                {
+                    matchingJpgFile = jpgFiles.FirstOrDefault(jpgFile => ExtractLastNumbers(jpgFile) == xmlNumber);
+                }
+
+                if (matchingJpgFile != null)
+                {
+                    filePairs.Add((xmlFile, matchingJpgFile));
+                }
+            }
+
+        }
+    }
+
+    private async Task ProcessNextPair()
+    {
+        if (filePairs.Count > 0)
+        {
+            var pair = filePairs[0];
+            jpgFile = pair.JpgFilePath;
+            xmlFile = pair.XmlFilePath;
+            getImageDimension(jpgFile);
+            await ProcessXmlJpgPair(pair.XmlFilePath, pair.JpgFilePath);
+            filePairs.Remove(pair);
+        }
+        else
+        {
+            Snackbar.Add("All files have been processed.", Severity.Normal);
+
+            await Task.Delay(3000);
+
+            // Refresh the page
+            await JSRuntime.InvokeVoidAsync("location.reload");
+        }
+    }
+
+
+    //Get image width and height
+    public void getImageDimension(string imagePath)
+    {
+        var image = System.Drawing.Image.FromFile(imagePath);
+        widthFromImage = image.Width;
+        heightFromImage = image.Height;
+    }
+
+    public static string ExtractLastNumbers(string input)
+    {
+        // Use a regular expression to match all sequences of digits in the input
+        MatchCollection matches = Regex.Matches(input, @"\d+");
+
+        if (matches.Count > 0)
+        {
+            // Return the last matched sequence of digits
+            return matches[matches.Count - 1].Value;
+        }
+        else
+        {
+            return ""; // No digits found
+        }
+    }
+
+    private void DeleteFilePair((string XmlFilePath, string JpgFilePath) filePair)
+    {
+        filePairs.Remove(filePair);
+    }
+
+    private async Task ProcessXmlJpgPair(string xmlFilePath, string jpgFilePath)
+    {
+        imageFound = xmlFound = false;
+        yCounter = 0;
+        summaries.Clear();
+
+        if (!imageFound && jpgFilePath.EndsWith(".jpg"))
+        {
+            byte[] imageBytes;
+
+            using (FileStream fs = new FileStream(jpgFilePath, FileMode.Open, FileAccess.Read))
+            {
+                imageBytes = new byte[fs.Length];
+                await fs.ReadAsync(imageBytes, 0, (int)fs.Length);
+            }
+
+            _imageBase64Data = Convert.ToBase64String(imageBytes);
+            _userAvatar = string.Format("data:image/png;base64,{0}", _imageBase64Data);
+            imageFound = true;
+            this.StateHasChanged();
+        }
+
+        if (xmlFilePath.EndsWith(".xml"))
+        {
+            uploadedFileName = Path.GetFileNameWithoutExtension(xmlFilePath); // Store the uploaded XML file name
+
+            await using FileStream fs = new(targetFilePath, FileMode.Create);
+            await using FileStream sourceStream = new FileStream(xmlFilePath, FileMode.Open);
+            await sourceStream.CopyToAsync(fs); ;
+            fs.Close();
+
+            xmlFound = true;
+
+            XmlDocument doc = new XmlDocument();
+
+            if (xmlFound)
+            {
+                doc.Load(targetFilePath);
+                getGeneralVariables(doc);  // Load General Information from XML
+                getCracks(doc);   // Load Crack Points from XML
+                await Reclassify();
+            }
+
+        }
+        //PrepareCVSFile();
+    }
+
+
+
+    //Commented out as it is changed to ProcessXmlJpgPair tempororaily for my code.
+    private async void UploadFiles(InputFileChangeEventArgs e)
+    {
+        imageFound = xmlFound = false;
+        yCounter = 0;
+        files.Clear();
+        summaries.Clear();
+
+        foreach (var file in e.GetMultipleFiles(200))
+        {
+            files.Add(file);
+            if (!imageFound && file.Name.Contains(".jpg"))
+            {
+                //await using FileStream fs = new(ImagefileName, FileMode.Create);
+                //await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(fs);
+
+                byte[] imageBytes;
+
+
+                //var newFile = Path.Combine(FileSystem.CacheDirectory, file.FileName);
+                //var stream = await file.OpenReadAsync();
+
+                await using MemoryStream ms = new MemoryStream();
+                await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(ms);
+                imageBytes = ms.ToArray();
+
+                _imageBase64Data = Convert.ToBase64String(imageBytes);
+                _userAvatar = string.Format("data:image/png;base64,{0}", _imageBase64Data);
+                imageFound = true;
+                this.StateHasChanged();
+            }
+
+            if (file.Name.Contains(".xml"))
+            {
+                uploadedFileName = file.Name; // Store the uploaded JPG file name
+
+                await using FileStream fs = new(targetFilePath, FileMode.Create);
+                await file.OpenReadStream(MAXALLOWEDSIZE).CopyToAsync(fs);
+                fs.Close();
+                xmlFound = true;
+
+                DateTime date1 = DateTime.UtcNow;
+                jpgfileName = "images/temData.jpg?ts=" + date1.Ticks.ToString();
+
+                XmlDocument doc = new XmlDocument();
+
+                if (xmlFound)
+                {
+                    doc.Load(targetFilePath);
+                    getGeneralVariables(doc);  // Load General Information from XML
+                    getCracks(doc);   // Load Crack Points from XML
+                    await Reclassify();
+                }
+            }
+        }
+
+        PrepareCSVFile();
+    }
+
+    public int toXCells(double X)
+    {
+        return (int)((X / ResolutionX) / squareHorizontalSize);
+    }
+
+
+    public int toYCells(double Y)
+    {
+        return (matrixHeight - 1) - (int)((Y / ResolutionY) / squareVerticalSize);
+    }
+
+
+    public async void PrepareCSVFile()
+    {
+        data = "Ch. start (m),Ch. end (m),Lane Width (mm),Sample Area (m2),Long Crack LOW (m2),Long Crack MED (m2),Long Crack HIGH (m2),Trans Crack LOW (m2),Trans Crack MED (m2),Trans Crack HIGH (m2),Alligator Crack LOW (m2),Alligator Crack MED (m2),Alligator Crack HIGH (m2),Other Crack LOW (m2),Other Crack MED (m2),Other Crack HIGH (m2),Longitudinal Cracking(mm),Transverse Cracking(mm),Cracking in wheelpaths(m2),Wheelpaths Area(m2),Square Fatigue Area(m2)\n";
+        foreach (var item in summaries)
+        {
+
+            data = data +
+            item.Chstart + ',' +
+            item.Chend + ',' +
+            item.LaneWidth + ',' +
+            item.SampleArea.ToString("F2") + ',' +
+            item.LongCrackLOW.ToString("F2") + ',' +
+            item.LongCrackMED.ToString("F2") + ',' +
+            item.LongCrackHIGH.ToString("F2") + ',' +
+            item.TransCrackLOW.ToString("F2") + ',' +
+            item.TransCrackMED.ToString("F2") + ',' +
+            item.TransCrackHIGH.ToString("F2") + ',' +
+            item.AlligatorCrackLOW.ToString("F2") + ',' +
+            item.AlligatorCrackMED.ToString("F2") + ',' +
+            item.AlligatorCrackHIGH.ToString("F2") + ',' +
+            item.OtherCrackLOW.ToString("F2") + ',' +
+            item.OtherCrackMED.ToString("F2") + ',' +
+            item.OtherCrackHIGH.ToString("F2") + ',' +
+            item.LongitudinalCracking.ToString("F2") + ',' +
+            item.TransverseCracking.ToString("F2") + ',' +
+            item.crackingWheelpaths.ToString("F2") + ',' +
+            item.WheelpathsArea.ToString("F2") + ',' +
+            item.FatigueArea.ToString("F2") + ",\n";
+        }
+    }
+
+    public async void getGeneralVariables(XmlDocument doc)
+    {
+        LaneMarkingModule_Parameters = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ProcessingInformation/ProcessingParameters/LaneMarkingModule_Parameters/LaneMarkingModule_RoadWidth_mm");
+        GeneralParam_CentralBandWidth_mm = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ProcessingInformation/ProcessingParameters/GeneralParam_CentralBandWidth_mm");
+        GeneralParam_WheelPathWidth_mm = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ProcessingInformation/ProcessingParameters/GeneralParam_WheelPathWidth_mm");
+        ImageWidth = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ResultImageInformation/ImageWidth");
+        ImageHeight = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ResultImageInformation/ImageHeight");
+
+        ResolutionX = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ResultImageInformation/ResolutionX");
+        ResolutionY = await getDoubleFromXML(doc, "/LcmsAnalyserResults/ResultImageInformation/ResolutionY");
+
+        numberOfSquareX = (ImageWidth * ResolutionX) / squareSize;
+        numberOfSquareY = (ImageHeight * ResolutionY) / squareSize;
+        //Using RountdedUp int as Number Of Square X and Y are double so can't fit into 2D array
+        numberOfSquareY = (int)Math.Ceiling(numberOfSquareY);
+        numberOfSquareX = (int)Math.Ceiling(numberOfSquareX);
+        tableValues = new string[(int)numberOfSquareY, (int)numberOfSquareX];
+
+
+        DistanceBegin_m = await getDoubleFromXML(doc, "/LcmsAnalyserResults/RoadSectionInfo/DistanceBegin_m");
+        DistanceEnd_m = await getDoubleFromXML(doc, "/LcmsAnalyserResults/RoadSectionInfo/DistanceEnd_m");
+        SectionLength_m = await getDoubleFromXML(doc, "/LcmsAnalyserResults/RoadSectionInfo/SectionLength_m");
+
+
+        var xmlNodeList = doc.SelectNodes("/LcmsAnalyserResults/LaneMarkInformation/LaneMark");
+
+        if (xmlNodeList == null)
+        {
+            return;
+        }
+
+        foreach (XmlNode xmlOneLane in xmlNodeList)
+        {
+            var xmlSideName = xmlOneLane.SelectSingleNode("LaneSide");
+            var xmlPosition = xmlOneLane.SelectSingleNode("Position");
+
+            if (xmlSideName == null || xmlPosition == null)
+            {
+                continue;
+            }
+
+            var strSideName = xmlSideName.InnerText;
+
+            if (strSideName == "Left")
+            {
+                LaneMarkLeft = Convert.ToDouble(xmlPosition.InnerText);
+            }
+            else
+            {
+                LaneMarkRight = Convert.ToDouble(xmlPosition.InnerText);
+            }
+        }
+
+
+        var middleLine = (LaneMarkRight + LaneMarkLeft) / 2;
+        var CentralBandWidthLeft = middleLine - (GeneralParam_CentralBandWidth_mm / 2);
+        var CentralBandWidthRight = middleLine + (GeneralParam_CentralBandWidth_mm / 2);
+
+        LeftWheelPathRight = CentralBandWidthLeft;
+        LeftWheelPathLeft = CentralBandWidthLeft - GeneralParam_WheelPathWidth_mm;
+
+        RightWheelPathLeft = CentralBandWidthRight;
+        RightWheelPathRight = CentralBandWidthRight + GeneralParam_WheelPathWidth_mm;
+
+        squareHorizontalSize = ImageWidth / matrixWidth;
+        intSquareHorizontalSize = (int)squareHorizontalSize;
+
+        squareVerticalSize = ImageHeight / matrixHeight;
+        intSquareVerticalSize = (int)squareVerticalSize;
+
+        cellHorizontalmm = ImageWidth * ResolutionX / matrixWidth;
+        cellVerticalmm = ImageHeight * ResolutionY / matrixHeight;
+
+        cellAreaM = (cellHorizontalmm / 1000) * (cellVerticalmm / 1000);
+
+        if (intSquareVerticalSize < 20 || intSquareHorizontalSize < 20)
+        {
+            double scaleTable = (intSquareVerticalSize < intSquareHorizontalSize) ? (20 / squareVerticalSize) : (20 / squareHorizontalSize);
+            intSquareHorizontalSize = (int)(squareHorizontalSize * scaleTable);
+            intSquareVerticalSize = (int)(squareVerticalSize * scaleTable);
+        }
+
+        // This was used if not LaneMarks found  ... check with the xml to see if we really have data when not detected
+        offRoadSquares = (int)Math.Ceiling(((ImageWidth - (LaneMarkingModule_Parameters / ResolutionX)) / 2) / squareHorizontalSize);
+
+        colLeftWheelPathLeft = toXCells(LeftWheelPathLeft);
+        colLeftWheelPathRight = toXCells(LeftWheelPathRight);
+        colRightWheelPathLeft = toXCells(RightWheelPathLeft);
+        colRightWheelPathRight = toXCells(RightWheelPathRight);
+
+        colLaneMarkRight = toXCells(LaneMarkRight);
+        colLaneMarkLeft = toXCells(LaneMarkLeft);
+    }
+
+    public async Task<double> getDoubleFromXML(XmlDocument doc, string fieldName)
+    {
+        double result = 0;
+
+        var xmlselNode = doc.SelectSingleNode(fieldName);
+
+        if (xmlselNode != null)
+        {
+            result = Convert.ToDouble(xmlselNode.InnerText);
+        }
+
+        return result;
+    }
+
+    private Task addOffRoadInfo()
+    {
+        for (int i = 0; i < matrixHeight; i++)
+        {
+            for (int j = 0; j < colLaneMarkLeft; j++)
+            {
+                array[i, j] = resultType.Offroad;
+            }
+            for (int j = matrixWidth - 1; j > colLaneMarkRight; j--)
+            {
+                array[i, j] = resultType.Offroad;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+
+    private Task addLaneToMatrix()
+    {
+        for (int i = 0; i < matrixHeight; i++)
+        {
+            for (int j = colLeftWheelPathLeft; j <= colLeftWheelPathRight; j++)
+            {
+                addWheelPath(i, j);
+            }
+            for (int j = colRightWheelPathLeft; j <= colRightWheelPathRight; j++)
+            {
+                addWheelPath(i, j);
+            }
+        }
+        return Task.CompletedTask;
+    }
+
+
+    private bool IsInWheelPath(int i, int j)
+    {
+        return ((j >= colLeftWheelPathLeft && j <= colLeftWheelPathRight) || (j >= colRightWheelPathLeft && j <= colRightWheelPathRight));
+    }
+
+    private async Task addWheelPath(int i, int j)
+    {
+        if (array[i, j] == resultType.Unknown)
+        {
+            array[i, j] = resultType.WheelPath;
+        }
+        if (array[i, j] == resultType.Other)
+        {
+            array[i, j] = resultType.Alligator;
+            await ChangeCrackTypeToAlligator(i, j);
+        }
+    }
+
+    private Task ChangeCrackTypeToAlligator(int i, int j)
+    {
+        var id1 = arrayId[i, j];
+
+        var theCrack = groupedCells.Where(x => x.Id == id1 && x.CrackType == Crack.CrackTypeEnum.Unknown).FirstOrDefault();
+
+        if (theCrack != null)
+
+        {
+            theCrack.CrackType = Crack.CrackTypeEnum.Alligator;
+            Parallel.ForEach(theCrack.Cells,
+            point =>
+            {
+                array[point.Y, point.X] = resultType.Alligator;
+            });
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task MergeAdjacentCracks()
+    {
+        foreach (var othCrackGroup in groupedCells)
+        {
+            var listStraightAdjancentGroupedCells = GetAdjacentCracks(othCrackGroup);
+
+            foreach (var adjacentCrack in listStraightAdjancentGroupedCells)
+            {
+                if (MergedStraight(othCrackGroup, adjacentCrack) > straightness)
+                {
+                    if (othCrackGroup.CrackType != Crack.CrackTypeEnum.Unknown && othCrackGroup.Length() > adjacentCrack.Length())
+                    {
+                        await MergeGroups(othCrackGroup, adjacentCrack);
+                    }
+                    else
+                    {
+                        await MergeGroups(adjacentCrack, othCrackGroup);
+                    }
+                }
+            };
+        }
+
+        foreach (var othCrackGroup in groupedCells.Where(x => x.CrackType == Crack.CrackTypeEnum.Unknown && x.Cells.Count() > 0))
+        {
+            var listStraightAdjancentGroupedCells = GetAdjacentCracks(othCrackGroup);
+
+            if (listStraightAdjancentGroupedCells.Count == 0)
+            {
+                await addToArray(othCrackGroup);
+            }
+
+            foreach (var adjacentCrack in listStraightAdjancentGroupedCells)
+            {
+                if (adjacentCrack.CrackType != Crack.CrackTypeEnum.Unknown && adjacentCrack.Length() >= MinSizeToAvoidMerge)
+                {
+                    continue;
+                }
+                else
+                {
+                    await MergeGroups(othCrackGroup, adjacentCrack);
+                }
+            }
+        }
+    }
+
+
+    private async Task addToArray(CrackInMatrix crack)
+    {
+        Parallel.ForEach(crack.Cells,
+                           point =>
+                           {
+                               array[point.Y, point.X] = (crack.CrackType == Crack.CrackTypeEnum.Unknown) ? resultType.Other : (ManualCrackClassification.resultType)Enum.Parse(typeof(ManualCrackClassification.resultType), crack.CrackType.ToString());
+                               arrayId[point.Y, point.X] = crack.Id;
+                           });
+
+    }
+
+    private List<CrackInMatrix> GetAdjacentCracks(CrackInMatrix crack1)
+    {
+        List<CrackInMatrix> adjacent = new List<CrackInMatrix>();
+
+        //Parallel.ForEach(crack1.Cells,point =>
+
+
+        foreach (var point in crack1.Cells)
+        {
+
+            int i = point.Y;
+            int j = point.X;
+
+            int minI = (i > 1) ? i - 1 : i;
+            int maxI = (i + 1 >= matrixHeight) ? i : i + 1;
+            int minJ = (j > 1) ? j - 1 : j;
+            int maxJ = (j + 1 >= matrixWidth) ? j : j + 1;
+
+            for (int subI = minI; subI <= maxI; subI++)
+            {
+                for (int subJ = minJ; subJ <= maxJ; subJ++)
+                {
+                    if (subI != i || subJ != j)
+                    {
+                        if (arrayId[subI, subJ] != crack1.Id)
+                        {
+                            var crackAdj = groupedCells.Where(x => x.Id == arrayId[subI, subJ]).FirstOrDefault();
+                            if (crackAdj != null)
+                            {
+                                if (!adjacent.Contains(crackAdj))
+                                {
+                                    adjacent.Add(crackAdj);
+                                }
+                            }
+                        }
+
+                        /////
+                        ///
+
+                        //if (array[subI, subJ] == resultType.Longitudinal || array[subI, subJ] == resultType.Transversal)
+                        //{
+                        //    CrackInMatrix.PointInMatrix ptMatrix = new CrackInMatrix.PointInMatrix(subI,subJ);
+
+                        //    var crackAdj = groupedCells.Where(x =>
+                        //        (x.CrackType == Crack.CrackTypeEnum.Longitudinal || x.CrackType == Crack.CrackTypeEnum.Transversal)
+                        //        && x.Cells.Where(c=> ptMatrix.X == c.X && ptMatrix.Y == c.Y).Any()
+                        //    ).FirstOrDefault();
+
+                        //    if (crackAdj != null)
+                        //    {
+                        //        if (!adjacent.Contains(crackAdj))
+                        //        {
+                        //            adjacent.Add(crackAdj);
+                        //        }
+                        //    }
+                        //}
+                        ////
+
+                    }
+                }
+            }
+        };
+        return adjacent;
+    }
+
+
+    private async Task MergeGroups(CrackInMatrix crackA, CrackInMatrix crackB)
+    {
+
+        Parallel.ForEach(crackB.Cells,
+                        point =>
+                        {
+                            array[point.Y, point.X] = (crackA.CrackType == Crack.CrackTypeEnum.Unknown) ? resultType.Other : (ManualCrackClassification.resultType)Enum.Parse(typeof(ManualCrackClassification.resultType), crackA.CrackType.ToString());
+                            arrayId[point.Y, point.X] = crackA.Id;
+                        });
+
+        crackA.Cells.AddRange(crackB.Cells);
+        crackB.Cells.Clear();
+        //        groupedCells.Remove(crackB);
+
+    }
+
+    double MergedStraight(CrackInMatrix crackA, CrackInMatrix crackB)
+    {
+        if (crackA.Cells.Count > 0 && crackB.Cells.Count > 0)
+        {
+            var mergedXDistance = (double)(1 + Math.Max(crackA.MaxX, crackB.MaxX) - Math.Min(crackA.MinX, crackB.MinX));
+            var mergedYDistance = (double)(1 + Math.Max(crackA.MaxY, crackB.MaxY) - Math.Min(crackA.MinY, crackB.MinY));
+
+            double Distance = (double)Math.Max(mergedXDistance, mergedYDistance);
+
+            return Distance / (double)(crackA.Cells.Count() + crackB.Cells.Count());
+        }
+        else
+        {
+            return (double)Math.Max(crackA.Straightness(), crackB.Straightness());
+        }
+
+    }
+
+    private Task addCracksToMatrix()
+    {
+        int previousY, previousX;
+        previousY = previousX = -1;
+        // when the classification is made later, we just mark the points and not the entire box, so we can analyse in the next step
+        foreach (Crack c1 in listCracks)
+        {
+            int iCrackId = c1.Id;
+
+            List<CrackNode> nodesInThisCrack = listCrackCrackNodes.Where(p => p.CrackId == iCrackId).ToList();
+            previousY = previousX = -1;
+
+            if (nodesInThisCrack == null)
+            {
+                continue;
+            }
+
+
+            if (c1.WeightedDepth < (decimal)minDeep)
+            {
+                continue;
+            }
+
+            foreach (var node1 in nodesInThisCrack)
+            {
+
+                // To Debug only:
+                //                arrayFirstId[node1.colY, node1.colX] = iCrackId;
+
+
+                if (array[node1.colY, node1.colX] != resultType.Offroad)
+                {
+                    array[node1.colY, node1.colX] = resultType.Pending;
+
+                    if (c1.CrackType == Crack.CrackTypeEnum.Longitudinal)
+                    {
+                        arrayLong[node1.colY, node1.colX] = resultType.Longitudinal;
+                    }
+                    if (c1.CrackType == Crack.CrackTypeEnum.Transversal)
+                    {
+                        arrayTrans[node1.colY, node1.colX] = resultType.Transversal;
+                    }
+
+                    int verticalDistance = Math.Abs(previousY - node1.colY);
+                    int horizontalDistance = Math.Abs(previousX - node1.colX);
+
+                    if (previousX < 0)
+                    {
+                        verticalDistance = 0;
+                        horizontalDistance = 0;
+                    }
+
+
+                    if ((horizontalDistance > 1) || (verticalDistance > 1))
+                    {
+                        // Vertical Distance is Bigger (Longitudinal Cracks)
+                        if (verticalDistance > horizontalDistance)
+                        {
+                            double dif = (double)horizontalDistance / (double)verticalDistance;
+                            double acumJ = Math.Min(previousX, node1.colX);
+                            int j = (int)acumJ;
+                            for (int i = Math.Min(previousY, node1.colY) + 1; i < Math.Max(previousY, node1.colY); i++)
+                            {
+                                array[i, j] = resultType.Pending;
+                                acumJ += dif;
+                                j = (int)Math.Round(acumJ);
+                            }
+                        }
+                        // Horizonta Distance is Bigger (Transversal Cracks)
+                        else
+                        {
+                            double dif = (double)verticalDistance / (double)horizontalDistance;
+                            double acumI = Math.Min(previousY, node1.colY);
+                            int i = (int)acumI;
+                            for (int j = Math.Min(previousX, node1.colX) + 1; j < Math.Max(previousX, node1.colX); j++)
+                            {
+                                array[i, j] = resultType.Pending;
+                                acumI += dif;
+                                i = (int)Math.Round(acumI);
+                            }
+                        }
+                    }
+                }
+
+                previousX = node1.colX;
+                previousY = node1.colY;
+            }
+
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ClassifyCracksInMatrix()
+    {
+        groupedCells = new List<CrackInMatrix>();
+        int crackCounter = 1;
+        #region GetMatrixCellsInGroups
+        for (int i = 0; i < matrixHeight; i++)
+        {
+            for (int j = 0; j < matrixWidth; j++)
+            {
+                if (array[i, j] == resultType.Pending)
+                {
+                    CrackInMatrix crack = new CrackInMatrix(crackCounter++);
+                    await AddAdjacentCells(crack, i, j, (arrayLong[i, j] == resultType.Longitudinal) ? resultType.Longitudinal : arrayTrans[i, j]);
+                    groupedCells.Add(crack);
+                }
+            }
+        }
+        #endregion
+
+        #region DefineEachGroupAsCrackType
+
+        foreach (var currentElement in groupedCells)
+
+        //Parallel.ForEach(groupedCells,
+        //    currentElement =>
+        {
+
+
+            if (currentElement.XDistance() >= currentElement.YDistance() && currentElement.XDistance() >= MinSizeToStraight && currentElement.Straightness() >= straightness)
+            {
+                currentElement.CrackType = Crack.CrackTypeEnum.Transversal;
+            }
+            if (currentElement.YDistance() >= currentElement.XDistance() && currentElement.YDistance() >= MinSizeToStraight && currentElement.Straightness() >= straightness)
+            {
+                currentElement.CrackType = Crack.CrackTypeEnum.Longitudinal;
+            }
+
+            if (currentElement.CrackType != Crack.CrackTypeEnum.Unknown)
+            {
+                //foreach (var point in currentElement.Cells)
+                //{
+                //    array[point.Y, point.X] = (ProcessingXMLCrackFilePage.resultType)Enum.Parse(typeof(ProcessingXMLCrackFilePage.resultType), currentElement.CrackType.ToString());
+                //}
+                Parallel.ForEach(currentElement.Cells,
+                        point =>
+                        {
+                            array[point.Y, point.X] = (ManualCrackClassification.resultType)Enum.Parse(typeof(ManualCrackClassification.resultType), currentElement.CrackType.ToString());
+                        });
+            }
+        }
+        #endregion
+        return;
+    }
+
+    private async Task AddAdjacentCells(CrackInMatrix crack, int i, int j, resultType previousType)
+    {
+        if (array[i, j] == resultType.Pending && (arrayLong[i, j] == previousType || arrayTrans[i, j] == previousType))
+        {
+            CrackInMatrix.PointInMatrix pointInMatrix = new CrackInMatrix.PointInMatrix(i, j);
+            crack.Cells.Add(pointInMatrix);
+            array[i, j] = resultType.Other;
+            arrayId[i, j] = crack.Id;
+
+            int minI = (i > 1) ? i - 1 : i;
+            int maxI = (i + 1 >= matrixHeight) ? i : i + 1;
+            int minJ = (j > 1) ? j - 1 : j;
+            int maxJ = (j + 1 >= matrixWidth) ? j : j + 1;
+
+            for (int subI = minI; subI <= maxI; subI++)
+            {
+                for (int subJ = minJ; subJ <= maxJ; subJ++)
+                {
+                    if (subI != i || subJ != j)
+                    {
+                        await AddAdjacentCells(crack, subI, subJ, previousType);
+                    }
+                }
+            }
+        }
+
+        return;
+    }
+
+    private Task countCells()
+    {
+        @for (int i = 0; i < matrixHeight; i++)
+        {
+            @for (int j = 0; j < matrixWidth; j++)
+            {
+                dicCrackCounter[array[i, j].ToString()]++;
+            }
+        }
+
+        listCrackCounters = new List<CrackCounter>();
+        foreach (var elem in dicCrackCounter)
+        {
+            CrackCounter crackCounter = new CrackCounter()
+                {
+                    CrackType = elem.Key,
+                    Count = elem.Value
+                };
+            listCrackCounters.Add(crackCounter);
+        }
+
+        return Task.CompletedTask;
+    }
+
+
+    private Task ShowMatrix()
+    {
+        @for (int i = 0; i < matrixHeight; i++)
+        {
+            @for (int j = 0; j < matrixWidth; j++)
+            {
+                arrayDisplay[i, j] = array[i, j];
+
+                arrayIdDisplay[i, j] = arrayId[i, j];
+
+                // To Debug only:
+                //                arrayIdDisplay[i, j] = arrayFirstId[i, j];
+
+            }
+        }
+
+
+        return Task.CompletedTask;
+    }
+
+
+    public double getDoubleFromNode(XmlNode doc, string fieldName)
+    {
+        double result = 0;
+
+        var xmlselNode = doc.SelectSingleNode(fieldName);
+
+        if (xmlselNode != null)
+        {
+            result = Convert.ToDouble(xmlselNode.InnerText);
+        }
+
+        return result;
+    }
+
+
+    public int getIntFromNode(XmlNode doc, string fieldName)
+    {
+        int result = 0;
+
+        var xmlselNode = doc.SelectSingleNode(fieldName);
+
+        if (xmlselNode != null)
+        {
+            result = Convert.ToInt32(xmlselNode.InnerText);
+        }
+
+        return result;
+    }
+
+
+    public Decimal getDecFromNode(XmlNode doc, string fieldName)
+    {
+        Decimal result = 0;
+
+        var xmlselNode = doc.SelectSingleNode(fieldName);
+
+        if (xmlselNode != null)
+        {
+            result = Convert.ToDecimal(xmlselNode.InnerText);
+        }
+
+        return result;
+    }
+
+
+    public async void getCracks(XmlDocument doc)
+    {
+        listCracks.Clear();
+        listCrackCrackNodes.Clear();
+
+        XmlNode? xmlCracks = doc.SelectSingleNode("LcmsAnalyserResults/CrackInformation/CrackList");
+        if (xmlCracks == null)
+        {
+            return;
+        }
+
+        XmlNodeList? xmlCrackList = xmlCracks.SelectNodes("Crack");
+        if (xmlCrackList == null)
+        {
+            return;
+        }
+
+        foreach (XmlNode xmlACrack in xmlCrackList)
+        {
+            Crack crack = new Crack()
+                {
+                    Id = getIntFromNode(xmlACrack, "CrackID"),
+                    WeightedWidth = getDecFromNode(xmlACrack, "WeightedWidth"),
+                    WeightedDepth = getDecFromNode(xmlACrack, "WeightedDepth"),
+                    CrackType = Crack.CrackTypeEnum.Unknown,
+                };
+
+            var xmlNodeList = xmlACrack.SelectNodes("Node");
+
+            if (xmlNodeList == null)
+            {
+                return;
+            }
+
+
+            crack.MaxX = crack.MaxY = 0;
+            crack.MinX = ImageWidth * ResolutionX;
+            crack.MinY = ImageHeight * ResolutionY;
+
+            List<CrackNode> tempCrackNodeList = new List<CrackNode>();
+
+            bool[,] alreadyCounted = new bool[matrixHeight, matrixWidth];
+
+            foreach (XmlNode xmlANode in xmlNodeList)
+            {
+                CrackNode crackNode = new CrackNode()
+                    {
+                        CrackId = crack.Id,
+                        X = getDoubleFromNode(xmlANode, "X"),
+                        Y = getDoubleFromNode(xmlANode, "Y"),
+                        Depth = getDoubleFromNode(xmlANode, "Depth"),
+                        Width = getDoubleFromNode(xmlANode, "Width")
+                    };
+
+                var inttoYCells = toYCells(crackNode.Y);
+                var inttoXCells = toXCells(crackNode.X);
+
+                crackNode.colX = inttoXCells;
+                crackNode.colY = inttoYCells;
+
+                if (inttoXCells < colLaneMarkLeft || inttoXCells > colLaneMarkRight)
+                {
+                    continue;
+                }
+
+                crack.MaxX = (crack.MaxX > crackNode.X) ? crack.MaxX : crackNode.X;
+                crack.MaxY = (crack.MaxY > crackNode.Y) ? crack.MaxY : crackNode.Y;
+                crack.MinX = (crack.MinX < crackNode.X) ? crack.MinX : crackNode.X;
+                crack.MinY = (crack.MinY < crackNode.Y) ? crack.MinY : crackNode.Y;
+
+
+                if (!alreadyCounted[inttoYCells, inttoXCells])
+                {
+                    crackCounter[inttoYCells, inttoXCells]++;
+                    alreadyCounted[inttoYCells, inttoXCells] = true;
+                }
+
+                tempCrackNodeList.Add(crackNode);
+            }
+
+            crack.colMinX = toXCells(crack.MinX);
+            crack.colMaxX = toXCells(crack.MaxX);
+
+            crack.colMinY = toYCells(crack.MaxY);  // MaxY is in opposite Direction than column system, so, MaxY is the minimun column Y (down on the image)
+            crack.colMaxY = toYCells(crack.MinY);
+
+            //  This Analysis is just for small lines direction
+            if (crack.CrackType == Crack.CrackTypeEnum.Unknown)
+            {
+                if (crack.MaxX - crack.MinX > crack.MaxY - crack.MinY)
+                {
+                    crack.CrackType = Crack.CrackTypeEnum.Transversal;
+                }
+                else
+                {
+                    crack.CrackType = Crack.CrackTypeEnum.Longitudinal;
+                }
+            }
+
+            listCrackCrackNodes.AddRange(tempCrackNodeList);
+            listCracks.Add(crack);
+        }
+
+    }
+
+
+    public int TranslateMMToColumn(double xValue)
+    {
+        return (int)((xValue / ResolutionX) / squareHorizontalSize);
+    }
+
+    public void AddToMatrx(XmlNode xmlSelNode, resultType crackType)
+    {
+        if (xmlSelNode == null)
+        {
+            return;
+        }
+
+
+        foreach (XmlNode childNode in xmlSelNode.ChildNodes)
+        {
+            double MinX = getDoubleFromNode(childNode, "BoundingBox/MinX");
+            double MinY = getDoubleFromNode(childNode, "BoundingBox/MinY");
+            double MaxX = getDoubleFromNode(childNode, "BoundingBox/MaxX");
+            double MaxY = getDoubleFromNode(childNode, "BoundingBox/MaxY");
+
+            int colMinX = TranslateMMToColumn(MinX);
+            int colMinY = TranslateMMToColumn(MinY);
+            int colMaxX = TranslateMMToColumn(MaxX);
+            int colMaxY = TranslateMMToColumn(MaxY);
+
+            @for (int i = (matrixHeight - colMaxY); i < (matrixHeight - colMinY); i++)
+            {
+                @for (int j = colMinX; j < colMaxX; j++)
+                {
+                    array[i, j] = crackType;
+                }
+            }
+        }
+    }
+
+    public void cleanArray()
+    {
+
+        dicCrackCounter["Unknown"] = 0;
+        dicCrackCounter["Alligator"] = 0;
+        dicCrackCounter["Offroad"] = 0;
+        dicCrackCounter["WheelPath"] = 0;
+        dicCrackCounter["Transversal"] = 0;
+        dicCrackCounter["Longitudinal"] = 0;
+        dicCrackCounter["Multiple"] = 0;
+
+
+        @for (int i = 0; i < matrixHeight; i++)
+        {
+            @for (int j = 0; j < matrixWidth; j++)
+            {
+                array[i, j] = resultType.Unknown;
+                arrayId[i, j] = 0;
+            }
+        }
+    }
+
+    public enum resultType
+    {
+        Unknown,
+        Offroad,
+        WheelPath,
+        Transversal,
+        Longitudinal,
+        Multiple,
+        Alligator,
+        Pending,
+        Other,
+    }
+}

@@ -1,0 +1,832 @@
+﻿@using CommunityToolkit.Maui.Storage
+@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.MapHelpers
+@using DataView2.States
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using DataView2.ViewModels
+@using Esri.ArcGISRuntime.Geometry
+@using Google.Protobuf.WellKnownTypes
+@using System.Text.RegularExpressions
+@using Serilog
+@using static DataView2.States.ApplicationState
+
+@inject ApplicationEngine appEngine
+@inject ApplicationState appState
+@inject LayerViewModel viewModel;
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<MudContainer Class="my-5">
+    <div class="d-flex justify-content-between">
+        <MudTooltip Text="Exit">
+            <MudIconButton Icon="@Icons.Material.Filled.ExitToApp" OnClick="ExitSurveySetMode"/>
+        </MudTooltip>
+    </div>
+    <MudCard Elevation="0" Class="my-5">
+        @if (currentView == SampleUnitView.SampleUnitSetList)
+        {
+            <MudText Typo="Typo.h6" Align="Align.Center">@title</MudText>
+            @if(sampleUnitSets != null && sampleUnitSets.Count > 0)
+            {
+                <MudTable Items="sampleUnitSets" Breakpoint="Breakpoint.None" Hover="true" Class="m-3" HeaderClass="mud-header" MultiSelection="true" @bind-SelectedItems="selectedSampleUnitSets">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Description">@context.Description</MudTd>
+                        <MudTd>
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" OnClick="@(() => EnterSampleUnitSet(context))" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+            else
+            {   
+                <MudPaper Outlined="true" Class="m-2 p-3">
+                    <MudText>No Sample Unit Set Found</MudText>
+                </MudPaper>
+            }
+            <MudStack Row Justify="Justify.Center" AlignItems="AlignItems.Center" Spacing="1">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" Class="my-2" OnClick="@(() => NavigateTo(SampleUnitView.CreateSampleUnitSet))">
+                    Create
+                </MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="DeleteSampleUnitSets">
+                    Delete
+                </MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ExportSampleUnitSets">
+                    Export
+                </MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ImportSampleUnitSets">
+                    Import
+                </MudButton>
+            </MudStack>
+        }
+
+        @if (currentView == SampleUnitView.CreateSampleUnitSet)
+        {
+            <MudText Typo="Typo.h6" Align="Align.Center" Class="my-2">Create Sample Unit Set</MudText>
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="newSampleUnitSetName" Label="Sample Unit Set Name" Variant="Variant.Outlined" Style="width:80vw;" />
+                <MudTextField @bind-Value="newSampleUnitSetDescription" Label="Sample Unit Set Description" Variant="Variant.Outlined" Lines="3" Style="width:80vw;" />
+            </MudStack>
+            <div class="d-flex justify-content-center align-items-center my-3 gap-2">
+                <MudButton Variant="Variant.Outlined" OnClick="GoBackToSetList">Cancel</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateSampleUnitSet">Save</MudButton>
+            </div>
+        }
+
+        @if (currentView == SampleUnitView.SampleUnitList && currentSampleUnitSet != null)
+        {
+            <div class="d-flex align-items-center my-3">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="GoBackToSetList" />
+                <MudText Typo="Typo.h6" Class="ml-3">Sample Units in "@currentSampleUnitSet.Name"</MudText>
+            </div>
+            @if (sampleUnits != null && sampleUnits.Count > 0)
+            {
+
+                <MudTable T="SampleUnit" Items="sampleUnits" HeaderClass="mud-header" Hover MultiSelection="true" 
+                    OnRowClick="OnSampleUnitSelectionChanged" @bind-SelectedItems="selectedSampleUnits" RowsPerPage="50" Height="60vh" FixedHeader>
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Area (m²)</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Area (m²)">@Math.Round(context.Area_m2, 2)</MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager />
+                    </PagerContent>
+                </MudTable>
+            }
+            else
+            {
+                <MudText>No Sample Units Found</MudText>
+            }
+
+            <div class="d-flex justify-content-center align-items-center gap-2 my-3">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="CreateSampleUnit">Create</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="DeleteSampleUnits">Delete</MudButton>
+
+                @* <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="@(() => NavigateTo(SampleUnitView.ImportSampleUnit))">Import Sample Unit</MudButton> *@
+            </div>
+        }
+
+
+        @if (currentView == SampleUnitView.CreateSampleUnit)
+        {
+            <MudText Typo="Typo.h6" Align="Align.Center" Class="mb-3">Create Sample Unit</MudText>
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="sampleUnitName" Label="Sample Unit Name" Variant="Variant.Outlined" Style="width:80vw;" />
+                <MudTextField @bind-Value="coordinateString" Label="Coordinates" Variant="Variant.Outlined" Lines="5" Style="width:80vw;" />
+            </MudStack>
+            <div class="d-flex justify-content-center align-items-center gap-2 m-2">
+                <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="CancelCreatingSampleUnit">Cancel</MudButton>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveSampleUnit">Save</MudButton>
+            </div>
+        }
+
+        @* @if (currentView == SampleUnitView.ImportSampleUnit) *@
+        @* { *@
+        @*     <div class="d-flex align-items-center mb-3"> *@
+        @*         <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"  OnClick="@(() => NavigateTo(SampleUnitView.SampleUnitList))" /> *@
+        @*         <MudText Typo="Typo.h6" Class="ml-3">Import Sample Unit</MudText> *@
+        @*     </div> *@
+        @*     <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center"> *@
+        @*         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UploadGeoJsonFile">Upload GeoJSON</MudButton> *@
+        @*     </MudStack> *@
+        @*     @if (geojsonFile != null) *@
+        @*     { *@
+        @*         <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Class="my-5"> *@
+        @*             <MudTextField @bind-Value="geojsonSampleUnitName" Label="Sample Unit Name" Variant="Variant.Outlined" Style="width:80vw;" /> *@
+        @*             <MudTextField @bind-Value="geojsonCoordinateString" Label="Coordinates" Variant="Variant.Outlined" Lines="5" Style="width:80vw;" ReadOnly /> *@
+        @*         </MudStack> *@
+        @*         <div class="d-flex justify-content-center align-items-center gap-2 my-2"> *@
+        @*             <MudButton Color="Color.Primary" Variant="Variant.Outlined" OnClick="@(() => NavigateTo(SampleUnitView.SampleUnitList))">Cancel</MudButton> *@
+        @*             <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveSampleUnit">Save</MudButton> *@
+        @*         </div> *@
+        @*     } *@
+        @* } *@
+    </MudCard>
+</MudContainer>
+
+@code {
+    [Parameter] 
+    public SampleUnitSetType Type { get; set; }
+
+    private string title = string.Empty;
+
+    private List<SampleUnit_Set> sampleUnitSets = new List<SampleUnit_Set>();
+    private HashSet<SampleUnit_Set> selectedSampleUnitSets = new HashSet<SampleUnit_Set>();
+    private SampleUnit_Set currentSampleUnitSet = null;
+    private string newSampleUnitSetName;
+    private string newSampleUnitSetDescription;
+
+    private string coordinateString;
+    private string sampleUnitName;
+    //private string sectionId;
+    private List<SampleUnit> sampleUnits = new List<SampleUnit>();
+    private HashSet<SampleUnit> selectedSampleUnits = new HashSet<SampleUnit>();
+    private SampleUnit selectedSampleUnit;
+    //private string geojsonFile;
+    //private string geojsonSampleUnitName;
+    //private string geojsonCoordinateString;
+
+    public enum SampleUnitView
+    {
+        SampleUnitSetList,
+        CreateSampleUnitSet,
+        SampleUnitList,
+        CreateSampleUnit,
+        ImportSampleUnit
+    }
+    private SampleUnitView currentView = SampleUnitView.SampleUnitSetList;
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        appState.IsPopupOpen = true;
+
+        if(Type == SampleUnitSetType.PCI)
+        {
+            title = "PCI Sample Unit Set";
+        }
+        else if(Type == SampleUnitSetType.Summary)
+        {
+            title = "Summary Sample Unit Set";
+        }
+
+        GetSampleUnitSets();
+        appState.OnPolygonUpdated += UpdateCoordinateFields;
+    }
+
+    private async void GetSampleUnitSets()
+    {
+        var response = await appEngine.SampleUnitSetService.GetAll(new Empty());
+        if (response != null && response.Count > 0)
+        {
+            if(Type == SampleUnitSetType.Summary)
+            {
+                sampleUnitSets = response.Where(x => x.Type == SampleUnitSetType.Summary || x.Type == SampleUnitSetType.Interval).ToList();
+            }
+            else if (Type == SampleUnitSetType.PCI)
+            {
+                sampleUnitSets = response.Where(x => x.Type == SampleUnitSetType.PCI).ToList();
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async void DeleteSampleUnitSets()
+    {
+        if(selectedSampleUnitSets.Count > 0)
+        {
+            bool userConfirmed = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure you want to delete selected sample unit set(s)?", "Yes", "No");
+            if (userConfirmed)
+            {
+
+                var response = await appEngine.SampleUnitSetService.DeleteRange(selectedSampleUnitSets.ToList());
+
+                if (response != null && response.Id != -1)
+                {
+                    Snackbar.Add("Sample Unit Set has been successfully deleted.", Severity.Success);
+
+                    foreach (var unitSet in selectedSampleUnitSets)
+                    {
+                        sampleUnitSets.Remove(unitSet);                        
+                    }
+
+                    selectedSampleUnitSets.Clear();
+                }
+                else
+                {
+                    Snackbar.Add("Something went wrong while deleting sample unit set. Please try again.", Severity.Error);
+                }
+            }
+            StateHasChanged();
+        }
+        else
+        {
+            Snackbar.Add("Select at least one sample unit set.", Severity.Error);
+        }
+    }
+
+    private async void CreateSampleUnitSet()
+    {
+        if(newSampleUnitSetName != null && newSampleUnitSetDescription != null)
+        {
+            var newSet = new SampleUnit_Set
+            {
+                Name = newSampleUnitSetName,
+                Description = newSampleUnitSetDescription,
+                Type = Type,
+            };
+
+            var response = await appEngine.SampleUnitSetService.Create(newSet);
+            if (response.Id != -1)
+            {
+                Snackbar.Add("Sample Unit Set has been successfully created.", Severity.Success);
+                newSampleUnitSetDescription = null;
+                newSampleUnitSetName = null;
+                GetSampleUnitSets();
+                NavigateTo(SampleUnitView.SampleUnitSetList);
+            }
+            else
+            {
+                Snackbar.Add(response.Message, Severity.Error);
+            }
+        }
+        else
+        {
+            Snackbar.Add("All fields must be filled.", Severity.Error);
+        }
+    }
+
+    private void NavigateTo(SampleUnitView view)
+    {
+        currentView = view;
+    }
+
+    private void EnterSampleUnitSet(SampleUnit_Set set)
+    {
+        currentSampleUnitSet = set; // Enter into the selected set
+        ShowExistingBoundaries(set);
+        NavigateTo(SampleUnitView.SampleUnitList);
+    }
+
+    private void GoBackToSetList()
+    {
+        currentSampleUnitSet = null; // Return to the main list
+        sampleUnits.Clear();
+        appState.ClearSurveySetGraphic();
+        appState.StopGeometryEditor();
+        NavigateTo(SampleUnitView.SampleUnitSetList);
+    }
+
+    private async void ExportSampleUnitSets()
+    {
+        if (selectedSampleUnitSets.Count > 0)
+        {
+            // Prepare the GeoJSON FeatureCollection structure
+            var featureCollection = new
+            {
+                type = "FeatureCollection",
+                features = new List<object>(),
+            };
+
+            foreach (var sampleUnitSet in selectedSampleUnitSets)
+            {
+                var sampleUnitSetName = sampleUnitSet.Name;
+                if (sampleUnitSet.SampleUnits != null)
+                {
+                    foreach (var sampleUnit in sampleUnitSet.SampleUnits)
+                    {
+                        var coordinates = Newtonsoft.Json.Linq.JToken.Parse(sampleUnit.Coordinates);
+
+                        // Build properties dynamically
+                        var properties = new Dictionary<string, object>
+                        {
+                            { "sampleUnitSet", sampleUnitSetName },
+                            { "sampleUnitSetType", sampleUnitSet.Type },
+                            { "sampleUnit", sampleUnit.Name }
+                        };
+
+                        if (sampleUnit.NumOfSlabs != null)
+                        {
+                            properties["numOfSlabs"] = sampleUnit.NumOfSlabs;
+                        }
+
+                        var feature = new
+                        {
+                            type = "Feature",
+                            geometry = new
+                            {
+                                type = "Polygon",
+                                coordinates = new[] { coordinates }
+                            },
+                            properties = properties
+                        };
+
+                        // Add the feature to the featureCollection
+                        featureCollection.features.Add(feature);
+                    }
+                }
+            }
+
+            var geoJson = Newtonsoft.Json.JsonConvert.SerializeObject(featureCollection, Newtonsoft.Json.Formatting.Indented);
+
+            if (geoJson != null)
+            {
+                string baseFolderPath = Path.Combine(AppPaths.DocumentsFolder, "User Export Files");
+                string baseFolderExportPath = Path.Combine(baseFolderPath, "Summary and PCI Sets");
+
+                string folder = "";
+
+                if(Type == SampleUnitSetType.PCI)
+                {
+                    folder = Path.Combine(baseFolderExportPath, "PCI Unit Sets");
+                    if (!Directory.Exists(folder))
+                    {
+                        Directory.CreateDirectory(folder);
+                    }
+
+                }
+                else if(Type == SampleUnitSetType.Summary)
+                {
+                    folder = Path.Combine(baseFolderExportPath, "Summary Unit Sets");
+                    if (!Directory.Exists(folder))
+                    {
+                        Directory.CreateDirectory(folder);
+                    }
+                }
+
+                string fileName = $"DataView2_SampleUnitSet_{DateTime.Now:yyyyddMM_HHmmss}.json";
+                string filePath = Path.Combine(folder, fileName);
+
+                //string downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                //string filePath = Path.Combine(downloadsPath, $"DataView2_SampleUnitSet_{DateTime.Now.ToFileTime()}.json");
+
+                // Save the GeoJSON to a .json file
+                await File.WriteAllTextAsync(filePath, geoJson);
+
+                await App.Current.MainPage.DisplayAlert("Success", $"Successfully exported geojson to {filePath}", "OK");
+
+                selectedSampleUnitSets.Clear();
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            Snackbar.Add("Select at least one sample unit set.", Severity.Error);
+        }
+    }
+
+
+    private async void ImportSampleUnitSets()
+    {
+        //Open a file picker
+        var jsonFileType = new FilePickerFileType(
+        new Dictionary<DevicePlatform, IEnumerable<string>>
+            {
+            { DevicePlatform.iOS, new[] { "public.json" } }, // UTType for JSON
+            { DevicePlatform.Android, new[] { "application/json" } }, // MIME type
+            { DevicePlatform.WinUI, new[] { ".json" } }, // File extension
+            { DevicePlatform.macOS, new[] { "json" } },
+            { DevicePlatform.Tizen, new[] { "*/*" } } // Broad, fallback
+            });
+
+        PickOptions options = new()
+        {
+            PickerTitle = "Select a GeoJSON (.json) file",
+            FileTypes = jsonFileType,
+        };
+        var result = await FilePicker.Default.PickAsync(options);
+
+        if (result != null)
+        {
+            using var stream = await result.OpenReadAsync();
+            using var reader = new StreamReader(stream);
+            string geoJson = await reader.ReadToEndAsync();
+            try
+            {
+                var fc = Newtonsoft.Json.JsonConvert.DeserializeObject<SampleUnitFeatureCollection>(geoJson);
+                foreach (var feature in fc.features)
+                {
+                    var setName = feature.properties.sampleUnitSet;
+                    var unitName = feature.properties.sampleUnit;
+                    var type = feature.properties.sampleUnitSetType;
+
+                    int? numOfSlabs = null;
+
+                    if (feature.properties.numOfSlabs != null)
+                    {
+                        numOfSlabs = feature.properties.numOfSlabs;
+                    }
+
+                    var coordinates = feature.geometry.coordinates;
+                    var firstRing = coordinates.FirstOrDefault();
+
+                    if (firstRing != null)
+                    {
+                        string coordinatesString = System.Text.Json.JsonSerializer.Serialize(firstRing);
+
+                        int? sampleUnitSetId = null;
+                        //save sample unit set
+                        if (!string.IsNullOrEmpty(setName))
+                        {
+                            var sampleUnitSet = new SampleUnit_Set
+                            {
+                                Name = setName,
+                                Type = System.Enum.IsDefined(typeof(SampleUnitSetType), type)
+                                            ? (SampleUnitSetType)type
+                                            : SampleUnitSetType.Summary,
+                                Description = "Imported from GeoJSON",
+                            };
+                            var response = await appEngine.SampleUnitSetService.GetOrCreate(sampleUnitSet);
+                            if (response != null)
+                            {
+                                sampleUnitSetId = response.Id;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(unitName) && sampleUnitSetId != null)
+                        {
+                            var area = MapHelpers.GeneralMapHelper.GetPolygonArea(firstRing);
+
+                            //create a new sample unit
+                            var newSampleUnit = new SampleUnit
+                                {
+                                    Name = unitName,
+                                    Coordinates = coordinatesString,
+                                    SampleUnitSetId = sampleUnitSetId.Value,
+                                    Area_m2 = area,
+                                };
+
+                            if (numOfSlabs != null)
+                            {
+                                newSampleUnit.NumOfSlabs = numOfSlabs;
+                            }
+                            var sampleUnitResponse = await appEngine.SampleUnitService.GetOrCreate(newSampleUnit);
+                            if (sampleUnitResponse == null) continue;
+                        }
+                    }
+                }
+
+                Snackbar.Add("Sample unit set(s) imported successfully.", Severity.Success);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add("Failed to import sample unit sets(s). Check if the geojson format is correct", Severity.Error);
+            }
+
+            GetSampleUnitSets();
+        }
+        else
+        {
+            Snackbar.Add("Something is wrong with uploading a file. Please try again.", Severity.Error);          
+        }
+    }
+
+    private async void ShowExistingBoundaries(SampleUnit_Set unitSet)
+    {
+        if(unitSet.SampleUnits != null)
+        {
+            sampleUnits = unitSet.SampleUnits.ToList();
+        }
+
+        var mapCoordinateDetails = new List<MapCoordinateDetails>();
+        //draw boundaries on the map
+        foreach (var unit in sampleUnits)
+        {
+            var boundaryCoordinates = JsonSerializer.Deserialize<List<double[]>>(unit.Coordinates);
+            // Convert List<double[]> to List<List<double>>
+            var geometryList = boundaryCoordinates
+                .Select(coord => coord.ToList())
+                .ToList();
+            var mapCoordinate = new MapCoordinateDetails
+            {
+                Coordinates = geometryList,
+                FileName = unit.Name,
+                GeometryType = "Polygon",
+                IsFirst = false,
+                SampleUnitStatus = null,
+                SurveyStatus = null
+            };
+            mapCoordinateDetails.Add(mapCoordinate);
+        }
+        
+        appState.FetchCoordinatesDetails(mapCoordinateDetails);
+        StateHasChanged();
+    }
+
+    private async void DeleteSampleUnits()
+    {
+        if (selectedSampleUnits.Count > 0)
+        {
+            bool userConfirmed = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure you want to delete selected sample unit(s)?", "Yes", "No");
+            if (userConfirmed)
+            {
+                foreach (var sampleUnit in selectedSampleUnits)
+                {
+                    var response = await appEngine.SampleUnitService.DeleteObject(sampleUnit);
+                    if (response.Id != -1)
+                    {
+                        currentSampleUnitSet.SampleUnits.Remove(sampleUnit);
+                        Snackbar.Add($"The boundary '{sampleUnit.Name}' has been successfully deleted.", Severity.Success);
+                    }
+                    else
+                    {
+                        Snackbar.Add("Something went wrong. Please try again.", Severity.Error);
+                    }
+                }
+                selectedSampleUnits.Clear();
+                appState.ClearSurveySetGraphic();
+                ShowExistingBoundaries(currentSampleUnitSet);
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            Snackbar.Add("Please select at least one sample unit", Severity.Error);
+        }
+    }
+
+    private async void OnDeleteBoundaryClicked(SampleUnit sampleUnit)
+    {
+        bool userConfirmed = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure you want to delete {sampleUnit.Name}?", "Yes", "No");
+        if(userConfirmed)
+        {
+            //delete
+            var response = await appEngine.SampleUnitService.DeleteObject(sampleUnit);
+            if(response.Id != -1)
+            {
+                currentSampleUnitSet.SampleUnits.Remove(sampleUnit);
+                Snackbar.Add($"The boundary '{sampleUnit.Name}' has been successfully deleted.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Something went wrong. Please try again.", Severity.Error);
+            }
+            appState.ClearSurveySetGraphic();
+            ShowExistingBoundaries(currentSampleUnitSet);
+            StateHasChanged();
+        }
+    }
+
+    private void OnSampleUnitSelectionChanged(TableRowClickEventArgs<SampleUnit> args)
+    {
+        try
+        {
+            if (args!=null)
+            {
+                selectedSampleUnit = args.Item;
+                appState.HighlightGraphic(args.Item.Name, "Click");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex.Message);
+        }
+    }
+
+    private async void ExitSurveySetMode()
+    {
+        try
+        {
+            bool userConfirmed = await App.Current.MainPage.DisplayAlert("Confirmation", $"Are you sure to exit a sample unit page?", "Yes", "No");
+            if (userConfirmed)
+            {
+                Dispose();
+                appState.ExitSurveySet();
+                appState.IsPopupOpen = false;
+                appState.ShowHideSurveyTemplate(false);
+                StateHasChanged();
+                if (Type == SampleUnitSetType.Summary)
+                {
+                    viewModel.OpenSummariesPopup("summary");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error existing surveyset mode: {ex.Message}");
+        }
+    }
+
+    private async void UpdateCoordinateFields(List<List<double>> polygonInfo, string type)
+    {
+        if (polygonInfo != null)
+        {
+            double[][] coordinatesArray = polygonInfo.Select(list => list.ToArray()).ToArray();
+            // Convert double[][] to JSON format
+            string jsonString = JsonSerializer.Serialize(coordinatesArray);
+
+            coordinateString = jsonString;
+            StateHasChanged();
+        }
+        else
+        {
+            coordinateString = string.Empty;
+            type = null;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelCreatingSampleUnit()
+    {
+        NavigateTo(SampleUnitView.SampleUnitList);
+        appState.ChangeEditingBool(false);
+        coordinateString = string.Empty;
+        sampleUnitName = string.Empty;
+        appState.ClearSurveySetGraphic();
+        ShowExistingBoundaries(currentSampleUnitSet);
+    }
+
+    public static bool IsValidCoordinateString(string coordinateString)
+    {
+        // Regex pattern to match [[long,lat],[long,lat],[long,lat]] format
+        string pattern = @"^\[\[(\-?\d+(\.\d+)?),(\-?\d+(\.\d+)?)\](,\[\-?\d+(\.\d+)?,\-?\d+(\.\d+)?\])*\]$";
+
+        // Validate using Regex
+        return Regex.IsMatch(coordinateString, pattern);
+    }
+
+    private async void SaveSampleUnit()
+    {
+        string sampleUnitNameToSave = sampleUnitName;
+        string coordinateStringToSave = coordinateString;
+
+        // if (currentView == SampleUnitView.ImportSampleUnit)
+        // {
+        //     sampleUnitNameToSave = geojsonSampleUnitName;
+        //     coordinateStringToSave = geojsonCoordinateString;
+        // }
+
+        //check if both survey and coordinates are filled
+        if (sampleUnitNameToSave != null && coordinateStringToSave != null)
+        {
+            if(!IsValidCoordinateString(coordinateStringToSave))
+            {
+                await App.Current.MainPage.DisplayAlert("Alert", "Invalid format. Please ensure the coordinates are provided in the format [[long1,lat1],[long2,lat2],..].", "OK");
+                return;
+            }
+
+            var parsedCoordinates = System.Text.Json.JsonSerializer.Deserialize<List<List<double>>>(coordinateStringToSave);
+            if (parsedCoordinates != null)
+            {
+                var area = GeneralMapHelper.GetPolygonArea(parsedCoordinates);
+                //save sample unit
+                var sampleUnit = new SampleUnit
+                {
+                    Name = sampleUnitNameToSave,
+                    Coordinates = coordinateStringToSave,
+                    //SectionId = sectionId,
+                    SampleUnitSetId = currentSampleUnitSet.Id,
+                    Area_m2 = area,
+                };
+
+                var response = await appEngine.SampleUnitService.Create(sampleUnit);
+                if (response != null && response.Id != -1)
+                {
+                    await App.Current.MainPage.DisplayAlert("Success", "Sample Unit has been successfully saved.", "Ok");
+                    sampleUnitName = null;
+                    //sectionId = null;
+                    coordinateString = null;
+                    // geojsonSampleUnitName = null;
+                    // geojsonCoordinateString = null;
+
+                    if(currentSampleUnitSet.SampleUnits == null)
+                    {
+                        currentSampleUnitSet.SampleUnits = new List<SampleUnit>();
+                    }
+
+                    sampleUnit.Id = response.Id; //assign the saved entity id
+                    currentSampleUnitSet.SampleUnits.Add(sampleUnit);
+                    appState.ClearSurveySetGraphic();
+                    appState.ChangeEditingBool(false);
+                    ShowExistingBoundaries(currentSampleUnitSet);
+                    NavigateTo(SampleUnitView.SampleUnitList);
+                }
+                else
+                {
+                    Snackbar.Add(response.Message, Severity.Error);
+                }
+                StateHasChanged();
+            }
+            else
+            {
+                // Notify the user of invalid coordinate string format
+                await App.Current.MainPage.DisplayAlert("Error", "The coordinate string format is invalid. It must be a 2D array of numbers.", "Ok");
+            }
+        }
+        else
+        {
+            Snackbar.Add("All fields must be filled.", Severity.Error);
+        }
+    }
+
+    private void CreateSampleUnit()
+    {
+        NavigateTo(SampleUnitView.CreateSampleUnit);
+        appState.ChangeEditingBool(true);
+    }
+
+    // private async void UploadGeoJsonFile()
+    // {
+    //     try
+    //     {
+    //         var jsonFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+    //         {
+    //             { DevicePlatform.iOS, new[] { "public.json", ".json" } },
+    //             { DevicePlatform.Android, new[] { "application/json", ".json" } },
+    //             { DevicePlatform.WinUI, new[] { ".json" } },
+    //             { DevicePlatform.macOS, new[] { "public.json", ".json" } }
+    //         });
+
+    //         var result = await FilePicker.PickAsync(new PickOptions
+    //         {
+    //             PickerTitle = "Please select a geojson file",
+    //             FileTypes = jsonFileType,
+    //         });
+
+    //         if (result != null)
+    //         {
+    //             appState.ClearSurveySetGraphic();
+    //             var jsonFile = result.FullPath;
+    //             string jsonContent = File.ReadAllText(jsonFile);
+    //             GeoJsonObject surveyData = JsonSerializer.Deserialize<GeoJsonObject>(jsonContent);
+    //             if(IsValidGeoJson(surveyData))
+    //             {
+    //                 geojsonFile = jsonFile;
+    //                 var jsonNode = JsonNode.Parse(jsonContent);
+
+    //                 Directly access the "coordinates" array
+    //                 var coordinates = jsonNode["geometry"]?["coordinates"];
+    //                 if (coordinates != null)
+    //                 {
+    //                     string resultJson = coordinates.ToJsonString();
+    //                     geojsonCoordinateString = resultJson;
+    //                 }
+    //                 draw the polygon on the map
+    //                 var boundaryCoordinates = JsonSerializer.Deserialize<List<double[]>>(coordinates);
+    //                 var geometryList = boundaryCoordinates
+    //                     .Select(coord => coord.ToList())
+    //                     .ToList();
+    //                 appState.FetchCoordinatesFromJSON(geometryList, null, "Polygon", false);
+    //             }
+    //             else
+    //             {
+    //                 Snackbar.Add("No valid geojson found", Severity.Error);
+    //             }
+    //         }
+
+    //         StateHasChanged();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Error in loading geojson files {ex.Message}");
+    //     }
+    // }
+
+    //Validate Geojson file
+    private bool IsValidGeoJson(GeoJsonObject geoJsonObject)
+    {
+        return geoJsonObject.type != null
+            && geoJsonObject.properties != null
+            && geoJsonObject.geometry != null
+            && geoJsonObject.geometry.coordinates != null;
+    }
+
+    private void Dispose()
+    {
+        appState.OnPolygonUpdated -= UpdateCoordinateFields;
+    }
+}

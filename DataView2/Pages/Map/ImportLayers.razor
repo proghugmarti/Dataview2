@@ -1,0 +1,1439 @@
+﻿@using CommunityToolkit.Maui.Storage
+@using CsvHelper
+@using DataView2.Core.Helper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.Other
+@using DataView2.Engines
+@using DataView2.States
+@using DataView2.ViewModels
+@using Google.Protobuf.WellKnownTypes
+@using System.Reflection
+@using System.Text.RegularExpressions
+@using Newtonsoft.Json
+@using Newtonsoft.Json.Linq
+@using System.Dynamic
+@using System.Globalization
+@using Serilog
+
+@inject ApplicationEngine appEngine;
+@inject ApplicationState appState;
+@inject LayerViewModel viewModel;
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:3px; margin:0;" OnClick="Close"></MudIconButton>
+</div>
+
+<MudContainer>
+    <MudStack>
+        @if(file == "shapefile")
+        {
+            <MudText Typo="Typo.h6" Style="font-weight:500;" Class="mx-auto">Import Shapefiles</MudText>
+            <div class="d-flex align-items-center mx-auto" style="width:450px">
+                <MudTextField @bind-Value="folderPath" Variant="Variant.Outlined" ReadOnly="true" Class="mr-0" Style="font-size:12px; height: 35px;" />
+                <MudButton Variant="Variant.Filled"
+                Color="Color.Primary"
+                Size="Size.Small"
+                Disabled="@_busy"
+                Style="margin:10px;"
+                OnClick="OpenFolder">
+                    Open
+                </MudButton>
+            </div>
+            @if (files.Count > 0)
+            {
+                <MudPaper Outlined="true" MaxHeight="150px" Style="overflow-y:auto;">
+                    <MudList Dense="true" T="string">
+                        @foreach (var file in files)
+                        {
+                            @if (file.Key.Length > 16)
+                            {
+                                <MudItem Class="ms-3 d-flex">
+                                    @if (editingFiles.ContainsKey(file.Key))
+                                    {
+                                        <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Disabled />
+                                        <MudTextField @bind-Value="editingFiles[file.Key]" @onkeyup="@(e => { if (e.Key == "Enter") SaveEditedFileName(file.Key); })" FullWidth="false" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Primary" OnClick="@(() => SaveEditedFileName(file.Key))" />
+                                    }
+                                    else
+                                    {
+                                        <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Disabled><span style="color:red">*@file.Key</span></MudCheckBox>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" OnClick="@(() => StartEditingFileName(file.Key))" />
+                                    }
+                                </MudItem>
+                            }
+                            else
+                            {
+                                <MudItem Class="ms-3">
+                                    <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Label="@file.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, file.Key, file.Value))" />
+                                </MudItem>
+                            }
+                        }
+                    </MudList>
+                </MudPaper>
+                @if (!String.IsNullOrEmpty(warningMessage))
+                {
+                    <MudText Typo="Typo.caption" Style="color:red">@warningMessage</MudText>
+                }
+                <div class="d-flex justify-content-center align-content-center m-1">
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportShapefile">Import</MudButton>
+                </div>
+            }
+        }
+
+        else if (file == "las")
+        {
+            <MudStack>
+                <MudText Typo="Typo.h6" Style="font-weight:500;" Class="mx-auto">Import LAS Files</MudText>
+                <div class="d-flex align-items-center mx-auto" style="width:450px">
+                    <MudTextField @bind-Value="folderPath" Variant="Variant.Outlined" ReadOnly="true" Class="mr-0" Style="font-size:12px; height: 35px;" />
+                    <MudButton Variant="Variant.Filled"
+                    Color="Color.Primary"
+                    Size="Size.Small"
+                    Disabled="@_busy"
+                    Style="margin:10px;"
+                    OnClick="OpenFolder">
+                        Open
+                    </MudButton>
+                </div>
+                <div class="d-flex align-items-center mx-auto" style="width:450px">
+                    <MudSelect T="Survey" Label="Select Survey" @bind-Value="SelectedSurveyItem"
+                    FullWidth="true" Variant="Variant.Outlined" Dense="true" Required="true"
+                    Margin="Margin.Dense" ToStringFunc="@(s => s != null ? s.SurveyName : string.Empty)">
+
+
+                        @foreach (var survey in Surveys)
+                        {
+                            <MudSelectItem Value="@survey" >@survey.SurveyName </MudSelectItem>
+                        }
+
+                    </MudSelect>
+
+                    @if (SelectedSurveyItem == null || SelectedSurveyItem.SurveyName == "Create New Survey")
+                    {
+                        <MudSpacer />
+                        <MudTextField T="string" Label="New Survey Name" @bind-Value="NewSurveyName"
+                        Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+
+                </div>
+
+                @if (files.Count > 0)
+                {
+                    <MudPaper Outlined="true" MaxHeight="150px" Style="overflow-y:auto;">
+                        <MudList Dense="true" T="string">
+                            @foreach (var file in files)
+                            {
+                                <MudItem Class="ms-3">
+                                    <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Label="@file.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, file.Key, file.Value))" />
+                                </MudItem>
+                            }
+                        </MudList>
+                    </MudPaper>
+                    <div class="d-flex justify-content-center align-content-center m-1">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="() =>ImportAllLAS()" Style="margin:5px">Import All</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="() => ImportLAS()" Style="margin:5px">
+                            Import Selected
+                        </MudButton>
+                    </div>
+                }
+            </MudStack>
+        }
+        else if (file == "lasRut")
+        {
+            <MudStack>
+                <MudText Typo="Typo.h6" Style="font-weight:500;" Class="mx-auto">Import LAS Rutting</MudText>
+                <div class="d-flex align-items-center mx-auto" style="width:450px">
+                    <MudTextField @bind-Value="folderPath" Variant="Variant.Outlined" ReadOnly="true" Class="mr-0" Style="font-size:12px; height: 35px;" />
+                    <MudButton Variant="Variant.Filled"
+                    Color="Color.Primary"
+                    Size="Size.Small"
+                    Disabled="@_busy"
+                    Style="margin:10px;"
+                    OnClick="OpenFolder">
+                        Open
+                    </MudButton>
+                </div>
+                <div class="d-flex align-items-center mx-auto" style="width:450px">
+                    <MudSelect T="Survey" Label="Select Survey" @bind-Value="SelectedSurveyItem"
+                    FullWidth="true" Variant="Variant.Outlined" Dense="true" Required="true"
+                    Margin="Margin.Dense" ToStringFunc="@(s => s != null ? s.SurveyName : string.Empty)">
+
+
+                        @foreach (var survey in Surveys)
+                        {
+                            <MudSelectItem Value="@survey">@survey.SurveyName </MudSelectItem>
+                        }
+
+                    </MudSelect>
+
+                    @if (SelectedSurveyItem == null || SelectedSurveyItem.SurveyName == "Create New Survey")
+                    {
+                        <MudSpacer />
+                        <MudTextField T="string" Label="New Survey Name" @bind-Value="NewSurveyName"
+                        Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+
+                </div>
+
+                @if (files.Count > 0)
+                {
+                    <MudPaper Outlined="true" MaxHeight="150px" Style="overflow-y:auto;">
+                        <MudList Dense="true" T="string">
+                            @foreach (var file in files)
+                            {
+                                <MudItem Class="ms-3">
+                                    <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Label="@file.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, file.Key, file.Value))" />
+                                </MudItem>
+                            }
+                        </MudList>
+                    </MudPaper>
+                    <div class="d-flex justify-content-center align-content-center m-1">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="() => ImportAllLASrutting()" Style="margin:5px">Import All</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="() => ImportLASrutting()" Style="margin:5px">
+                            Import Selected
+                        </MudButton>
+                    </div>
+                }
+            </MudStack>
+        }
+
+        else if(file == "fod")
+        {
+            <MudText Typo="Typo.h6" Style="font-weight:500;" Class="mx-auto">Import FOD</MudText>
+            <div class="d-flex align-items-center mx-auto" style="width:450px">
+                <MudTextField @bind-Value="folderPath" Variant="Variant.Outlined" ReadOnly="true" Class="mr-0" Style="font-size:12px; height: 35px;" />
+                <MudButton Variant="Variant.Filled"
+                Color="Color.Primary"
+                Size="Size.Small"
+                Disabled="@_busy"
+                Style="margin:10px;"
+                OnClick="OpenFolder">
+                    Open
+                </MudButton>
+            </div>
+            @if (files.Count > 0)
+            {
+                <MudPaper Outlined="true" MaxHeight="150px" Style="overflow-y:auto;">
+                    <MudList Dense="true" T="string">
+                        @foreach (var file in files)
+                        {
+                            <MudItem Class="ms-3">
+                                <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Label="@file.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, file.Key, file.Value))" />
+                            </MudItem>
+                        }
+                    </MudList>
+                </MudPaper>
+                <div class="d-flex justify-content-center align-content-center m-1">
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportFOD">Import</MudButton>
+                </div>
+            }
+        }
+        else if (file == "past summary")
+        {
+            <MudText Typo="Typo.h6" Style="font-weight:500;" Class="mx-auto">Import Past Summary (.csv)</MudText>
+            <div class="d-flex align-items-center mx-auto" style="width:450px">
+                <MudTextField @bind-Value="folderPath" Variant="Variant.Outlined" ReadOnly="true" Class="mr-0" Style="font-size:12px; height: 35px;" />
+                <MudButton Variant="Variant.Filled"
+                Color="Color.Primary"
+                Size="Size.Small"
+                Disabled="@_busy"
+                Style="margin:10px;"
+                OnClick="OpenFolder">
+                    Open
+                </MudButton>
+            </div>
+            @if (files.Count > 0)
+            {
+                <MudPaper Outlined="true" MaxHeight="150px" Style="overflow-y:auto;">
+                    <MudList Dense="true" T="string">
+                        @foreach (var file in files)
+                        {
+                            <MudItem Class="ms-3">
+                                <MudCheckBox Size="Size.Small" Value=@selectedFiles.Contains(file.Value) Label="@file.Key" ValueChanged="@((bool value) => HandleCheckBoxChanged(value, file.Key, file.Value))" />
+                            </MudItem>
+                        }
+                    </MudList>
+                </MudPaper>
+                <div class="d-flex justify-content-center align-content-center m-1">
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportPastSummary">Import</MudButton>
+                </div>
+            }
+        }
+    </MudStack>
+</MudContainer>
+@if (isImporting)
+{
+    <MudOverlay Visible="true" LightBackground="true" LockScroll="true">
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center">
+            <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+            <MudText Typo="Typo.caption" Align="Align.Center" Style="background:white">Importing...</MudText>
+        </MudStack>
+    </MudOverlay>
+}
+
+
+<style>
+    .mud-overlay .mud-overlay-scrim.mud-overlay-dark {
+    background-color: rgba(255,255,255,0.4980392156862745) !important;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string file { get; set; }
+    private string uploadedFilePath;
+    private string folderPath;
+    private List<string> selectedFiles = new List<string>();
+    private Dictionary<string, string> files = new Dictionary<string, string> (); //fileName, fullPath
+    private Survey SelectedSurveyItem { get; set; }
+    private Survey PlaceholderSurvey => new() { SurveyName = "Create New Survey" };
+    private List<Survey> Surveys = new();
+    private string? NewSurveyName;
+
+
+
+    private List<string> shapefiles = new List<string>();
+    private Dictionary<string, string> editingFiles = new Dictionary<string, string>(); // Tracks files being edited
+    private bool isImporting = false;
+    private bool isDeleting = false;
+    private string warningMessage;
+    private bool _busy = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+        Surveys = await FetchSurveysAsync() ?? new List<Survey>();
+
+        // Ensure only one instance of PlaceholderSurvey exists in the list
+        if (!Surveys.Any(s => s.SurveyName == PlaceholderSurvey.SurveyName))
+        {
+            Surveys.Insert(0, PlaceholderSurvey); // Add it at the beginning
+        }
+
+        SelectedSurveyItem = PlaceholderSurvey; // Set default selection
+
+        StateHasChanged();
+    }
+
+    private async Task<List<Survey>> FetchSurveysAsync()
+    {
+        return await appEngine.SurveyService.GetAll(new Empty()); ;
+    }
+
+    private void Close()
+    {
+        viewModel.ClosePopup();
+    }
+
+    private void CloseAndRefresh()
+    {
+        appState.InitializeSurveyAndLayers();        
+        Close();
+    }
+
+    private async Task OpenFolder()
+    {
+        try
+        {
+            if (_busy) return;
+            _busy = true;
+
+            using var source = new CancellationTokenSource();
+            var token = source.Token;
+
+            var folder = await FolderPicker.Default.PickAsync(token);
+            if (folder.IsSuccessful)
+            {
+                // Common resets
+                selectedFiles.Clear();
+                files.Clear();
+                folderPath = folder.Folder.Path;
+
+                // Dispatch to the right handler
+                switch (file)
+                {
+                    case "shapefile":
+                        GetShapeFiles();
+                        break;
+                    case "fod":
+                        GetFODFiles();
+                        break;
+                    case "las":
+                        GetLasFiles();
+                        break;
+                    case "lasRut":
+                        GetLasRuttingFiles();
+                        break;
+                    case "past summary":
+                        GetPastSummaryFiles();
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error in opening and processing {file} folder: {ex.Message}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+    #region Shapefile
+
+    private void GetShapeFiles()
+    {
+        try
+        {
+            if (Path.Exists(folderPath))
+            {
+                var shpFiles = Directory.GetFiles(folderPath, "*.shp");
+                if (shpFiles.Any())
+                {
+                    foreach (var shp in shpFiles)
+                    {
+                        var baseName = Path.GetFileNameWithoutExtension(shp);
+                        var shxFile = Path.Combine(folderPath, baseName + ".shx");
+                        var dbfFile = Path.Combine(folderPath, baseName + ".dbf");
+                        var prjFile = Path.Combine(folderPath, baseName + ".prj");
+
+                        if (File.Exists(shxFile) && File.Exists(dbfFile) && File.Exists(prjFile))
+                        {
+                            files.Add(baseName, shp);
+                        }
+                        else
+                        {
+                            Snackbar.Add($"Shapefile {baseName}.shp is missing one or more associated files (.shx, .dbf, .prj) and was not added.", Severity.Warning);
+                        }
+                    }
+                    CheckFileNameLengths();
+                }
+                else
+                {
+                    Snackbar.Add(".shp files not found.", Severity.Error);
+                }
+            }
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    private void CheckFileNameLengths()
+    {
+        if (files.Any(file => file.Key.Length > 16))
+        {
+            warningMessage = "*Shapefile names must be less than 16 characters. Click the edit icon next to the file name to rename it.";
+        }
+        else
+        {
+            warningMessage = string.Empty;
+        }
+    }
+
+    private void StartEditingFileName(string fileName)
+    {
+        editingFiles[fileName] = Path.GetFileNameWithoutExtension(fileName);
+    }
+
+    private void SaveEditedFileName(string originalFileName)
+    {
+        var editedFileName = editingFiles[originalFileName];
+
+        if(editedFileName.Length <= 15)
+        {
+            string filePath = files[originalFileName];
+            files.Remove(originalFileName);
+            files[editedFileName] = filePath;
+            editingFiles.Remove(originalFileName);
+
+            CheckFileNameLengths();
+            StateHasChanged();
+        }
+        else
+        {
+            Snackbar.Add("Shapefile name is still longer than 15 characters. Please check again.", Severity.Error);
+        }
+    }
+
+    private void HandleCheckBoxChanged(bool isChecked, string fileName, string filePath)
+    {
+        if (isChecked)
+        {
+            selectedFiles.Add(filePath);
+        }
+        else
+        {
+            selectedFiles.Remove(filePath);
+        }
+    }
+
+    private async void ImportShapefile()
+    {
+        if (selectedFiles != null && selectedFiles.Any())
+        {
+            await InvokeAsync(() =>
+            {
+                isImporting = true;
+                StateHasChanged();
+            });
+
+            var shapefileRequests = selectedFiles.Select(file => { 
+                var match = files.FirstOrDefault(x => x.Value == file); 
+                return new ShapefileRequest 
+                { 
+                    ShapefileName = match.Key, 
+                    FilePath = file 
+                }; 
+            }).ToList();
+
+            //send the files to the grpc service to save into the database
+            var response = await appEngine.ShapefileService.ProcessShapefiles(shapefileRequests);
+
+            isImporting = false;
+            StateHasChanged();
+
+            if (response != null)
+            {
+                var answer = await DialogService.ShowMessageBox("Message", response.Message);
+                if (answer == true)
+                {
+                    CloseAndRefresh();
+                }
+            }
+        }
+        else
+        {
+            Snackbar.Add("Please select .shp file(s)");
+        }
+    }
+    #endregion
+
+    #region FOD
+    private void GetFODFiles()
+    {
+        if (Path.Exists(folderPath))
+        {
+            var csvFiles = Directory.GetFiles(folderPath, "*.csv");
+            if (csvFiles.Any())
+            {
+                foreach (var file in csvFiles)
+                {
+                    files.Add(Path.GetFileName(file), file);
+                }
+            }
+            else
+            {
+                Snackbar.Add(".csv files not found.", Severity.Error);
+            }
+
+        }
+    }
+
+    private async void ImportFOD()
+    {
+        if (selectedFiles != null && selectedFiles.Any())
+        {
+            await InvokeAsync(() =>
+            {
+                isImporting = true;
+                StateHasChanged();
+            });
+
+            string version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+
+            var request = new FODRequest
+                {
+                    Paths = selectedFiles,
+                    Version = version
+                };
+
+            //send the files to the grpc service to save into the database
+            var response = await appEngine.FODService.ProcessFOD(request);
+            isImporting = false;
+            StateHasChanged();
+
+            if (response.Id != -1)
+            {
+                await DialogService.ShowMessageBox("Message", response.Message);
+                CloseAndRefresh();
+            }
+        }
+        else
+        {
+            Snackbar.Add("Please select FOD file(s)");
+        }
+    }
+    #endregion
+
+    #region LAS
+    private void GetLasFiles()
+    {
+        try
+        {
+            if (Path.Exists(folderPath))
+            {
+                var lasFiles = Directory.GetFiles(folderPath, "*.las").ToList();
+
+                var sortedlasFiles = lasFiles.OrderBy(filename => ExtractNumber(filename, @"LasMode(\d+)"))
+                        .ThenBy(filename => ExtractNumber(filename, @"_(\d+\.\d+)m_"))
+                        .ThenBy(filename => ExtractNumber(filename, @"_(\d+\.\d+)m\\"))
+                        .ToList();
+
+                if (sortedlasFiles.Any())
+                {
+                    foreach (var las in sortedlasFiles)
+                    {
+                        files.Add(Path.GetFileName(las), las);
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("No .las files found in the selected folder.", Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    static double ExtractNumber(string input, string pattern)
+    {
+        var match = Regex.Match(input, pattern);
+        return match.Success ? double.Parse(match.Groups[1].Value) : 0;
+    }
+    private async Task<List<LASfileRequest>> FilterAlreadyProcessedFiles(List<LASfileRequest> requests)
+    {
+        // Fetch all existing LAS files from the service or repository
+        var existingLASfiles = await appEngine.LASfileService.GetAll(new Empty());
+        var filteredRequests = new List<LASfileRequest>();
+
+        // Check if existing files and incoming requests are both not empty
+        if (existingLASfiles != null && existingLASfiles.Any() && requests != null && requests.Any())
+        {
+            foreach (var request in requests)
+            {
+                string folderName = Directory.GetParent(request.FilePath).Name;
+                string fileNameWithoutExt = Path.GetFileNameWithoutExtension(request.LASfileName);
+                string ext = Path.GetExtension(request.LASfileName);
+                string newName = $"{fileNameWithoutExt}_{folderName}{ext}";
+
+                bool existsWithFolder = existingLASfiles.Any(f => f.Name == newName);
+                if (!existsWithFolder)
+                    filteredRequests.Add(request);
+            }
+
+            return filteredRequests;
+        }
+
+        return requests;
+    }
+
+    private async void ImportLAS()
+    {
+        if (selectedFiles == null || !selectedFiles.Any())
+        {
+            Snackbar.Add("No .las files selected to process.", Severity.Error);
+            return;
+        }
+
+        await InvokeAsync(() =>
+        {
+            isImporting = true;
+            StateHasChanged();
+        });
+
+        try
+        {
+            // Prepare LAS file requests
+            var lasFileRequests = selectedFiles.Select(file => new LASfileRequest
+                {
+                    LASfileName = Path.GetFileName(file),
+                    FilePath = file,
+                    SurveyId = null // Temporarily set SurveyId as null, will assign it later
+                }).ToList();
+
+            // Filter out already processed LAS files
+            var filtered = new List<LASfileRequest>(lasFileRequests);
+            filtered = await FilterAlreadyProcessedFiles(filtered);
+
+            // Check if there are any files left to process after filtering
+            if (!filtered.Any())
+            {
+                Snackbar.Add("All selected LAS files have already been processed.", Severity.Warning);
+                isImporting = false;
+                StateHasChanged();
+                return;
+            }
+
+            string surveyId;
+
+            // Check if a valid survey is selected
+            if (SelectedSurveyItem != null && SelectedSurveyItem.SurveyName != "Create New Survey")
+            {
+                surveyId = SelectedSurveyItem.SurveyIdExternal.ToString();
+            }
+            else
+            {
+                surveyId = DateTime.Now.ToString("ddMMHHmmss");
+
+                if (string.IsNullOrWhiteSpace(NewSurveyName))
+                {
+                    Snackbar.Add("Please provide a name for the new survey.", Severity.Warning);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                // Create a new survey
+                var newSurvey = new Survey
+                    {
+                        SurveyIdExternal = surveyId,
+                        SurveyName = NewSurveyName,
+                        SurveyDate = DateTime.Now,
+                        DataviewVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString()
+                    };
+
+                var newSurveyResponse = await appEngine.SurveyService.Create(newSurvey);
+
+                if (newSurveyResponse.Id == 0)
+                {
+                    Snackbar.Add("Survey creation failed.", Severity.Error);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                SelectedSurveyItem = newSurvey;
+            }
+
+            foreach (var lasFileRequest in lasFileRequests)
+            {
+                lasFileRequest.SurveyId = surveyId;
+            }
+
+            var response = await appEngine.LASfileService.ProcessLASfilesNewReader(lasFileRequests);
+
+            isImporting = false;
+            StateHasChanged();
+
+            if (response == null)
+                return;
+            if (response.Id == -1)
+            {
+                Snackbar.Add("All selected LAS files have already been processed.", Severity.Warning);
+                return;
+            }
+
+            var htmlMessage = new MarkupString($"{response.Message}");
+            var title = response.Id == 1 ? "Success" : "Error";
+
+            var answer = await DialogService.ShowMessageBox(title, htmlMessage);
+            if (answer == true)
+            {
+                if (response.Id > 0)
+                    CloseAndRefresh();
+            }
+
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error during LAS file import: {ex.Message}");
+            Snackbar.Add("An error occurred while processing the LAS files.", Severity.Error);
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+
+
+
+
+
+    private async Task ImportAllLAS()
+    {
+        if (files == null || !files.Any())
+        {
+            Snackbar.Add("No .las files found to process.", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                isImporting = true;
+                StateHasChanged();
+            });
+
+            var lasFileRequests = files.Values.Select(file => new LASfileRequest
+                {
+                    LASfileName = Path.GetFileName(file),
+                    FilePath = file,
+                    SurveyId = null
+                }).ToList();
+
+            var filtered = new List<LASfileRequest>(lasFileRequests);
+            filtered = await FilterAlreadyProcessedFiles(filtered);
+
+            // Check if there are any files left to process after filtering
+            if (!filtered.Any())
+            {
+                Snackbar.Add("All selected LAS files have already been processed.", Severity.Warning);
+                isImporting = false;
+                StateHasChanged();
+                return;
+            }
+
+            string surveyId;
+
+            if (SelectedSurveyItem != null && SelectedSurveyItem.SurveyName != "Create New Survey")
+            {
+                surveyId = SelectedSurveyItem.SurveyIdExternal.ToString();
+            }
+            else
+            {
+                surveyId = DateTime.Now.ToString("ddMMHHmmss");
+
+                if (string.IsNullOrWhiteSpace(NewSurveyName))
+                {
+                    Snackbar.Add("Please provide a name for the new survey.", Severity.Warning);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                var newSurvey = new Survey
+                    {
+                        SurveyIdExternal = surveyId,
+                        SurveyName = NewSurveyName,
+                        SurveyDate = DateTime.Now,
+                        DataviewVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString()
+                    };
+
+                var newSurveyResponse = await appEngine.SurveyService.Create(newSurvey);
+
+                if (newSurveyResponse.Id == 0)
+                {
+                    Snackbar.Add("Survey creation failed.", Severity.Error);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                SelectedSurveyItem = newSurvey;
+            }
+
+            foreach (var lasFileRequest in lasFileRequests)
+            {
+                lasFileRequest.SurveyId = surveyId;
+            }
+
+            var response = await appEngine.LASfileService.ProcessLASfilesNewReader(lasFileRequests);
+
+            isImporting = false;
+            StateHasChanged();
+
+            if (response == null)
+                return;
+
+            if (response.Id == -1)
+            {
+                Snackbar.Add("All selected LAS files have already been processed.", Severity.Warning);
+                return;
+            }
+
+            var htmlMessage = new MarkupString($"{response.Message}");
+            var title = response.Id == 1 ? "Success" : "Error";
+
+            var answer = await DialogService.ShowMessageBox(title, htmlMessage);
+            if (answer == true)
+            {
+                if (response.Id > 0)
+                    CloseAndRefresh();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error during LAS file import: {ex.Message}");
+            Snackbar.Add("An error occurred while processing the LAS files.", Severity.Error);
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+
+
+    #endregion
+
+    #region LasRutting
+    private void GetLasRuttingFiles()
+    {
+        try
+        {
+            if (Path.Exists(folderPath))
+            {
+                var lasFiles = Directory.GetFiles(folderPath, "*LAS_Rutting*.csv").ToList();
+
+
+                if (lasFiles.Any())
+                {
+                    foreach (var las in lasFiles)
+                    {
+                        files.Add(Path.GetFileName(las), las);
+                    }
+                }
+                else
+                {
+                    Snackbar.Add("No .las files found in the selected folder.", Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    private async void ImportLASrutting()
+    {
+        if (selectedFiles == null || !selectedFiles.Any())
+        {
+            Snackbar.Add("No .las rutting files selected to process.", Severity.Error);
+            return;
+        }
+        await InvokeAsync(() =>
+        {
+            isImporting = true;
+            StateHasChanged();
+        });
+
+        try
+        {
+            //Prepare las rutting request 
+            var lasRuttingRequests = selectedFiles.Select(file => new LASfileRequest
+                {
+                    LASfileName = Path.GetFileName(file),
+                    FilePath = file,
+                    SurveyId = null // Temporarily set SurveyId as null, will assign it later
+                }).ToList();
+            
+
+            string surveyId;
+            // Check if a valid survey is selected
+            if (SelectedSurveyItem != null && SelectedSurveyItem.SurveyName != "Create New Survey")
+            {
+                surveyId = SelectedSurveyItem.SurveyIdExternal.ToString();
+            }
+            else
+            {
+                surveyId = DateTime.Now.ToString("ddMMHHmmss");
+
+                if (string.IsNullOrWhiteSpace(NewSurveyName))
+                {
+                    Snackbar.Add("Please provide a name for the new survey.", Severity.Warning);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                // Create a new survey
+                var newSurvey = new Survey
+                    {
+                        SurveyIdExternal = surveyId,
+                        SurveyName = NewSurveyName,
+                        SurveyDate = DateTime.Now,
+                        DataviewVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString()
+                    };
+
+                var newSurveyResponse = await appEngine.SurveyService.Create(newSurvey);
+
+                if (newSurveyResponse.Id == 0)
+                {
+                    Snackbar.Add("Survey creation failed.", Severity.Error);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                SelectedSurveyItem = newSurvey;
+            }
+            foreach (var lasFileRequest in lasRuttingRequests)
+            {
+                lasFileRequest.SurveyId = surveyId;
+            }
+
+            var response = await appEngine.LAS_RuttingService.ProcessLASRuttingFiles(lasRuttingRequests);
+
+            isImporting = false;
+            StateHasChanged();
+
+            if (response == null)
+                return;
+            if (response.Id == -1)
+            {
+                Snackbar.Add("All selected LAS files have already been processed.", Severity.Warning);
+                return;
+            }
+
+            var htmlMessage = new MarkupString($"{response.Message}");
+            var title = response.Id == 1 ? "Success" : "Error";
+
+            var answer = await DialogService.ShowMessageBox(title, htmlMessage);
+            if (answer == true)
+            {
+                if (response.Id > 0)
+                    CloseAndRefresh();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error during LAS rutting file import: {ex.Message}");
+            Snackbar.Add("An error occurred while processing the LAS rutting files.", Severity.Error);
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ImportAllLASrutting()
+    {
+        if (files == null || !files.Any())
+        {
+            Snackbar.Add("No .las rutting .csv files found to process.", Severity.Error);
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                isImporting = true;
+                StateHasChanged();
+            });
+
+            var lasFileRequests = files.Values.Select(file => new LASfileRequest
+            {
+                LASfileName = Path.GetFileName(file),
+                FilePath = file,
+                SurveyId = null
+            }).ToList();
+
+         
+            string surveyId;
+
+            if (SelectedSurveyItem != null && SelectedSurveyItem.SurveyName != "Create New Survey")
+            {
+                surveyId = SelectedSurveyItem.SurveyIdExternal.ToString();
+            }
+            else
+            {
+                surveyId = DateTime.Now.ToString("ddMMHHmmss");
+
+                if (string.IsNullOrWhiteSpace(NewSurveyName))
+                {
+                    Snackbar.Add("Please provide a name for the new survey.", Severity.Warning);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                var newSurvey = new Survey
+                {
+                    SurveyIdExternal = surveyId,
+                    SurveyName = NewSurveyName,
+                    SurveyDate = DateTime.Now,
+                    DataviewVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString()
+                };
+
+                var newSurveyResponse = await appEngine.SurveyService.Create(newSurvey);
+
+                if (newSurveyResponse.Id == 0)
+                {
+                    Snackbar.Add("Survey creation failed.", Severity.Error);
+                    isImporting = false;
+                    StateHasChanged();
+                    return;
+                }
+
+                SelectedSurveyItem = newSurvey;
+            }
+
+            foreach (var lasFileRequest in lasFileRequests)
+            {
+                lasFileRequest.SurveyId = surveyId;
+            }
+
+            var response = await appEngine.LAS_RuttingService.ProcessLASRuttingFiles(lasFileRequests);
+
+            isImporting = false;
+            StateHasChanged();
+
+            if (response == null)
+                return;
+
+            if (response.Id == -1)
+            {
+                Snackbar.Add("All selected LAS files have already been processed.", Severity.Warning);
+                return;
+            }
+
+            var htmlMessage = new MarkupString($"{response.Message}");
+            var title = response.Id == 1 ? "Success" : "Error";
+
+            var answer = await DialogService.ShowMessageBox(title, htmlMessage);
+            if (answer == true)
+            {
+                if (response.Id > 0)
+                    CloseAndRefresh();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error($"Error during LAS file import: {ex.Message}");
+            Snackbar.Add("An error occurred while processing the LAS files.", Severity.Error);
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+
+    #endregion
+
+    #region Past Summary
+
+    private void GetPastSummaryFiles()
+    {
+        if (Path.Exists(folderPath))
+        {
+            var csvFiles = Directory.GetFiles(folderPath, "*.csv");
+            if (csvFiles.Any())
+            {
+                foreach (var file in csvFiles)
+                {
+                    files.Add(Path.GetFileName(file), file);
+                }
+            }
+            else
+            {
+                Snackbar.Add("csv file not found.", Severity.Error);
+            }
+        }
+    }
+
+    private async void ImportPastSummary()
+    {
+        if (selectedFiles != null && selectedFiles.Any())
+        {
+            await InvokeAsync(() =>
+            {
+                isImporting = true;
+                StateHasChanged();
+            });
+
+            HashSet<string> fail = new HashSet<string>();
+
+            foreach (var file in selectedFiles)
+            {
+                var fileName = Path.GetFileName(file);
+
+                try
+                {
+                    using var reader = new StreamReader(file);
+                    using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+
+                    // Read all rows into dynamic objects
+                    var records = csv.GetRecords<dynamic>().ToList();
+                    var rows = records.Select(r => (IDictionary<string, object>)r).ToList();
+
+                    string finalSummaryName = null;
+                    var firstRow = rows.FirstOrDefault();
+                    if (firstRow != null)
+                    {
+                        //check summary name already exists
+                        var summaryName = firstRow.TryGetValue("Name", out var nameObj) ? nameObj.ToString() : null;
+                        if (!string.IsNullOrWhiteSpace(summaryName))
+                        {
+                            while (true)
+                            {
+                                var existing = await appEngine.SummaryService.GetByName(summaryName);
+                                if (existing == null || existing.Count == 0)
+                                {
+                                    finalSummaryName = summaryName;
+                                    break;
+                                }
+
+                                // Ask user for a new name
+                                var newName = await Application.Current?.MainPage?.DisplayPromptAsync(
+                                    "Alert",
+                                    $"The summary name '{summaryName}' already exists. Please enter a new name."
+                                );
+
+                                if (string.IsNullOrWhiteSpace(newName))
+                                {
+                                    // User cancelled or entered nothing
+                                    await Application.Current?.MainPage?.DisplayAlert(
+                                        "Error",
+                                        "You must enter a name to proceed.",
+                                        "OK"
+                                    );
+                                    continue;
+                                }
+
+                                summaryName = newName;
+                            }
+                        }
+                    }
+
+                    // Preprocess distinct surveys
+                    var distinctSurveys = rows
+                        .Select(r => new
+                        {
+                            SurveyId = r.TryGetValue("SurveyIdExternal", out var idVal) ? idVal?.ToString() : null,
+                            SurveyName = r.TryGetValue("SurveyId", out var nameVal) ? nameVal?.ToString() : null
+                        })
+                        .Where(s => s.SurveyId != null && s.SurveyName != null)
+                        .Distinct()
+                        .ToList();
+
+
+                    foreach (var survey in distinctSurveys)
+                    {
+                        await CheckIfSurveyExists(survey.SurveyId, survey.SurveyName);
+                    }
+
+                    // if not sample unit set name found, use default one per file
+                    string sampleUnitSetName = null;
+                    bool hasSampleUnitSet = rows.Any(x => x.TryGetValue("SampleUnitSet", out var setVal) && !string.IsNullOrWhiteSpace(setVal?.ToString()));
+                    if (!hasSampleUnitSet)
+                    {
+                        sampleUnitSetName = $"ImportedSet_{Guid.NewGuid()}";
+                    }
+
+                    var sampleUnitSetCache = new Dictionary<string, int>();
+                    bool skipFile = false;
+                    foreach (var row in rows)
+                    {
+                        var summary = new Summary();
+                        var defects = new List<SummaryDefect>();
+
+                        if (hasSampleUnitSet)
+                        {
+                            sampleUnitSetName = row.TryGetValue("SampleUnitSet", out var setVal) ? setVal?.ToString() : null;
+                        }
+
+                        if (sampleUnitSetName == null) continue;
+
+                        //Create Sample Unit Set
+                        if (!sampleUnitSetCache.TryGetValue(sampleUnitSetName, out int sampleUnitSetId))
+                        {
+                            var summaryType = SampleUnitSetType.Summary;
+                            if (row.TryGetValue("SummaryType", out var summaryTypeObj) && summaryTypeObj != null)
+                            {
+                                if (string.Equals(summaryTypeObj.ToString().Trim(), "Interval", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    summaryType = SampleUnitSetType.Interval;
+                                }
+                            }
+                            var setReply = await appEngine.SampleUnitSetService.GetOrCreate(new SampleUnit_Set
+                            {
+                                Name = sampleUnitSetName,
+                                Description = "Imported from past summary .csv",
+                                Type = summaryType
+                            });
+
+                            if (setReply == null || setReply.Id <= 0) continue;
+                            sampleUnitSetId = setReply.Id;
+                            sampleUnitSetCache[sampleUnitSetName] = sampleUnitSetId;
+                        }
+
+                        //Create SampleUnit
+                        int sampleUnitId = 0;
+                        if (row.TryGetValue("GeoJSON", out var geojsonObj) && geojsonObj != null)
+                        {
+                            try
+                            {
+                                var geoJson = JObject.Parse(geojsonObj.ToString());
+                                var coords = geoJson["geometry"]?["coordinates"]?[0];
+                                if (coords != null)
+                                {
+                                    var coordinatesString = coords.ToString(Formatting.None);
+                                    var chainageStart = row.TryGetValue("ChainageStart", out var csObj2) ? csObj2?.ToString() : null;
+                                    var chainageEnd = row.TryGetValue("ChainageEnd", out var ceObj2) ? ceObj2?.ToString() : null;
+
+                                    var sampleUnit = await appEngine.SampleUnitService.GetOrCreate(new SampleUnit
+                                    {
+                                        Name = $"{chainageStart}m - {chainageEnd}m",
+                                        SampleUnitSetId = sampleUnitSetId,
+                                        Coordinates = coordinatesString
+                                    });
+
+                                    if (sampleUnit != null && sampleUnit.Id > 0)
+                                    {
+                                        sampleUnitId = sampleUnit.Id;
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Error($"Error when reading geojson : {ex.Message}");
+                            }
+                        }
+
+                        summary.SampleUnitSetId = sampleUnitSetId;
+                        summary.SampleUnitId = sampleUnitId;
+
+                        //Create Summary and SummaryDefect
+                        foreach (var kvp in row)
+                        {
+                            var key = kvp.Key;
+                            var value = kvp.Value;
+
+                            if (key == "Id" || key == "SurveyId" || key.Contains("SampleUnit") || key == "GeoJSON") continue;
+                            else if (key == "SurveyIdExternal")
+                            {
+                                key = "SurveyId"; // treat SurveyIdExternal as SurveyId
+                            }
+
+                            // Match Summary properties
+                            var prop = typeof(Summary).GetProperty(key);
+                            if (prop != null && prop.CanWrite)
+                            {
+                                var convertedValue = Convert.ChangeType(value, prop.PropertyType);
+                                prop.SetValue(summary, convertedValue);
+                            }
+                            // Match SummaryDefect columns
+                            else if (key.Contains("(") && key.Contains(")") && value != null)
+                            {
+                                var parts = key.Split(new[] { '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
+                                if (parts.Length == 2)
+                                {
+                                    var tableOp = parts[0].Trim(); 
+                                    var numericField = parts[1].Trim(); //get numeric field first
+
+                                    var opParts = tableOp.Split(' ');
+                                    if (opParts.Length >= 2)
+                                    {
+                                        //get operation
+                                        var operation = opParts.Last().ToUpperInvariant();
+                                        var validOperations = new[] { "SUM", "COUNT", "AVG", "MIN", "MAX" };
+
+                                        if (validOperations.Contains(operation))
+                                        {
+                                            //rest tablename
+                                            var tableName = string.Join(" ", opParts.Take(opParts.Length - 1));
+
+                                            defects.Add(new SummaryDefect
+                                            {
+                                                TableName = tableName,
+                                                Operation = operation,
+                                                NumericField = numericField,
+                                                Value = Convert.ToDouble(value)
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (finalSummaryName != null)
+                        {
+                            summary.Name = finalSummaryName;
+                        }
+
+                        if (defects.Any())
+                        {
+                            //save both summary and its defects
+                            summary.SummaryDefects = defects;
+                            var response = await appEngine.SummaryService.Create(summary);
+                            if (response.Id == -1)
+                            {
+                                fail.Add(fileName);
+                                Snackbar.Add("Something wet wrong while saving summaries.", Severity.Error);
+                            }
+                        }
+                        else
+                        {
+                            //if no defects found, the csv file has nothing to do with summary
+                            fail.Add(fileName);
+                            skipFile = true;
+                            Snackbar.Add($"The file {Path.GetFileName(file)} does not appear to be a summary CSV. Please check if it is summary csv.", Severity.Error);
+                            break;
+                        }
+                    }
+
+                    if (skipFile) continue; // move to next file
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    if (ex.HResult == -2147024864) //this is the exception due to being used by another process
+                    {
+                        fail.Add(fileName);
+                        Snackbar.Add($"The file {Path.GetFileName(file)} skipped because it is currently being used by another process. Please check if it is open and try again.", Severity.Error);
+                    }
+                    else
+                    {
+                        fail.Add(fileName);
+                        Snackbar.Add($"File '{Path.GetFileName(file)}' was skipped. Error: {ex.Message}", Severity.Error);                        
+                    }
+                }
+            }
+
+            if (fail != null && fail.Count > 0)
+            {
+                string failList = string.Join("\n", fail);
+
+                var answer = await DialogService.ShowMessageBox("Error", $"The following files failed to import:\n{failList}");
+            }
+            else
+            {
+                var answer = await DialogService.ShowMessageBox("Message", "All csv files successfully imported");
+                if (answer == true)
+                {
+                    CloseAndRefresh();
+                }
+            }
+
+            await InvokeAsync(() =>
+            {
+                isImporting = false;
+                StateHasChanged();
+            });
+        }
+        else
+        {
+            Snackbar.Add("Please select a json file", Severity.Error);
+        }
+    }
+
+    private async Task CheckIfSurveyExists(string surveyId, string surveyName)
+    {
+        //check if survey exists
+        var exists = await appEngine.SurveyService.GetSurveyEntityByExternalId(surveyId);
+        if (exists == null || exists.SurveyName == null)
+        {
+            //if not, create a new survey
+            var newSurvey = new Survey
+            {
+                SurveyIdExternal = surveyId,
+                SurveyName = surveyName,
+                SurveyDate = DateTime.Now,
+                DataviewVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString(),
+                GPSLatitude = 0.0,
+                GPSLongitude = 0.0
+            };
+
+            var createSurvey = await appEngine.SurveyService.Create(newSurvey);
+        }
+    }
+
+    #endregion
+}

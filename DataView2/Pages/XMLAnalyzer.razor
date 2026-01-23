@@ -1,0 +1,152 @@
+﻿@page "/XMLAnalyzer"
+@using DataView2.Core.Models;
+@using Google.Protobuf.WellKnownTypes;
+@using DataView2.Core.Models.DTS;
+@inject IXMLObjectService xmlobjservice
+@inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
+
+<style>
+    .mud-header {
+        background-color: rgba(0,0,0,0.0392156862745098);
+    }
+</style>
+
+<MudText>@error</MudText>
+
+<MudButton OnClick="OpenFile">Open File</MudButton>
+
+@if (outputs.Count > 0)
+{
+    <MudTable Items=@outputs Hover="true" CommitEditTooltip="Commit Edit" EditTrigger="TableEditTrigger.EditButton" Class="ma-7" HeaderClass="mud-header">
+        <HeaderContent>
+            <MudTh>ID</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Parent</MudTh>
+        </HeaderContent>
+
+        <RowTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+            <MudTd DataLabel="Parent">@context.Parent</MudTd>
+
+        </RowTemplate>
+
+        <RowEditingTemplate>
+            <MudTd DataLabel="ID">@context.Id</MudTd>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Type">@context.Type</MudTd>
+             <MudTd DataLabel="Parent">@context.Parent</MudTd>
+         </RowEditingTemplate>
+     </MudTable>
+
+    <div class="d-flex justify-center align-items-center mt-5">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveButtonClicked">Save Changes</MudButton>
+    </div>
+    @*<MudButton OnClick="CreateNew">Create</MudButton>*@
+}
+
+@code {
+    public List<XMLObject> outputs = new List<XMLObject>();
+    public string error;
+    [Inject] private IDialogService DialogService { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetOutput();
+    }
+
+    private async Task GetOutput()
+    {
+        try
+        {
+            var response = await xmlobjservice.GetAll(new Empty());
+
+            outputs = response.ToList();
+
+        }
+        catch (Exception e)
+        {
+            error = "Error Occured: " + e.Message;
+        }
+    }
+
+    // Save the changes all together at once
+    private async void SaveButtonClicked()
+    {
+        bool? result = await DialogService.ShowMessageBox(
+            "Confirm",
+            "Are you sure you want to save changes?",
+            yesText: "Save",
+            cancelText: "Cancel");
+
+
+        if (result == true)
+        {
+            try
+            {
+                foreach (var output in outputs)
+                {
+                    var updatedSetting = await xmlobjservice.EditValue(output);
+                }
+                Snackbar.Add("Changes saved successfully.", Severity.Normal);
+                await Task.Delay(3000);
+
+                await JSRuntime.InvokeVoidAsync("location.reload");
+            }
+            catch (Exception e)
+            {
+                error = "Error Occured: " + e.Message;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+
+    private async Task OpenFile()
+    {
+        try
+        {
+            var result = await FilePicker.PickAsync(new PickOptions
+                {
+                    PickerTitle = "Pick an XML file please"
+                });
+
+            if (result != null)
+            {
+                var stream = await result.OpenReadAsync();
+                using (StreamReader reader = new StreamReader(stream))
+                {
+                    string fileContent = await reader.ReadToEndAsync();
+                    var prueba = await xmlobjservice.ProcessXMLFile(fileContent); // Create a new instance
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Handle exceptions
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+
+    //Used Create method for testing
+    //private async void CreateNew()
+    //{
+    //    GeneralSetting generalSetting = new GeneralSetting
+    //        {
+    //            Id = 3,
+    //            Name = "IP Address",
+    //            Description = "DataView IP Address",
+    //            Type = SettingType.Float,
+    //            Value = "0.0.0.1",
+    //            Category = "Networking",
+    //        };
+
+    //    var response = await setting.Create(generalSetting);
+    //    Snackbar.Add(response.Message, Severity.Normal);
+    //}
+}

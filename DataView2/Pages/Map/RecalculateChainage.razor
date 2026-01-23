@@ -1,0 +1,100 @@
+﻿@using CsvHelper
+@using DataView2.Core.Models
+@using DataView2.Core.Models.LCMS_Data_Tables
+@using DataView2.Engines
+@using DataView2.States
+@using System.Globalization
+@using Serilog
+
+@inject ApplicationState appState
+@inject ApplicationEngine appEngine
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<div class="d-flex">
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Style="padding:5px; margin:7px;" OnClick="Close"></MudIconButton>
+</div>
+
+
+<MudContainer>
+    <MudText Typo="Typo.subtitle2" Align="Align.Center" Class="mb-3">Recalculate Starting Chainage</MudText>
+    <MudSelect T="Survey" Dense="true" Variant="Variant.Outlined" Label="Please select a survey" MaxHeight=100 LockScroll="false"
+    Class="my-2" @bind-Value="selectedSurvey" OnOpen="GetSurveys">
+        @if (surveys.Count > 0)
+        {
+            @foreach (var survey in surveys)
+            {
+                <MudSelectItem T="Survey" Value="@survey">@survey.SurveyName</MudSelectItem>
+            }
+        }
+    </MudSelect>
+    <MudNumericField T="double" @bind-Value="newChainage" Label="Start Chainage" Variant="Variant.Outlined" />
+
+    <div class="d-flex justify-content-center align-items-center mt-3">
+        <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" OnClick="RecalculateChainages">Recalculate</MudButton>
+    </div>
+</MudContainer>
+@code {
+
+    List<Survey> surveys = new List<Survey>();
+    Survey selectedSurvey;
+
+
+    private double newChainage = 0.0;
+
+
+    private void Close()
+    {
+        selectedSurvey = null;
+        newChainage = 0.0;
+        appState.ClosePopupInMap();
+    }
+
+    private async void GetSurveys()
+    {
+        surveys = await appEngine.SurveyService.GetAll(new Google.Protobuf.WellKnownTypes.Empty());
+        StateHasChanged();
+    }
+
+    private async void RecalculateChainages()
+    {
+        if (selectedSurvey == null)
+        {
+            Snackbar.Add("Please select a survey.", Severity.Error);
+            return;
+        }
+
+        // Check if StartChainage is null
+        if (selectedSurvey.StartChainage == null) // Check for null
+        {
+            Snackbar.Add("The selected survey does not have a valid starting chainage.", Severity.Error);
+            return;
+        }
+
+        // Now safely access .Value
+        double oldChainage = selectedSurvey.StartChainage.Value; // Use .Value to get the double
+        double chainageDifference = newChainage - oldChainage;
+
+        ChainageUpdateRequest chainageRequest = new ChainageUpdateRequest
+        {
+            SurveyId = selectedSurvey.SurveyIdExternal,
+            ChainageDifference = chainageDifference
+        };
+
+        Snackbar.Add("Updating chainage in database");
+
+        await appEngine.SegmentService.UpdateSegmentChainageInDB(chainageRequest);
+
+        //Update survey chainage 
+        selectedSurvey.StartChainage = newChainage;
+        selectedSurvey.EndChainage = selectedSurvey.EndChainage + chainageDifference;
+
+        await appEngine.SurveyService.EditValue(selectedSurvey);
+
+        Snackbar.Add("Chainage updated");
+    }
+}
+
+

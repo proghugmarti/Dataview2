@@ -1,0 +1,496 @@
+﻿@using CommunityToolkit.Maui.Storage;
+@using CsvHelper
+@using CsvHelper.Configuration
+@using DataView2.Core.Models;
+@using DataView2.Core.Models.Other;
+@using DataView2.Engines;
+@using DataView2.MapHelpers
+@using DataView2.States;
+@using System.Text;
+@using System.Text.Json;
+@using DataView2.ViewModels;
+@using System.Text.RegularExpressions
+@using Esri.ArcGISRuntime.Geometry
+@using System.Globalization
+
+@inject IDialogService DialogService
+@inject ApplicationEngine appEngine
+@inject ApplicationState appState
+@inject ISnackbar Snackbar
+
+<MudProviders />
+
+<MudGrid Class="d-flex flex-column m-3 mx-auto px-8 my-3 px-3" style="width:auto;">
+    <MudText Typo="Typo.h6" Class="my-3" Align="Align.Center">@header</MudText>
+    <MudForm @ref="@form">
+        <div>
+            <MudTextField Label="File Path" @bind-Value="@surveyFilePath" Variant="Variant.Outlined" Style="height: 50px; margin-right: 0;" ReadOnly=true></MudTextField>
+            <MudTextField @bind-Value="surveyId" Label="Survey Id" Variant="Variant.Outlined" Required />
+            <MudTextField @bind-Value="surveyDescription" Label="Survey Description" Variant="Variant.Outlined" Required />
+            <MudTextField @bind-Value="surveyInstruction" Label="Survey Instruction" Variant="Variant.Outlined" Lines=3 />
+            <MudNumericField @bind-Value="startChainage" Label="Start Chainage" Variant="Variant.Outlined"  Required />
+            <MudSelect @bind-Value="direction" Label="Direction" Variant="Variant.Outlined"  Required>
+                <MudSelectItem T="int" Value="0">Decrement</MudSelectItem>
+                <MudSelectItem T="int" Value="1">Increment</MudSelectItem>
+            </MudSelect>
+            <MudNumericField @bind-Value="lane" Label="Lane" Variant="Variant.Outlined"  Required />
+            <MudTextField @bind-Value="coordinateString" Label="Coordinates" Variant="Variant.Outlined" Margin="Margin.Dense" Lines="3" Required />
+            <MudSelect T="string" Label="Modules" MultiSelection="true" Variant="Variant.Outlined" @bind-SelectedValues="selectedModules" Required>
+                @foreach (var module in modules)
+                {
+                    <MudSelectItem T="string" Value="@module">@module</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudSelect T="string" Label="Status" Variant="Variant.Outlined" @bind-Value="selectedStatus" Required>
+                @foreach (var status in statusList)
+                {
+                    <MudSelectItem T="string" Value="@status">@status</MudSelectItem>
+                }
+            </MudSelect>
+
+            <div class="d-flex align-items-center" style="width:90vw;">
+                <MudTextField @bind-Value="analyserCfg" Variant="Variant.Outlined" Label="Analyser Cfg File" Style="height: 50px; margin-right: 0;" />
+                <MudIconButton Icon="@Icons.Custom.Uncategorized.FolderOpen" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Medium" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" OnClick="@SelectAnalyserCfg" />
+            </div>
+
+            <div class="d-flex align-items-center" style="width:90vw;">
+                <MudTextField @bind-Value="acquisitionCfg" Variant="Variant.Outlined" Label="Acquisition Cfg File" Style="height: 50px; margin-right: 0;" />
+                <MudIconButton Icon="@Icons.Custom.Uncategorized.FolderOpen" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Medium" Style="width: 50px; height: 50px; margin-left: -4px; margin-bottom: -4px" OnClick="@SelectAcquisitionCfg" />
+            </div>
+
+            <MudCheckBox T="bool"  @bind-Value="gpsAutoStart" Label="GPS Auto Start"></MudCheckBox>
+            @if(gpsAutoStart)
+            {
+                <MudSelect T="int" @bind-Value="gpsAutoStartType" Label="GPS Auto Start Type" Variant="Variant.Outlined">
+                    <MudSelectItem T="int" Value="0">Point</MudSelectItem>
+                    <MudSelectItem T="int" Value="1">Boundary</MudSelectItem>
+                </MudSelect>
+            }
+        </div>
+    </MudForm>
+
+    <div class="d-flex justify-content-center align-items-center my-3">
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="m-2" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="m-2" OnClick="buttonClicked">@buttonName</MudButton>
+    </div>
+
+</MudGrid>
+
+@code {
+    MudForm form;
+    private string header;
+    private string buttonName;
+    private string surveyFilePath;
+    private string surveysetName;
+    private string surveyId;
+    private string surveyDescription;
+    private string surveyInstruction;
+    private double startChainage { get; set; }
+    private int direction { get; set; }
+    private int lane { get; set; }
+    private bool gpsAutoStart { get; set; } = false;
+    private string selectedStatus { get; set; }
+    private List<string> statusList { get; set; } = new List<string> { "New", "OnGoing", "Completed" };
+    private int gpsAutoStartType { get; set; }
+    private List<string> modules { get; set; } = new List<string> { "LCMS", "GPS" , "Camera"};
+    private IEnumerable<string> selectedModules { get; set; } = new HashSet<string>();
+    private string[][] userDefinedFields { get; set; }
+
+    private string coordinateString;
+    private string geometryType;
+    private double[][] coordinates;
+    private List<string> cfgFiles = new();
+    private string analyserCfg;
+    private string acquisitionCfg;
+    public string operatorName { get; set; }
+    public string vehicleId { get; set; }
+    public double vehicleOdoCalibration { get; set; }
+    public string initialFileName;
+
+    protected override void OnInitialized()
+    {
+        surveyFilePath = appState.SurveyCsvObjFilePath;
+        if (!File.Exists(surveyFilePath))
+        {
+            Snackbar.Add("No survey template is found. Please check it again.",Severity.Error);
+            return;
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(appState.EditSurveyCsvObj))
+            {
+                GeoJsonObject surveyData = JsonSerializer.Deserialize<GeoJsonObject>(appState.EditSurveyCsvObj);
+                UpdateProperties(surveyData.properties, surveyData.geometry.coordinates, surveyData.geometry.type);
+                appState.HighlightGraphic(surveyFilePath, "Edit");
+
+                header = "Edit a survey";
+                buttonName = "Edit";
+            }
+            else
+            {
+                header = "Add a predefined survey";
+                buttonName = "Add";
+            }
+        }
+        appState.OnPolygonUpdated += UpdateCoordinateFields;
+    }
+
+    private async void UpdateCoordinateFields(List<List<double>> polygonInfo, string type)
+    {
+        if(polygonInfo != null)
+        {
+            double[][] coordinatesArray = polygonInfo.Select(list => list.ToArray()).ToArray();
+            // Convert double[][] to JSON format
+            string jsonString = JsonSerializer.Serialize(coordinatesArray);
+
+            // Display the JSON string in the text field
+            coordinateString = jsonString;
+            geometryType = type;
+            StateHasChanged();
+        }
+        else
+        {
+            coordinateString = string.Empty;
+            type = null;
+            StateHasChanged();
+        }
+    }
+
+    private double[][] ValidateAndParseCoordinateString(string coordinateString)
+    {
+        coordinateString = coordinateString.Trim();
+
+        // Remove all spaces from the coordinate string
+        coordinateString = coordinateString.Replace(" ", "").Replace("\n", "").Replace("\r", "");
+
+        if (!coordinateString.StartsWith("[[") || !coordinateString.EndsWith("]]"))
+        {
+            return null;
+        }
+        string innerString = coordinateString.Substring(2, coordinateString.Length - 4);
+
+        string[] coordinatePairs = innerString.Split(new string[] { "],[" }, StringSplitOptions.RemoveEmptyEntries);
+
+        List<double[]> parsedCoordinates = new List<double[]>();
+
+        foreach (string pair in coordinatePairs)
+        {
+            // Split each pair by ','
+            string[] coordinates = pair.Split(',');
+
+            // Parse each coordinate and add it to the array
+            double[] coordinatePair = new double[coordinates.Length];
+            for (int i = 0; i < coordinates.Length; i++)
+            {
+                if (double.TryParse(coordinates[i], out double value))
+                {
+                    coordinatePair[i] = value;
+                }
+                else
+                {
+                    // If any coordinate cannot be parsed, return null indicating validation failure
+                    return null;
+                }
+            }
+
+            // Add the coordinate pair to the list of parsed coordinates
+            parsedCoordinates.Add(coordinatePair);
+        }
+
+        // Convert the list of arrays to a double[][]
+        return parsedCoordinates.ToArray();
+
+    }
+
+    public async void buttonClicked()
+    {
+        await form.Validate();
+
+        if (form.IsValid)
+        {
+            double[][] returnedCoordinates = ValidateAndParseCoordinateString(coordinateString);
+            if (returnedCoordinates == null)
+            {
+                await App.Current.MainPage.DisplayAlert("Alert", "Invalid format. Please ensure the coordinates are provided in the format [[long1,lat1],[long2,lat2],..].", "OK");
+                return;
+            }
+            coordinates = returnedCoordinates;
+
+            string sanitizedSurveyId = SanitizeSurveyId(surveyId);
+
+            if (!string.IsNullOrEmpty(analyserCfg) && !Path.Exists(analyserCfg))
+            {
+                Snackbar.Add("The analyser cfg file could not be found. Please check it again.", Severity.Error);
+                return;
+            }
+
+            //copy this acquisition cfg file in the folder for ROMDAS
+            if (!string.IsNullOrEmpty(acquisitionCfg))
+            {
+                var surveyFileDirectory = Path.GetDirectoryName(surveyFilePath);
+                //check if the file exists
+                if (Path.IsPathRooted(acquisitionCfg))
+                {
+                    if (File.Exists(acquisitionCfg))
+                    {
+                        try
+                        {
+                            string cfgFile = Path.GetFileName(acquisitionCfg);
+                            // Combine with the target surveyPath to create the destination path
+                            string destinationPath = Path.Combine(surveyFileDirectory, cfgFile);
+                            File.Copy(acquisitionCfg, destinationPath, true);
+                        }
+                        catch (Exception ex)
+                        {
+                            await App.Current.MainPage.DisplayAlert("Error", $"Failed to copy the file {acquisitionCfg}: {ex.Message}. This file won't be included in the folder.", "OK");
+                        }
+                    }
+                    else
+                    {
+                        Snackbar.Add("The acquisition cfg file could not be found. Please check it again.", Severity.Error);
+                        return;
+                    }
+                }
+                else
+                {
+                    var FileInDirectory = Path.Combine(surveyFileDirectory, acquisitionCfg);
+                    if (!File.Exists(FileInDirectory))
+                    {
+                        //File not exists in the folder
+                        Snackbar.Add("The acquisition cfg file not found in the folder. Please reselect the cfg file.");
+                        return;
+                    }
+                }
+               
+            }
+
+            GeoJsonProperties properties = new GeoJsonProperties
+                {
+                    surveyId = surveyId,
+                    surveyDescription = this.surveyDescription,
+                    surveyInstruction = this.surveyInstruction != null ? this.surveyInstruction : string.Empty,
+                    startChainage = this.startChainage,
+                    direction = this.direction,
+                    lane = this.lane,
+                    gpsAutoStart = this.gpsAutoStart ? 1 : 0,
+                    gpsAutoStartType = this.gpsAutoStart ? this.gpsAutoStartType : 0,
+                    modules = this.selectedModules.ToList(),
+                    analyserCfgFile = string.IsNullOrEmpty(this.analyserCfg) ? null : Path.GetFileName(this.analyserCfg),
+                    acquisitionCfgFile = string.IsNullOrEmpty(this.acquisitionCfg) ? null : Path.GetFileName(this.acquisitionCfg),
+                    Status = this.selectedStatus,
+
+                    //Not from Dataview
+                    operatorName = string.Empty,
+                    vehicleId = string.Empty,
+                    vehicleOdoCalibration = 0.0,
+                    completedDate = string.Empty,
+                    userDefinedFields = new string[0][]
+                };
+
+            bool isCancelled = false;
+
+            if (File.Exists(surveyFilePath))
+            {
+                //edit into the csv
+                GeoJsonObjectCSV geoJsonObjectCSV = new GeoJsonObjectCSV
+                    {
+                        surveyId = properties.surveyId,
+                        surveyDescription = properties.surveyDescription,
+                        surveyInstruction = properties.surveyInstruction,
+                        startChainage = properties.startChainage,
+                        direction = properties.direction,
+                        lane = properties.lane,
+                        gpsAutoStart = properties.gpsAutoStart,
+                        gpsAutoStartType = properties.gpsAutoStartType,
+                        modules = JsonSerializer.Serialize(properties.modules),
+                        analyserCfgFile = properties.analyserCfgFile,
+                        acquisitionCfgFile = properties.acquisitionCfgFile,
+                        operatorName = properties.operatorName,
+                        vehicleId = properties.vehicleId,
+                        vehicleOdoCalibration = properties.vehicleOdoCalibration,
+                        completedDate = properties.completedDate,
+                        userDefinedFields = JsonSerializer.Serialize(properties.userDefinedFields),
+                        type = geometryType,
+                        coordinates = JsonSerializer.Serialize(coordinates),
+                        Status  = properties.Status
+                    };
+
+                if (buttonName == "Add")
+                {
+                    geoJsonObjectCSV.surveyId = geoJsonObjectCSV.surveyId + $"_{DateTime.UtcNow.ToString("yyMMddHHmmfff")}" + (geoJsonObjectCSV.direction == 1 ? "_Inc" : "_Dec");
+                    AddEditSurveyInCsv(surveyFilePath, geoJsonObjectCSV);
+                }
+                else
+                {
+                    AddEditSurveyInCsv(surveyFilePath, geoJsonObjectCSV);
+                }
+            }
+
+            if (!isCancelled)
+            {
+                appState.ChangeSurveySetPage("SurveyList", null);
+                Dispose();
+                StateHasChanged();
+            }
+        }
+    }
+
+    public void AddEditSurveyInCsv(string filePath, GeoJsonObjectCSV geoJsonObjectCSV)
+    {
+        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                HasHeaderRecord = true,
+                MissingFieldFound = null,
+                HeaderValidated = null
+            };
+
+        // Step 1: Read all records
+        List<GeoJsonObjectCSV> csvData = null;
+        try
+        {
+            using (var reader = new StreamReader(filePath))
+            using (var csv = new CsvReader(reader, config))
+            {
+                csvData = csv.GetRecords<GeoJsonObjectCSV>().ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (ex.HResult == -2147024864) //this is the exception due to being used by another process
+            {
+                Snackbar.Add("The CSV file is currently being used by another process. Please check if it is open and try again.", Severity.Error);
+            }
+            else
+            {
+                // Handle other IOExceptions
+                Snackbar.Add("An error occurred while accessing the file: " + ex.Message, Severity.Error);
+            }
+        }
+
+        if (csvData != null)
+        {
+            // Step 2: Find and modify or add the row
+            int index = csvData.FindIndex(c => c.surveyId == geoJsonObjectCSV.surveyId);
+            if (index != -1)
+            {
+                csvData[index] = geoJsonObjectCSV;
+            }
+            else
+            {
+                csvData.Add(geoJsonObjectCSV);
+            }
+
+            // Step 3: Rewrite the file
+            using (var writer = new StreamWriter(filePath, false)) // overwrite
+            using (var csv = new CsvWriter(writer, config))
+            {
+                csv.WriteHeader<GeoJsonObjectCSV>();
+                csv.NextRecord();
+                foreach (var data in csvData)
+                {
+                    csv.WriteRecord(data);
+                    csv.NextRecord();
+                }
+            }
+        }
+        else
+        {
+            Snackbar.Add("No data found in the csv.", Severity.Error);
+        }
+    }
+
+    string SanitizeSurveyId(string surveyId)
+    {
+        // Define a regular expression pattern to match invalid characters
+        string pattern = "[\\/:*?\"<>|]";
+
+        // Replace invalid characters with underscores
+        return Regex.Replace(surveyId, pattern, "_");
+    }
+
+    private void UpdateProperties(GeoJsonProperties properties, double[][] coordinate, string geometryType)
+    {
+        surveyId = properties.surveyId;
+        surveyDescription = properties.surveyDescription;
+        surveyInstruction = properties.surveyInstruction;
+        startChainage = properties.startChainage;
+        direction = properties.direction;
+        lane = properties.lane;
+        gpsAutoStart = properties.gpsAutoStart == 1 ? true : false;
+        selectedModules = properties.modules;
+        analyserCfg = properties.analyserCfgFile;
+        acquisitionCfg = properties.acquisitionCfgFile;
+        selectedStatus = properties.Status;
+
+        //Convert double[][] to List<List<double>>
+        var coordinateList = new List<List<double>>();
+        foreach(var array in coordinate)
+        {
+            List<double> innerList = new List<double>(array);
+            coordinateList.Add(innerList);
+        }
+        UpdateCoordinateFields(coordinateList, geometryType);
+
+        StateHasChanged();
+    }
+
+    private async void SelectAcquisitionCfg()
+    {
+        var customFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.iOS, new[] { "public.data", "public.text", ".cfg" } },
+            { DevicePlatform.Android, new[] { "application/octet-stream", ".cfg" } },
+            { DevicePlatform.WinUI, new[] { ".cfg" } },
+            { DevicePlatform.macOS, new[] { "public.data", "public.text", ".cfg" } }
+        });
+
+        var result = await FilePicker.PickAsync(new PickOptions
+        {
+            PickerTitle = "Please select a config file",
+            FileTypes = customFileType,
+        });
+
+        if(result != null)
+        {
+            acquisitionCfg = result.FullPath;
+        }
+        StateHasChanged();
+    }
+
+    private async void SelectAnalyserCfg()
+    {
+        var customFileType = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+        {
+            { DevicePlatform.iOS, new[] { "public.data", "public.text", ".cfg" } },
+            { DevicePlatform.Android, new[] { "application/octet-stream", ".cfg" } },
+            { DevicePlatform.WinUI, new[] { ".cfg" } },
+            { DevicePlatform.macOS, new[] { "public.data", "public.text", ".cfg" } }
+        });
+
+        var result = await FilePicker.PickAsync(new PickOptions
+            {
+                PickerTitle = "Please select a config file",
+                FileTypes = customFileType,
+            });
+
+        if (result != null)
+        {
+            analyserCfg = result.FullPath;
+        }
+        StateHasChanged();
+    }
+
+    private void Cancel()
+    {
+        appState.ChangeSurveySetPage("SurveyList", null);
+        Dispose();
+        StateHasChanged();
+    }
+
+    private void Dispose()
+    {
+        appState.OnPolygonUpdated -= UpdateCoordinateFields;
+    }
+}
+

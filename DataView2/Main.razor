@@ -1,0 +1,31 @@
+﻿@using System.ComponentModel;
+@using DataView2.Engines;
+@using DataView2.States;
+
+@inject ApplicationState AppState
+@inject NavigationManager NavManager
+
+<Router AppAssembly="@typeof(Main).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <p role="alert">Sorry, there's nothing at this address.</p>
+        </LayoutView>
+    </NotFound>
+</Router>
+
+@code{
+    protected override void OnInitialized()
+    {
+       AppState.ActivePageChanged += ActivePageChanged;
+    }
+
+    private void ActivePageChanged(string page)
+    {
+        NavManager.NavigateTo(page);
+        StateHasChanged();
+    }
+}

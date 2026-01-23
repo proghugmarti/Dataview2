@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\Romdas\**" />
+    <EmbeddedResource Remove="Models\Romdas\**" />
+    <None Remove="Models\Romdas\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Helper\ConverterExtensions.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Protos\ExportDataService.proto" />
+	  <None Remove="Protos\surveyprocessing.proto" />
+	  <None Remove="Records\Contracts\SurveyRecords.proto" />
+  </ItemGroup>
+
+	<ItemGroup>		
+		<PackageReference Include="Esri.ArcGISRuntime" Version="200.6.0" />		
+		<PackageReference Include="Google.Protobuf" Version="3.29.2" />
+		<PackageReference Include="Grpc.Tools" Version="2.68.1">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+		<PackageReference Include="MIConvexHull" Version="1.1.19.1019" />
+		<PackageReference Include="Microsoft.Data.Sqlite.Core" Version="9.0.0" />
+		<PackageReference Include="NetTopologySuite.CoordinateSystems" Version="1.15.3" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+		<PackageReference Include="ProjNet" Version="2.0.0" />
+		<PackageReference Include="protobuf-net.Grpc" Version="1.2.2" />
+		<PackageReference Include="Serilog" Version="4.2.0" />
+		<PackageReference Include="SharpGIS.NmeaParser" Version="3.0.0" />
+		<PackageReference Include="System.Management" Version="8.0.0" />
+	</ItemGroup>
+
+
+	<ItemGroup>
+    <Protobuf Include="Protos\ExportDataService.proto" GrpcServices="Client" />
+    <Protobuf Include="Records\Contracts\SurveyRecords.proto" GrpcServices="Client" />
+	<Protobuf Include="Protos\surveyprocessing.proto" GrpcServices="Client" />
+	<Protobuf Include="Protos\GenerateReportService.proto" GrpcServices="Client" />
+  </ItemGroup>
+
+</Project>

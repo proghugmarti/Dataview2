@@ -1,0 +1,111 @@
+﻿@using static DataView2.Pages.LCMSData.ImportData
+<MudDialog>
+    <DialogContent>
+        <!-- Select All Checkbox -->
+        <MudCheckBox T="bool" Value="@selectAll" ValueChanged="HandleSelectAll" Label="Select All" Size="Size.Small"/>
+        <MudPaper MaxHeight="380px" Class="overflow-auto p-2" Outlined="true">
+            <MudTreeView Items="@Folders" Dense="true">
+                <ItemTemplate>
+                    <MudTreeViewItem @bind-Expanded="@context.Value.IsExpanded" Items="@context.Children" Value="@context.Value">
+                        <Content>
+                            <MudTreeViewItemToggleButton @bind-Expanded="@context.Value.IsExpanded" Visible="@context.Value.HasChild" />
+                            @if (@context.Value.IsRelevant)
+                            {
+                                <MudCheckBox Value="@context.Value.IsSelected" T="bool" ValueChanged="@((e) => OnCheckboxChanged(e, context.Value))" />
+                            }
+                            <MudIcon Icon="@Icons.Material.Filled.Folder" Class="ml-0 mr-2" Color="@Color.Primary" />
+                            <MudText>@context.Value.Name</MudText>
+                        </Content>
+                    </MudTreeViewItem>
+                    @*   <MudTreeViewItem @bind-Expanded="@context.IsExpanded" Items="@context.SubFolders" Value="@context"
+                    Icon="@Icons.Material.Filled.Folder" IconColor="Color.Primary" Text="@context.Name" /> *@
+                </ItemTemplate>
+            </MudTreeView>
+        </MudPaper>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit" Disabled="@(!selectedFolders.Any())">Ok</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance MudDialog { get; set; }
+    [Parameter]
+    public IReadOnlyCollection<TreeItemData<Folder>> Folders { get; set; } = Array.Empty<TreeItemData<Folder>>();
+    private HashSet<Folder> selectedFolders = new HashSet<Folder>();
+    private bool selectAll = false;
+
+    private void HandleSelectAll(bool isChecked)
+    {
+        selectAll = isChecked;
+
+        foreach (var folder in Folders)
+        {
+            SetSelectionRecursive(folder, isChecked);
+        }
+        StateHasChanged();
+    }
+
+    private void SetSelectionRecursive(TreeItemData<Folder> treeItem, bool isChecked)
+    {
+        if(treeItem.Value.IsRelevant)
+        {
+            treeItem.Value.IsSelected = isChecked;
+            selectedFolders.Add(treeItem.Value);
+        }
+
+        foreach (var child in treeItem.Children)
+        {
+            SetSelectionRecursive(child, isChecked);
+        }
+    }
+    private void OnCheckboxChanged(bool value, Folder folder)
+    {
+        if (value)
+        {
+            folder.IsSelected = true;
+            selectedFolders.Add(folder);
+        }
+        else
+        {
+            folder.IsSelected = false;
+            selectedFolders.Remove(folder);
+        }
+
+        selectAll = AreAllRelevatnFoldersSelected();
+    }
+
+    private bool AreAllRelevatnFoldersSelected()
+    {
+        foreach (var folder in Folders)
+        {
+            if (!IsRelevantFolderSelected(folder))
+                return false;
+        }
+        return true;
+    }
+
+    private bool IsRelevantFolderSelected(TreeItemData<Folder> treeItem)
+    {
+        if (treeItem.Value.IsRelevant && !treeItem.Value.IsSelected)
+            return false;
+
+        foreach (var child in treeItem.Children)
+        {
+            if (!IsRelevantFolderSelected(child))
+                return false;
+        }
+
+        return true;
+    }
+    void Submit()
+    {
+        var selectedPath = selectedFolders.Select(folder => folder.Path).ToList();
+        MudDialog.Close(DialogResult.Ok(selectedPath));
+    }
+    private void Cancel()
+    {
+        MudDialog.Close(DialogResult.Cancel());
+    }
+}
