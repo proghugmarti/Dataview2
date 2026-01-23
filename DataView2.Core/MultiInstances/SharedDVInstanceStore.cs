@@ -19,6 +19,12 @@ namespace DataView2.Core.MultiInstances
         private static readonly string FILE_PATH =
             Path.Combine("C:\\DataView2\\Logs", "DV_Instances.json");
 
+        // -----------------------------
+        // Inter-process synchronization
+        // -----------------------------
+        private static readonly Mutex GlobalMutex =
+            new Mutex(false, @"Global\DV2_SHARED_INSTANCE_MUTEX");
+
         private static readonly object fileLock = new();
 
         private static string CurrentProcessId => Process.GetCurrentProcess().Id.ToString();
@@ -69,7 +75,7 @@ namespace DataView2.Core.MultiInstances
             lock (fileLock)
             {
                 NormalizeWSFields(currentInstance);
-                
+
                 var data = Read();
 
                 // Check if there is already a MainSession (excluding this PID)
@@ -129,11 +135,7 @@ namespace DataView2.Core.MultiInstances
                     $"[DV MultiSession] Instance written | PID={CurrentProcessId}, Survey={currentInstance.IdSurvey}, Main={currentInstance.MainSession}");
             }
         }
-        private static void NormalizeWSFields(DVInstanceInfo instance)
-        {
-            instance.WSProcPort ??= string.Empty;
-            instance.WSProcStatus ??= string.Empty;
-        }
+
 
         // -----------------------------
         // Register or update instance
@@ -141,88 +143,97 @@ namespace DataView2.Core.MultiInstances
         public static bool TryRegisterInstance(string surveyExternalId, string projectPath, out string errorMessage)
         {
             errorMessage = string.Empty;
-            string nameProject = string.Empty;
-            if (!string.IsNullOrWhiteSpace(projectPath))
-                nameProject = System.IO.Path.GetFileNameWithoutExtension(projectPath);
-
-            // =====================================================
-            // RULE 0: If this is the ONLY running DataView2 process,
-            // memory is the source of truth.
-            // Rebuild the file completely and force MainSession=true
-            // =====================================================
-            if (CheckIfOnlyInstance())
+            GlobalMutex.WaitOne();
+            try
             {
-                lock (fileLock)
+                string nameProject = string.Empty;
+                if (!string.IsNullOrWhiteSpace(projectPath))
+                    nameProject = System.IO.Path.GetFileNameWithoutExtension(projectPath);
+
+                // =====================================================
+                // RULE 0: If this is the ONLY running DataView2 process,
+                // memory is the source of truth.
+                // Rebuild the file completely and force MainSession=true
+                // =====================================================
+                if (CheckIfOnlyInstance())
                 {
-                    var cleanData = new Dictionary<string, DVInstanceInfo>
+                    lock (fileLock)
                     {
-                        [CurrentProcessId] = new DVInstanceInfo
+                        var cleanData = new Dictionary<string, DVInstanceInfo>
                         {
-                            MainSession = true,
-                            IdSurvey = surveyExternalId,
-                            ProjectPath = projectPath
-                        }
-                    };
+                            [CurrentProcessId] = new DVInstanceInfo
+                            {
+                                MainSession = true,
+                                IdSurvey = surveyExternalId,
+                                ProjectPath = projectPath
+                            }
+                        };
 
-                    var json = JsonSerializer.Serialize(
-                        cleanData,
-                        new JsonSerializerOptions { WriteIndented = true });
+                        var json = JsonSerializer.Serialize(
+                            cleanData,
+                            new JsonSerializerOptions { WriteIndented = true });
 
-                    File.WriteAllText(FILE_PATH, json);
+                        File.WriteAllText(FILE_PATH, json);
 
-                    IsMainSession = true;
+                        IsMainSession = true;
 
-                    Log.Information(
-                        "[DV MultiSession] Single process detected. Storage rebuilt. PID={Pid}, Survey={Survey}",
-                        CurrentProcessId,
-                        surveyExternalId);
+                        Log.Information(
+                            "[DV MultiSession] Single process detected. Storage rebuilt. PID={Pid}, Survey={Survey}",
+                            CurrentProcessId,
+                            surveyExternalId);
+                    }
+
+                    return true;
                 }
 
-                return true;
-            }
+                // =====================================================
+                // RULE 1: More than one process -> file is authoritative
+                // =====================================================
+                var data = Read();
 
-            // =====================================================
-            // RULE 1: More than one process -> file is authoritative
-            // =====================================================
-            var data = Read();
+                bool mainExists = data.Any(kvp => kvp.Value.MainSession);
 
-            bool mainExists = data.Any(kvp => kvp.Value.MainSession);
-
-            // =====================================================
-            // RULE 2: Survey uniqueness
-            // Only secondaries are restricted
-            // =====================================================
-            if (mainExists)
-            {
-                foreach (var kvp in data)
+                // =====================================================
+                // RULE 2: Survey uniqueness
+                // Only secondaries are restricted
+                // =====================================================
+                if (mainExists)
                 {
-                    if (kvp.Value.IdSurvey == surveyExternalId &&
-            !string.IsNullOrEmpty(kvp.Value.ProjectPath) &&
-            kvp.Value.ProjectPath == projectPath)
+                    foreach (var kvp in data)
                     {
-                        errorMessage =
-                            $"Survey '{surveyExternalId}' of project '{nameProject}' is already in use by another DV instance (PID {kvp.Key}).";
-                        return false;
+                        if (kvp.Value.IdSurvey == surveyExternalId &&
+                !string.IsNullOrEmpty(kvp.Value.ProjectPath) &&
+                kvp.Value.ProjectPath == projectPath)
+                        {
+                            errorMessage =
+                                $"Survey '{surveyExternalId}' of project '{nameProject}' is already in use by another DV instance (PID {kvp.Key}).";
+                            return false;
+                        }
                     }
                 }
+
+                // =====================================================
+                // RULE 3: Decide role
+                // - If no Main exists -> become Main
+                // - If Main exists -> become Secondary
+                // =====================================================
+                IsMainSession = !mainExists;
+
+                var currentInstance = new DVInstanceInfo
+                {
+                    MainSession = IsMainSession,
+                    IdSurvey = surveyExternalId,
+                    ProjectPath = projectPath
+                };
+
+                Write(currentInstance);
+                return true;
+
             }
-
-            // =====================================================
-            // RULE 3: Decide role
-            // - If no Main exists -> become Main
-            // - If Main exists -> become Secondary
-            // =====================================================
-            IsMainSession = !mainExists;
-
-            var currentInstance = new DVInstanceInfo
+            finally
             {
-                MainSession = IsMainSession,
-                IdSurvey = surveyExternalId,
-                ProjectPath = projectPath
-            };
-
-            Write(currentInstance);
-            return true;
+                GlobalMutex.ReleaseMutex();
+            }
         }
 
 
@@ -232,17 +243,25 @@ namespace DataView2.Core.MultiInstances
         // -----------------------------
         public static void RemoveCurrentInstance()
         {
-            lock (fileLock)
+            GlobalMutex.WaitOne();
+            try
             {
-                var data = Read();
-                string pid = CurrentProcessId;
-
-                if (data.Remove(pid))
+                lock (fileLock)
                 {
-                    var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
-                    File.WriteAllText(FILE_PATH, json);
-                    Log.Information($"[DV MultiSession] Removed PID={pid} from shared storage.");
+                    var data = Read();
+                    string pid = CurrentProcessId;
+
+                    if (data.Remove(pid))
+                    {
+                        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText(FILE_PATH, json);
+                        Log.Information($"[DV MultiSession] Removed PID={pid} from shared storage.");
+                    }
                 }
+            }
+            finally
+            {
+                GlobalMutex.ReleaseMutex();
             }
         }
 
@@ -253,26 +272,39 @@ namespace DataView2.Core.MultiInstances
         {
             if (string.IsNullOrWhiteSpace(projectPath))
                 return false;
-
-            var data = Read();
-
-            foreach (var kvp in data)
+            GlobalMutex.WaitOne();
+            try
             {
-                // Ignore current process
-                if (kvp.Key == CurrentProcessId)
-                    continue;
+                var data = Read();
 
-                if (string.Equals(
-                        kvp.Value.ProjectPath,
-                        projectPath,
-                        StringComparison.OrdinalIgnoreCase))
+                foreach (var kvp in data)
                 {
-                    return true;
-                }
-            }
+                    // Ignore current process
+                    if (kvp.Key == CurrentProcessId)
+                        continue;
 
-            return false;
+                    if (string.Equals(
+                            kvp.Value.ProjectPath,
+                            projectPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            finally
+            {
+                GlobalMutex.ReleaseMutex();
+            }
         }
+
+        private static void NormalizeWSFields(DVInstanceInfo instance)
+        {
+            instance.WSProcPort ??= string.Empty;
+            instance.WSProcStatus ??= string.Empty;
+        }       
 
         // -----------------------------
         // Check if this is the only DataView process in memory
